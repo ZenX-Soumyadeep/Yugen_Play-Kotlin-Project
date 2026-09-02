@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Basic Networking -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Required for Media3 to keep downloading when screen is off -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Android 13+ Notification Permission -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Android 14+ (API 34) Strict Foreground Service Permissions -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"
+        tools:ignore="ForegroundServicesPolicy" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- Required for the Cast Proxy lifeline -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
+    <application
+        android:name=".YugenApplication"
+        android:usesCleartextTraffic="true"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        tools:ignore="PictureInPicture"
+        android:theme="@style/Theme.App.Starting">
+
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="com.zenx.yugen.play.util.CastOptionsProvider" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.YugenPlay"
+            android:windowSoftInputMode="adjustResize"
+            android:supportsPictureInPicture="true"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Deep Link Interceptor for AniList Login -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="yugenplay" android:host="auth" />
+            </intent-filter>
+        </activity>
+
+        <!-- Android 14+ Media3 Video Download Service -->
+        <service
+            android:name=".service.VideoDownloadService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:foregroundServiceType="dataSync">
+            <intent-filter>
+                <action android:name="androidx.media3.exoplayer.downloadService.action.RESTART" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
+
+        <!-- Android 14+ Google Cast Proxy Anchor -->
+        <service
+            android:name=".service.CastProxyService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+    </application>
+</manifest>

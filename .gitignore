@@ -1,0 +1,27 @@
+# Android & Gradle
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Secrets & Keystores
+*.jks
+*.keystore
+google-services.json
+secrets.properties
+
+# Custom Redactions (Protecting Provider/Scraper Logic)
+# Adjust the path below to match exactly where your sensitive files live
+**/data/remote/providers/Anikoto*.kt
+**/data/remote/providers/SecretScraper*.kt
