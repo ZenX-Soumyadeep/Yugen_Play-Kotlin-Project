@@ -25,7 +25,8 @@ sealed interface ProfileUiState {
 
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
-    private val authPreferences: AuthPreferences
+    private val authPreferences: AuthPreferences,
+    private val anilistService: AnilistService
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<ProfileUiState>(ProfileUiState.Loading)
@@ -47,7 +48,7 @@ class ProfileViewModel @Inject constructor(
                 return@launch
             }
 
-            val user = AnilistService.getAuthenticatedUser(token)
+            val user = anilistService.getAuthenticatedUser(token)
             if (user == null) {
                 _uiState.value = ProfileUiState.Error("Failed to fetch user data. Check connection.")
                 return@launch
@@ -58,8 +59,7 @@ class ProfileViewModel @Inject constructor(
                 authPreferences.saveAuth(token, user.id, user.name, user.avatar)
             }
 
-            // <-- FIX: PASS THE TOKEN HERE -->
-            val lists = AnilistService.getUserAnimeList(userId, token)
+            val lists = anilistService.getUserAnimeList(userId, token)
 
             _uiState.value = ProfileUiState.Success(user, lists)
         }

@@ -10,16 +10,16 @@ import javax.inject.Inject
 
 @HiltViewModel
 class AuthViewModel @Inject constructor(
-    val authPreferences: AuthPreferences
+    val authPreferences: AuthPreferences,
+    private val anilistService: AnilistService
 ) : ViewModel() {
 
     val authState = authPreferences.authState
 
     fun handleLoginToken(token: String) {
         viewModelScope.launch {
-            val user = AnilistService.getAuthenticatedUser(token)
+            val user = anilistService.getAuthenticatedUser(token)
             if (user != null) {
-                // Pass user.id here so we can fetch their lists later
                 authPreferences.saveAuth(token, user.id, user.name, user.avatar)
             }
         }

@@ -6,7 +6,8 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Singleton
 
 data class ExternalEpisodeMeta(
     val number: Int,
@@ -15,14 +16,12 @@ data class ExternalEpisodeMeta(
     val image: String
 )
 
-object EpisodeMetadataService {
-    private const val TAG = "EpisodeMetadataService"
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .build()
+private const val TAG = "EpisodeMetadataService"
 
-    // Fetches rich episode metadata (Thumbnails, Titles, Descriptions) via Consumet
+@Singleton
+class EpisodeMetadataService @Inject constructor(
+    private val okHttpClient: OkHttpClient
+) {
     suspend fun getMetadata(anilistId: Int): Map<Int, ExternalEpisodeMeta> = withContext(Dispatchers.IO) {
         val result = mutableMapOf<Int, ExternalEpisodeMeta>()
         try {
@@ -30,10 +29,12 @@ object EpisodeMetadataService {
                 .url("https://api-consumet.vercel.app/meta/anilist/info/$anilistId")
                 .build()
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: return@withContext result
+            val body = okHttpClient.newCall(request).await().use { response ->
+                if (!response.isSuccessful) return@withContext result
+                response.body?.string().orEmpty()
+            }
 
-            if (!response.isSuccessful || body.isBlank()) return@withContext result
+            if (body.isBlank()) return@withContext result
 
             val json = JSONObject(body)
             val episodesArray = json.optJSONArray("episodes") ?: return@withContext result

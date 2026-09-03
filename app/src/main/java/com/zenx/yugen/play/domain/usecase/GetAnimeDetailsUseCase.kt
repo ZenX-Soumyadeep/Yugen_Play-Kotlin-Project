@@ -6,12 +6,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
-class GetAnimeDetailsUseCase @Inject constructor() {
+class GetAnimeDetailsUseCase @Inject constructor(
+    private val anilistService: AnilistService
+) {
 
-    // --- NEW: Bulletproof ID Lookup ---
     suspend operator fun invoke(id: Int): AnimeDetails? {
         return withContext(Dispatchers.IO) {
-            val details = AnilistService.getAnimeDetailsById(id)
+            val details = anilistService.getAnimeDetailsById(id)
             details?.copy(
                 description = sanitizeDescription(details.description)
             )
@@ -20,7 +21,7 @@ class GetAnimeDetailsUseCase @Inject constructor() {
 
     suspend operator fun invoke(title: String): AnimeDetails? {
         return withContext(Dispatchers.IO) {
-            val details = AnilistService.getAnimeDetails(title)
+            val details = anilistService.getAnimeDetails(title)
             details?.copy(
                 description = sanitizeDescription(details.description)
             )

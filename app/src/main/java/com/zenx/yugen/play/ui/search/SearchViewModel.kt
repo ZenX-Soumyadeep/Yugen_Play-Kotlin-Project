@@ -28,7 +28,8 @@ sealed interface SearchUiState {
 
 @HiltViewModel
 class SearchViewModel @Inject constructor(
-    @ApplicationContext context: Context
+    @ApplicationContext context: Context,
+    private val anilistService: AnilistService
 ) : ViewModel() {
 
     private val prefs = context.getSharedPreferences("yugen_search_history", Context.MODE_PRIVATE)
@@ -36,7 +37,6 @@ class SearchViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    // --- Advanced Filter States ---
     private val _selectedGenres = MutableStateFlow<Set<String>>(emptySet())
     val selectedGenres: StateFlow<Set<String>> = _selectedGenres.asStateFlow()
 
@@ -58,7 +58,6 @@ class SearchViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<SearchUiState>(SearchUiState.Idle)
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
-    // --- Static Filter Data ---
     val anilistGenres = listOf(
         "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy",
         "Horror", "Mahou Shoujo", "Mecha", "Music", "Mystery",
@@ -132,7 +131,6 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    // --- Filter Toggles ---
     fun toggleGenre(genre: String) {
         val current = _selectedGenres.value.toMutableSet()
         if (current.contains(genre)) current.remove(genre) else current.add(genre)
@@ -150,7 +148,7 @@ class SearchViewModel @Inject constructor(
             "FORMAT" -> setFormat(null)
             "SEASON" -> setSeason(null)
             "YEAR" -> setYear(null)
-            "SORT" -> setSort(null) // Reset to null instead of hardcoded string
+            "SORT" -> setSort(null)
         }
         executeSearch()
     }
@@ -160,7 +158,7 @@ class SearchViewModel @Inject constructor(
         _selectedFormat.value = null
         _selectedSeason.value = null
         _selectedYear.value = null
-        _selectedSort.value = null // Turns off the glow
+        _selectedSort.value = null
         executeSearch()
     }
 
@@ -179,7 +177,6 @@ class SearchViewModel @Inject constructor(
         return count
     }
 
-    // 3. Silently inject the required fallback into the API call
     fun executeSearch(query: String? = null) {
         val targetQuery = (query ?: _searchQuery.value).trim()
 
@@ -196,13 +193,13 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = SearchUiState.Loading
             try {
-                val results = AnilistService.searchAnime(
+                val results = anilistService.searchAnime(
                     query = targetQuery.ifBlank { null },
                     genres = _selectedGenres.value.toList().ifEmpty { null },
                     format = _selectedFormat.value,
                     season = _selectedSeason.value,
                     year = _selectedYear.value,
-                    sort = _selectedSort.value ?: "TRENDING_DESC" // Fallback happens here, invisibly
+                    sort = _selectedSort.value ?: "TRENDING_DESC"
                 )
                 _uiState.value = SearchUiState.Success(results)
             } catch (e: Exception) {

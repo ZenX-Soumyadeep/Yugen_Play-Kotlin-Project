@@ -11,6 +11,8 @@ import androidx.media3.exoplayer.offline.DownloadService
 import com.zenx.yugen.play.service.DownloadTracker
 import com.zenx.yugen.play.service.VideoDownloadService
 import com.zenx.yugen.play.ui.detail.DownloadState
+import com.zenx.yugen.play.ui.detail.STOP_REASON_USER_PAUSED
+import com.zenx.yugen.play.ui.detail.mapExoDownloadState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.SharingStarted
@@ -43,7 +45,7 @@ class DownloadsViewModel @Inject constructor(
     val downloadsFlow = downloadTracker.downloads.map { downloadMap ->
         downloadMap.values.map { download ->
             val metadataStr = String(download.request.data, Charsets.UTF_8)
-            val json = try { JSONObject(metadataStr) } catch (e: Exception) { JSONObject() }
+            val json = try { JSONObject(metadataStr) } catch (_: Exception) { JSONObject() }
             val currentSpeed = downloadTracker.getDownloadSpeed(download.request.id)
 
             DownloadUiModel(
@@ -69,18 +71,8 @@ class DownloadsViewModel @Inject constructor(
         list.sumOf { it.downloadedBytes.coerceAtLeast(0L) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
-    private fun mapExoDownloadState(state: Int): DownloadState {
-        return when (state) {
-            Download.STATE_COMPLETED -> DownloadState.COMPLETED
-            Download.STATE_DOWNLOADING, Download.STATE_QUEUED -> DownloadState.DOWNLOADING
-            Download.STATE_STOPPED -> DownloadState.PAUSED
-            Download.STATE_FAILED -> DownloadState.FAILED
-            else -> DownloadState.NONE
-        }
-    }
-
     fun pauseDownload(id: String) {
-        DownloadService.sendSetStopReason(context, VideoDownloadService::class.java, id, Download.STOP_REASON_NONE + 1, false)
+        DownloadService.sendSetStopReason(context, VideoDownloadService::class.java, id, STOP_REASON_USER_PAUSED, false)
     }
 
     fun resumeDownload(id: String) {
@@ -88,7 +80,6 @@ class DownloadsViewModel @Inject constructor(
     }
 
     fun retryDownload(id: String) {
-        // Reset any terminal failure flag and resume immediately
         DownloadService.sendSetStopReason(context, VideoDownloadService::class.java, id, Download.STOP_REASON_NONE, false)
     }
 

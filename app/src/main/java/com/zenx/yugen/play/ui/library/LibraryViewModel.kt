@@ -43,10 +43,13 @@ data class OfflineEpisode(
 class LibraryViewModel @Inject constructor(
     private val favoriteDao: FavoriteDao,
     private val watchHistoryDao: WatchHistoryDao,
-    val authPreferences: AuthPreferences, // <-- FIX #19: Properly encapsulated as private
+    private val authPreferences: AuthPreferences,
     private val downloadManager: DownloadManager,
+    private val anilistService: AnilistService,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+
+    val authState = authPreferences.authState
 
     val favorites: StateFlow<List<FavoriteEntity>> = favoriteDao.getAllFavorites()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -103,12 +106,11 @@ class LibraryViewModel @Inject constructor(
         fetchDownloads()
     }
 
-    // --- FIX #13: Safe Loading State reset on Exception ---
     private fun fetchAnilistData(userId: Int, token: String) {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val data = AnilistService.getUserAnimeList(userId, token)
+                val data = anilistService.getUserAnimeList(userId, token)
                 val cleanData = data.mapValues { (_, entries) -> entries.distinctBy { it.mediaId } }
                 _anilistData.value = cleanData
             } catch (e: Exception) {
@@ -153,7 +155,7 @@ class LibraryViewModel @Inject constructor(
         val userId = authPreferences.authState.value.userId ?: return
         viewModelScope.launch {
             _isLoading.value = true
-            val success = AnilistService.deleteMediaListEntry(token, entryId)
+            val success = anilistService.deleteMediaListEntry(token, entryId)
             if (success) {
                 fetchAnilistData(userId, token)
             } else {

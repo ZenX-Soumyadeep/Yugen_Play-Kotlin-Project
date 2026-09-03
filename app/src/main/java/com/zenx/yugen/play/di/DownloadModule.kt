@@ -23,6 +23,7 @@ import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import java.io.File
+import java.io.IOException
 import java.net.CookieHandler
 import java.net.CookieManager
 import java.net.CookiePolicy
@@ -79,7 +80,6 @@ object DownloadModule {
         val downloadOkHttpClient = globalOkHttpClient.newBuilder()
             .dispatcher(Dispatcher().apply {
                 maxRequests = 12
-                // FIX 1: Throttle max concurrent connections to the same CDN to avoid the 429 firewall
                 maxRequestsPerHost = 3
             })
             .connectionPool(ConnectionPool(10, 2, TimeUnit.MINUTES))
@@ -88,7 +88,6 @@ object DownloadModule {
             .retryOnConnectionFailure(true)
             .addInterceptor { chain ->
                 val request = chain.request()
-                // FIX 2: Raise the stealth floor to 125ms (~8 chunks per sec total). 35ms was too aggressive.
                 val minDelayMs = 125L
 
                 var sleepTime = 0L
@@ -103,17 +102,28 @@ object DownloadModule {
                 }
 
                 if (sleepTime > 0L) {
-                    Thread.sleep(sleepTime)
+                    try {
+                        Thread.sleep(sleepTime.coerceIn(0L, 5000L))
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        throw IOException("Download request cancelled during pace delay", e)
+                    }
                 }
 
                 var response = chain.proceed(request)
                 var tryCount = 0
 
-                // Adaptive backoff on HTTP 429 or 503
                 while ((response.code == 429 || response.code == 503) && tryCount < 3) {
                     tryCount++
+                    val retryAfterSeconds = response.header("Retry-After")?.toLongOrNull() ?: (2L * tryCount)
+                    val backoffMs = (retryAfterSeconds * 1000L).coerceIn(1000L, 5000L)
                     response.close()
-                    Thread.sleep(1500L * tryCount) // Slightly longer backoff penalty
+                    try {
+                        Thread.sleep(backoffMs)
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        throw IOException("Download request cancelled during backoff delay", e)
+                    }
                     response = chain.proceed(request)
                 }
 
@@ -159,7 +169,6 @@ object DownloadModule {
                 .build()
         }
 
-        // FIX 3: Reduce the IO thread pool from 6 to 4 to match the 3-host OkHttp limit
         val downloadExecutor = Executors.newFixedThreadPool(4)
 
         val manager = DownloadManager(

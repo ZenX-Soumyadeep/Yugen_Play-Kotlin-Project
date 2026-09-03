@@ -1,5 +1,6 @@
 package com.zenx.yugen.play.service
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -24,33 +25,18 @@ class CastProxyService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
+        createNotificationChannel()
+
+        if (intent == null) {
+            startForegroundServiceNotification("Reconnecting Cast relay...")
+            CastProxy.start("https://megaplay.buzz/")
+            return START_STICKY
+        }
+
+        when (intent.action) {
             ACTION_START -> {
                 val referer = intent.getStringExtra(EXTRA_REFERER) ?: "https://megaplay.buzz/"
-                createNotificationChannel()
-
-                // Clicking the notification brings the user back to the player
-                val notificationIntent = Intent(this, MainActivity::class.java)
-                val pendingIntent = PendingIntent.getActivity(
-                    this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE
-                )
-
-                val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-                    .setContentTitle("Casting to TV")
-                    .setContentText("Bypassing CDN firewalls in the background...")
-                    .setSmallIcon(android.R.drawable.ic_menu_share) // Fallback icon
-                    .setContentIntent(pendingIntent)
-                    .setOngoing(true)
-                    .build()
-
-                // Android 14+ requires explicit foreground service types
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
-                } else {
-                    startForeground(NOTIFICATION_ID, notification)
-                }
-
-                // Boot the actual server on the service's lifecycle
+                startForegroundServiceNotification("Bypassing CDN firewalls in the background...")
                 CastProxy.start(referer)
             }
             ACTION_STOP -> {
@@ -58,8 +44,32 @@ class CastProxyService : Service() {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
+            else -> {
+                startForegroundServiceNotification("Cast Proxy is active")
+            }
         }
         return START_STICKY
+    }
+
+    private fun startForegroundServiceNotification(contentText: String) {
+        val notificationIntent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Casting to TV")
+            .setContentText(contentText)
+            .setSmallIcon(android.R.drawable.ic_menu_share)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
     override fun onDestroy() {

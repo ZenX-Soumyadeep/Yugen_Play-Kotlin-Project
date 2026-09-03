@@ -5,10 +5,11 @@ import com.zenx.yugen.play.domain.AiringAnimeItem
 import com.zenx.yugen.play.domain.AniListEpisode
 import com.zenx.yugen.play.domain.AnimeCardItem
 import com.zenx.yugen.play.domain.AnimeDetails
-import com.zenx.yugen.play.domain.AnilistUser
 import com.zenx.yugen.play.domain.AnilistListEntry
+import com.zenx.yugen.play.domain.AnilistUser
 import com.zenx.yugen.play.domain.UserListEntry
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
@@ -21,11 +22,13 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
+internal suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
     continuation.invokeOnCancellation { cancel() }
     enqueue(object : Callback {
         override fun onResponse(call: Call, response: Response) {
@@ -39,32 +42,40 @@ private suspend fun Call.await(): Response = suspendCancellableCoroutine { conti
     })
 }
 
-object AnilistService {
-    private const val TAG = "AnilistService"
+private const val TAG = "AnilistService"
+private const val GRAPHQL_URL = "https://graphql.anilist.co"
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
-        .addInterceptor { chain ->
-            val request = chain.request()
-            var response = chain.proceed(request)
-            var tryCount = 0
+@Singleton
+class AnilistService @Inject constructor(
+    private val okHttpClient: OkHttpClient
+) {
+    private data class CacheEntry<T>(val data: T, val timestamp: Long)
+    private val detailsCache = ConcurrentHashMap<String, CacheEntry<AnimeDetails>>()
+    private val cacheTtlMs = 15 * 60 * 1000L // 15 minutes TTL
 
-            // The thread sleep here is acceptable because OkHttp interceptors are synchronous,
-            // and this entire client is wrapped in withContext(Dispatchers.IO) downstream.
-            while (response.code == 429 && tryCount < 3) {
-                val retryAfter = response.header("Retry-After")?.toLongOrNull() ?: (2L * (tryCount + 1))
-                response.close()
-                Thread.sleep(retryAfter * 1000L)
-                response = chain.proceed(request)
+    private suspend fun executeWithRetry(request: Request): Response? {
+        var tryCount = 0
+        while (tryCount < 3) {
+            try {
+                val response = okHttpClient.newCall(request).await()
+                if (response.code == 429) {
+                    tryCount++
+                    val retryAfterSeconds = response.header("Retry-After")?.toLongOrNull() ?: (2L * tryCount)
+                    val delayMs = (retryAfterSeconds * 1000L).coerceIn(1000L, 10000L)
+                    response.close()
+                    delay(delayMs)
+                    continue
+                }
+                return response
+            } catch (e: Exception) {
                 tryCount++
+                if (tryCount >= 3) throw e
+                delay(1000L * tryCount)
             }
-            response
         }
-        .build()
+        return null
+    }
 
-    // --- FIX: Universal Advanced GraphQL Query ---
     suspend fun searchAnime(
         query: String? = null,
         genres: List<String>? = null,
@@ -75,8 +86,6 @@ object AnilistService {
         page: Int = 1,
         perPage: Int = 30
     ): List<AnimeCardItem> = withContext(Dispatchers.IO) {
-
-        // A single universal query. Optional variables not provided in the JSON are ignored by AniList.
         val gqlQuery = """
             query (
                 ${'$'}page: Int, 
@@ -103,6 +112,7 @@ object AnilistService {
                         id 
                         title { english romaji } 
                         coverImage { extraLarge large } 
+                        averageScore
                     } 
                 } 
             }
@@ -116,7 +126,6 @@ object AnilistService {
             if (!season.isNullOrBlank()) put("season", season)
             if (year != null) put("seasonYear", year)
 
-            // AniList expects arrays for Genres and Sort constraints
             if (!genres.isNullOrEmpty()) {
                 val genresArray = JSONArray()
                 genres.forEach { genresArray.put(it) }
@@ -133,14 +142,15 @@ object AnilistService {
         }
 
         val request = Request.Builder()
-            .url("https://graphql.anilist.co")
+            .url(GRAPHQL_URL)
             .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         try {
-            val bodyString = client.newCall(request).await().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
-                response.body?.string().orEmpty()
+            val response = executeWithRetry(request) ?: return@withContext emptyList()
+            val bodyString = response.use { res ->
+                if (!res.isSuccessful) return@withContext emptyList()
+                res.body?.string().orEmpty()
             }
 
             if (bodyString.isBlank()) return@withContext emptyList()
@@ -159,11 +169,14 @@ object AnilistService {
                 val poster = item.optJSONObject("coverImage")?.optString("extraLarge")?.takeIf { it.isNotBlank() }
                     ?: item.optJSONObject("coverImage")?.optString("large").orEmpty()
 
+                val score = item.optInt("averageScore", 0).takeIf { it > 0 }
+
                 list.add(
                     AnimeCardItem(
                         id = item.optString("id"),
                         title = title,
-                        posterUrl = poster
+                        posterUrl = poster,
+                        averageScore = score
                     )
                 )
             }
@@ -175,6 +188,12 @@ object AnilistService {
     }
 
     suspend fun getAnimeDetailsById(id: Int): AnimeDetails? = withContext(Dispatchers.IO) {
+        val cacheKey = "id_$id"
+        val cached = detailsCache[cacheKey]
+        if (cached != null && (System.currentTimeMillis() - cached.timestamp < cacheTtlMs)) {
+            return@withContext cached.data
+        }
+
         val query = """
             query (${'$'}id: Int) {
                 Media(id: ${'$'}id, type: ANIME) {
@@ -197,14 +216,15 @@ object AnilistService {
         }
 
         val request = Request.Builder()
-            .url("https://graphql.anilist.co")
+            .url(GRAPHQL_URL)
             .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         try {
-            val bodyString = client.newCall(request).await().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                response.body?.string().orEmpty()
+            val response = executeWithRetry(request) ?: return@withContext null
+            val bodyString = response.use { res ->
+                if (!res.isSuccessful) return@withContext null
+                res.body?.string().orEmpty()
             }
 
             if (bodyString.isBlank()) return@withContext null
@@ -212,15 +232,24 @@ object AnilistService {
             if (jsonResponse.has("errors")) return@withContext null
 
             val media = jsonResponse.optJSONObject("data")?.optJSONObject("Media") ?: return@withContext null
-            return@withContext parseMediaNodeToAnimeDetails(media)
+            val details = parseMediaNodeToAnimeDetails(media)
+            detailsCache[cacheKey] = CacheEntry(details, System.currentTimeMillis())
+            return@withContext details
         } catch (e: Exception) {
             return@withContext null
         }
     }
 
     suspend fun getAnimeDetails(title: String): AnimeDetails? = withContext(Dispatchers.IO) {
+        val cacheKey = "title_${title.trim().lowercase()}"
+        val cached = detailsCache[cacheKey]
+        if (cached != null && (System.currentTimeMillis() - cached.timestamp < cacheTtlMs)) {
+            return@withContext cached.data
+        }
+
         val directResult = executeFuzzyDetailsQuery(title)
         if (directResult != null && directResult.idMal != null) {
+            detailsCache[cacheKey] = CacheEntry(directResult, System.currentTimeMillis())
             return@withContext directResult
         }
 
@@ -232,9 +261,15 @@ object AnilistService {
 
         if (cleanedTitle.isNotBlank() && !cleanedTitle.equals(title, ignoreCase = true)) {
             val cleanedResult = executeFuzzyDetailsQuery(cleanedTitle)
-            if (cleanedResult != null) return@withContext cleanedResult
+            if (cleanedResult != null) {
+                detailsCache[cacheKey] = CacheEntry(cleanedResult, System.currentTimeMillis())
+                return@withContext cleanedResult
+            }
         }
 
+        if (directResult != null) {
+            detailsCache[cacheKey] = CacheEntry(directResult, System.currentTimeMillis())
+        }
         return@withContext directResult
     }
 
@@ -263,14 +298,15 @@ object AnilistService {
         }
 
         val request = Request.Builder()
-            .url("https://graphql.anilist.co")
+            .url(GRAPHQL_URL)
             .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         try {
-            val bodyString = client.newCall(request).await().use { response ->
-                if (!response.isSuccessful) return null
-                response.body?.string().orEmpty()
+            val response = executeWithRetry(request) ?: return null
+            val bodyString = response.use { res ->
+                if (!res.isSuccessful) return null
+                res.body?.string().orEmpty()
             }
 
             if (bodyString.isBlank()) return null
@@ -343,42 +379,54 @@ object AnilistService {
     }
 
     suspend fun getPopularAnime(): List<AnimeCardItem> = withContext(Dispatchers.IO) {
-        val query = """query { Page(page: 1, perPage: 20) { media(type: ANIME, sort: POPULARITY_DESC, countryOfOrigin: "JP", isAdult: false) { id title { english romaji } coverImage { large } } } }"""
+        val query = """query { Page(page: 1, perPage: 20) { media(type: ANIME, sort: POPULARITY_DESC, countryOfOrigin: "JP", isAdult: false) { id title { english romaji } coverImage { large } averageScore } } }"""
         val jsonPayload = JSONObject().apply { put("query", query) }
 
         val request = Request.Builder()
-            .url("https://graphql.anilist.co")
+            .url(GRAPHQL_URL)
             .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        val bodyString = client.newCall(request).await().use { response ->
-            if (!response.isSuccessful) throw Exception("Failed to fetch popular anime from AniList.")
-            response.body?.string().orEmpty()
-        }
+        try {
+            val response = executeWithRetry(request) ?: return@withContext emptyList()
+            val bodyString = response.use { res ->
+                if (!res.isSuccessful) {
+                    Log.e(TAG, "Popular anime request rejected with code: ${res.code}")
+                    return@withContext emptyList()
+                }
+                res.body?.string().orEmpty()
+            }
 
-        if (bodyString.isBlank()) return@withContext emptyList()
+            if (bodyString.isBlank()) return@withContext emptyList()
 
-        val jsonResponse = JSONObject(bodyString)
-        val mediaArray = jsonResponse.optJSONObject("data")
-            ?.optJSONObject("Page")
-            ?.optJSONArray("media") ?: return@withContext emptyList()
+            val jsonResponse = JSONObject(bodyString)
+            val mediaArray = jsonResponse.optJSONObject("data")
+                ?.optJSONObject("Page")
+                ?.optJSONArray("media") ?: return@withContext emptyList()
 
-        val list = mutableListOf<AnimeCardItem>()
-        for (i in 0 until mediaArray.length()) {
-            val item = mediaArray.getJSONObject(i)
-            val titleObj = item.optJSONObject("title")
-            val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
-                ?: titleObj?.optString("romaji").orEmpty()
+            val list = mutableListOf<AnimeCardItem>()
+            for (i in 0 until mediaArray.length()) {
+                val item = mediaArray.getJSONObject(i)
+                val titleObj = item.optJSONObject("title")
+                val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: titleObj?.optString("romaji").orEmpty()
 
-            list.add(
-                AnimeCardItem(
-                    id = item.optString("id"),
-                    title = title,
-                    posterUrl = item.optJSONObject("coverImage")?.optString("large").orEmpty()
+                val score = item.optInt("averageScore", 0).takeIf { it > 0 }
+
+                list.add(
+                    AnimeCardItem(
+                        id = item.optString("id"),
+                        title = title,
+                        posterUrl = item.optJSONObject("coverImage")?.optString("large").orEmpty(),
+                        averageScore = score
+                    )
                 )
-            )
+            }
+            return@withContext list
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching popular anime", e)
+            return@withContext emptyList()
         }
-        return@withContext list
     }
 
     suspend fun getAiringSchedule(startTime: Long, endTime: Long): List<AiringAnimeItem> = withContext(Dispatchers.IO) {
@@ -412,48 +460,54 @@ object AnilistService {
         }
 
         val request = Request.Builder()
-            .url("https://graphql.anilist.co")
+            .url(GRAPHQL_URL)
             .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        val bodyString = client.newCall(request).await().use { response ->
-            if (!response.isSuccessful) return@withContext emptyList()
-            response.body?.string().orEmpty()
-        }
+        try {
+            val response = executeWithRetry(request) ?: return@withContext emptyList()
+            val bodyString = response.use { res ->
+                if (!res.isSuccessful) return@withContext emptyList()
+                res.body?.string().orEmpty()
+            }
 
-        if (bodyString.isBlank()) return@withContext emptyList()
+            if (bodyString.isBlank()) return@withContext emptyList()
 
-        val jsonResponse = JSONObject(bodyString)
-        val scheduleArray = jsonResponse.optJSONObject("data")
-            ?.optJSONObject("Page")
-            ?.optJSONArray("airingSchedules") ?: return@withContext emptyList()
+            val jsonResponse = JSONObject(bodyString)
+            val scheduleArray = jsonResponse.optJSONObject("data")
+                ?.optJSONObject("Page")
+                ?.optJSONArray("airingSchedules") ?: return@withContext emptyList()
 
-        val list = mutableListOf<AiringAnimeItem>()
-        for (i in 0 until scheduleArray.length()) {
-            val item = scheduleArray.getJSONObject(i)
-            val media = item.optJSONObject("media") ?: continue
+            val list = mutableListOf<AiringAnimeItem>()
+            for (i in 0 until scheduleArray.length()) {
+                val item = scheduleArray.getJSONObject(i)
+                val media = item.optJSONObject("media") ?: continue
 
-            val country = media.optString("countryOfOrigin", "")
-            val isAdult = media.optBoolean("isAdult", false)
+                val country = media.optString("countryOfOrigin", "")
+                val isAdult = media.optBoolean("isAdult", false)
 
-            if (country != "JP" || isAdult) continue
+                if (country != "JP" || isAdult) continue
 
-            val titleObj = media.optJSONObject("title")
-            val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
-                ?: titleObj?.optString("romaji").orEmpty()
+                val titleObj = media.optJSONObject("title")
+                val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: titleObj?.optString("romaji").orEmpty()
 
-            list.add(
-                AiringAnimeItem(
-                    id = media.optString("id"),
-                    title = title,
-                    posterUrl = media.optJSONObject("coverImage")?.optString("large").orEmpty(),
-                    episode = item.optInt("episode", 1),
-                    airingAt = item.optLong("airingAt", 0L),
-                    popularity = media.optInt("popularity", 0)
+                list.add(
+                    AiringAnimeItem(
+                        id = media.optString("id"),
+                        title = title,
+                        posterUrl = media.optJSONObject("coverImage")?.optString("large").orEmpty(),
+                        episode = item.optInt("episode", 1),
+                        airingAt = item.optLong("airingAt", 0L),
+                        popularity = media.optInt("popularity", 0)
+                    )
                 )
-            )
+            }
+            return@withContext list
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch airing schedule", e)
+            return@withContext emptyList()
         }
-        return@withContext list
     }
 
     suspend fun getAuthenticatedUser(token: String): AnilistUser? = withContext(Dispatchers.IO) {
@@ -468,15 +522,16 @@ object AnilistService {
 
         val jsonPayload = JSONObject().apply { put("query", query) }
         val request = Request.Builder()
-            .url("https://graphql.anilist.co")
+            .url(GRAPHQL_URL)
             .addHeader("Authorization", "Bearer $token")
             .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         try {
-            val bodyString = client.newCall(request).await().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                response.body?.string()
+            val response = executeWithRetry(request) ?: return@withContext null
+            val bodyString = response.use { res ->
+                if (!res.isSuccessful) return@withContext null
+                res.body?.string()
             } ?: return@withContext null
 
             val json = JSONObject(bodyString)
@@ -522,7 +577,7 @@ object AnilistService {
         }
 
         val request = Request.Builder()
-            .url("https://graphql.anilist.co")
+            .url(GRAPHQL_URL)
             .addHeader("Authorization", "Bearer $token")
             .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
             .build()
@@ -530,12 +585,13 @@ object AnilistService {
         val result = mutableMapOf<String, MutableList<AnilistListEntry>>()
 
         try {
-            val bodyString = client.newCall(request).await().use { response ->
-                if (!response.isSuccessful) {
-                    Log.e(TAG, "AniList API Rejected the request: ${response.body?.string()}")
+            val response = executeWithRetry(request) ?: return@withContext emptyMap()
+            val bodyString = response.use { res ->
+                if (!res.isSuccessful) {
+                    Log.e(TAG, "AniList API Rejected the request: ${res.body?.string()}")
                     return@withContext emptyMap()
                 }
-                response.body?.string()
+                res.body?.string()
             } ?: return@withContext emptyMap()
 
             val json = JSONObject(bodyString)
@@ -560,7 +616,7 @@ object AnilistService {
                         "PAUSED" -> "Paused"
                         "DROPPED" -> "Dropped"
                         "PLANNING" -> "Planning"
-                        else -> "Watching"
+                        else -> "Other"
                     }
 
                     val titleObj = media.optJSONObject("title")
@@ -607,13 +663,14 @@ object AnilistService {
         }
 
         val request = Request.Builder()
-            .url("https://graphql.anilist.co")
+            .url(GRAPHQL_URL)
             .addHeader("Authorization", "Bearer $token")
             .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         try {
-            return@withContext client.newCall(request).await().use { it.isSuccessful }
+            val response = executeWithRetry(request) ?: return@withContext false
+            return@withContext response.use { it.isSuccessful }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update progress", e)
             return@withContext false
@@ -634,15 +691,16 @@ object AnilistService {
         }
 
         val request = Request.Builder()
-            .url("https://graphql.anilist.co")
+            .url(GRAPHQL_URL)
             .addHeader("Authorization", "Bearer $token")
             .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         try {
-            val bodyString = client.newCall(request).await().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                response.body?.string()
+            val response = executeWithRetry(request) ?: return@withContext null
+            val bodyString = response.use { res ->
+                if (!res.isSuccessful) return@withContext null
+                res.body?.string()
             } ?: return@withContext null
 
             val json = JSONObject(bodyString)
@@ -678,15 +736,16 @@ object AnilistService {
         }
 
         val request = Request.Builder()
-            .url("https://graphql.anilist.co")
+            .url(GRAPHQL_URL)
             .addHeader("Authorization", "Bearer $token")
             .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         try {
-            val bodyString = client.newCall(request).await().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                response.body?.string()
+            val response = executeWithRetry(request) ?: return@withContext null
+            val bodyString = response.use { res ->
+                if (!res.isSuccessful) return@withContext null
+                res.body?.string()
             } ?: return@withContext null
 
             val json = JSONObject(bodyString)
@@ -719,13 +778,14 @@ object AnilistService {
         }
 
         val request = Request.Builder()
-            .url("https://graphql.anilist.co")
+            .url(GRAPHQL_URL)
             .addHeader("Authorization", "Bearer $token")
             .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         try {
-            return@withContext client.newCall(request).await().use { it.isSuccessful }
+            val response = executeWithRetry(request) ?: return@withContext false
+            return@withContext response.use { it.isSuccessful }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to delete media list entry", e)
             return@withContext false

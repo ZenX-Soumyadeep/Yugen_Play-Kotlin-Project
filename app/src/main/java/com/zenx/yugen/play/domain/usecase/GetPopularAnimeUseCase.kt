@@ -7,11 +7,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
-class GetPopularAnimeUseCase @Inject constructor() {
+class GetPopularAnimeUseCase @Inject constructor(
+    private val anilistService: AnilistService
+) {
     suspend operator fun invoke(): Resource<List<AnimeCardItem>> {
         return withContext(Dispatchers.IO) {
             try {
-                val list = AnilistService.getPopularAnime()
+                val list = anilistService.getPopularAnime()
                 if (list.isNotEmpty()) {
                     Resource.Success(list)
                 } else {

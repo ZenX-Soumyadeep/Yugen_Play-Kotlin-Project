@@ -1,13 +1,13 @@
 package com.zenx.yugen.play.ui.player
 
-import androidx.annotation.OptIn
-import androidx.media3.common.util.UnstableApi
 import android.app.PictureInPictureParams
 import android.content.pm.ActivityInfo
+import android.os.Build
 import android.util.Rational
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -23,6 +23,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -33,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,6 +51,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
@@ -114,13 +119,15 @@ fun PlayerScreen(
     }
 
     val enterPip: () -> Unit = {
-        val params = PictureInPictureParams.Builder()
-            .setAspectRatio(Rational(16, 9))
-            .build()
-        activity?.enterPictureInPictureMode(params)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(16, 9))
+                .build()
+            activity?.enterPictureInPictureMode(params)
+        }
     }
 
-    BackHandler(enabled = true) {
+    BackHandler(enabled = !isInPipMode) {
         if (isLocked) {
             showControls = true
         } else {
@@ -130,10 +137,6 @@ fun PlayerScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-
-        DisposableEffect(viewModel.player) {
-            onDispose { /* Cleanup handled in ViewModel */ }
-        }
 
         AndroidView(
             factory = { ctx ->
@@ -189,10 +192,43 @@ fun PlayerScreen(
                 CircularProgressIndicator(color = Color(0xFF8B5CF6), modifier = Modifier.align(Alignment.Center))
             }
             is PlayerUiState.Error -> {
-                Text(text = state.message, color = Color.Red, modifier = Modifier.align(Alignment.Center).padding(24.dp))
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = state.message,
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(
+                            onClick = onBackClick,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.15f)),
+                            shape = RoundedCornerShape(100.dp)
+                        ) {
+                            Text("Go Back", color = Color.White)
+                        }
+
+                        Button(
+                            onClick = { viewModel.retryPlayback() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
+                            shape = RoundedCornerShape(100.dp)
+                        ) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Retry", color = Color.White)
+                        }
+                    }
+                }
             }
             is PlayerUiState.Ready -> {
-
                 LaunchedEffect(showControls, state.isPlaying, isLocked, isInPipMode) {
                     if (showControls && state.isPlaying && !isLocked && !isInPipMode) {
                         delay(4000L.milliseconds)
@@ -317,7 +353,7 @@ private fun AutoPlayOverlay(
                 Column(modifier = Modifier.widthIn(max = 200.dp)) {
                     Text("Up Next in ${countdown}s", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text("Episode ${nextEpisode.number.toInt()}: ${nextEpisode.title}", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("Episode ${nextEpisode.formattedNumber}: ${nextEpisode.title}", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(

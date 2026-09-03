@@ -9,9 +9,10 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity // BROUGHT BACK
+import android.util.Log
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -26,10 +27,10 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,20 +51,23 @@ import com.zenx.yugen.play.data.remote.AnilistService
 import com.zenx.yugen.play.ui.MainScreen
 import com.zenx.yugen.play.ui.theme.YugenPlayTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class MainActivity : AppCompatActivity() { // MUST BE AppCompatActivity for Google Cast
+class MainActivity : AppCompatActivity() {
 
     @Inject
     lateinit var authPreferences: AuthPreferences
 
+    @Inject
+    lateinit var anilistService: AnilistService
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
-        // Silently handle. If granted, download notifications will show.
-    }
+    ) { _: Boolean -> }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -71,20 +75,17 @@ class MainActivity : AppCompatActivity() { // MUST BE AppCompatActivity for Goog
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // 1. Install Splash Screen BEFORE super.onCreate()
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
 
         handleAuthIntent(intent)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        // 2. Keep the splash screen visible until Compose is ready
         var keepSplashOpen by mutableStateOf(true)
         splashScreen.setKeepOnScreenCondition { keepSplashOpen }
 
         setContent {
             YugenPlayTheme {
-                // 3. Dismiss splash and ask for permissions once UI mounts
                 LaunchedEffect(Unit) {
                     keepSplashOpen = false
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -98,7 +99,12 @@ class MainActivity : AppCompatActivity() { // MUST BE AppCompatActivity for Goog
                     val isFullscreen = WindowInsets.statusBars.getTop(LocalDensity.current) == 0
 
                     if (!isFullscreen) {
-                        Box(modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().zIndex(1f)) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .statusBarsPadding()
+                                .zIndex(1f)
+                        ) {
                             GlobalNetworkBanner(context = LocalContext.current)
                         }
                     }
@@ -112,16 +118,27 @@ class MainActivity : AppCompatActivity() { // MUST BE AppCompatActivity for Goog
         if (uri != null && uri.scheme == "yugenplay" && uri.host == "auth") {
             val fragment = uri.fragment
             if (fragment != null) {
-                val params = fragment.split("&").associate {
-                    val parts = it.split("=")
-                    parts[0] to if (parts.size > 1) parts[1] else ""
-                }
+                val params = fragment.split("&").mapNotNull { entry ->
+                    val eqIdx = entry.indexOf('=')
+                    if (eqIdx != -1) {
+                        val key = entry.substring(0, eqIdx)
+                        val value = entry.substring(eqIdx + 1)
+                        key to value
+                    } else {
+                        null
+                    }
+                }.toMap()
+
                 val token = params["access_token"]
                 if (token != null) {
                     lifecycleScope.launch {
-                        val user = AnilistService.getAuthenticatedUser(token)
-                        if (user != null) {
-                            authPreferences.saveAuth(token, user.id, user.name, user.avatar)
+                        try {
+                            val user = anilistService.getAuthenticatedUser(token)
+                            if (user != null) {
+                                authPreferences.saveAuth(token, user.id, user.name, user.avatar)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("MainActivity", "Failed to retrieve authenticated user", e)
                         }
                     }
                 }
@@ -132,26 +149,33 @@ class MainActivity : AppCompatActivity() { // MUST BE AppCompatActivity for Goog
 
 @Composable
 fun GlobalNetworkBanner(context: Context) {
-    var isConnected by remember { mutableStateOf(true) }
+    val connectivityManager = remember(context) {
+        context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    }
+    val initialConnected = remember(connectivityManager) {
+        val activeNet = connectivityManager.activeNetwork
+        val caps = connectivityManager.getNetworkCapabilities(activeNet)
+        caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+    }
 
-    DisposableEffect(context) {
-        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val isConnected by produceState(initialValue = initialConnected, context) {
+        callbackFlow {
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) { trySend(true) }
+                override fun onLost(network: Network) { trySend(false) }
+            }
 
-        val activeNetwork = connectivityManager.activeNetwork
-        val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
-        isConnected = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            val activeNetwork = connectivityManager.activeNetwork
+            val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
+            trySend(capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true)
 
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) { isConnected = true }
-            override fun onLost(network: Network) { isConnected = false }
-        }
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
 
-        connectivityManager.registerNetworkCallback(request, callback)
-
-        onDispose { connectivityManager.unregisterNetworkCallback(callback) }
+            connectivityManager.registerNetworkCallback(request, callback)
+            awaitClose { connectivityManager.unregisterNetworkCallback(callback) }
+        }.collect { value = it }
     }
 
     AnimatedVisibility(

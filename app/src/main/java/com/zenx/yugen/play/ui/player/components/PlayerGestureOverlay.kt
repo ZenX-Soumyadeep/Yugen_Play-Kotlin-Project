@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -116,7 +117,6 @@ fun PlayerGestureOverlay(
                         accumulatedDx = 0f
                         accumulatedDy = 0f
 
-                        // Snapshot hardware state at the exact moment the drag begins
                         initialSeekPosition = livePositionMs
                         initialVolume = deviceController.currentVolume
                         initialBrightness = deviceController.currentBrightness
@@ -155,13 +155,15 @@ fun PlayerGestureOverlay(
                                 deviceController.currentBrightness = newBright
                                 showHud(HudType.BRIGHTNESS, newBright, "${(newBright * 100).toInt()}%")
                             } else {
-                                val newVolExact = initialVolume + (deltaPercent * deviceController.maxVolume)
-                                val newVolInt = newVolExact.toInt().coerceIn(0, deviceController.maxVolume)
+                                val maxVol = deviceController.maxVolume.toFloat().coerceAtLeast(1f)
+                                val newVolExact = (initialVolume + (deltaPercent * maxVol)).coerceIn(0f, maxVol)
+                                val newVolInt = newVolExact.roundToInt().coerceIn(0, deviceController.maxVolume)
 
                                 deviceController.currentVolume = newVolInt
 
-                                val volumePercent = newVolExact / deviceController.maxVolume
-                                showHud(HudType.VOLUME, volumePercent, "${(volumePercent * 100).toInt()}%")
+                                val volumePercent = (newVolExact / maxVol).coerceIn(0f, 1f)
+                                val percentText = "${(volumePercent * 100).toInt().coerceIn(0, 100)}%"
+                                showHud(HudType.VOLUME, volumePercent, percentText)
                             }
                         } else if (isDragHorizontal) {
                             val secondsPerPixel = 300.0 / size.width

@@ -18,23 +18,32 @@ class AnilistSyncWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val offlineSyncDao: OfflineSyncDao,
-    private val authPreferences: AuthPreferences
+    private val authPreferences: AuthPreferences,
+    private val anilistService: AnilistService
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val token = authPreferences.authState.value.token ?: return@withContext Result.success()
-        val pendingTasks = offlineSyncDao.getAllTasks()
+        val token = authPreferences.authState.value.token
+        if (token == null) {
+            return@withContext Result.retry()
+        }
 
+        val pendingTasks = offlineSyncDao.getAllTasks()
         if (pendingTasks.isEmpty()) return@withContext Result.success()
 
         var allSuccessful = true
 
         for (task in pendingTasks) {
-            val success = AnilistService.updateProgress(token, task.mediaId, task.progress)
-            if (success) {
-                offlineSyncDao.deleteTask(task.id)
-            } else {
-                Log.e("AnilistSyncWorker", "Failed to sync mediaId: ${task.mediaId}")
+            try {
+                val success = anilistService.updateProgress(token, task.mediaId, task.progress)
+                if (success) {
+                    offlineSyncDao.deleteTask(task.id)
+                } else {
+                    Log.e("AnilistSyncWorker", "Failed to sync mediaId: ${task.mediaId}")
+                    allSuccessful = false
+                }
+            } catch (e: Exception) {
+                Log.e("AnilistSyncWorker", "Exception during sync for mediaId: ${task.mediaId}", e)
                 allSuccessful = false
             }
         }

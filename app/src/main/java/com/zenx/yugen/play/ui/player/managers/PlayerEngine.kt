@@ -25,6 +25,9 @@ class PlayerEngine @Inject constructor(
 ) {
     val exoPlayer: ExoPlayer
 
+    @Volatile
+    private var isReleased = false
+
     init {
         val robustLoadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(15_000, 50_000, 1_500, 3_000)
@@ -77,6 +80,8 @@ class PlayerEngine @Inject constructor(
     }
 
     fun release() {
+        if (isReleased) return
+        isReleased = true
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
         exoPlayer.release()

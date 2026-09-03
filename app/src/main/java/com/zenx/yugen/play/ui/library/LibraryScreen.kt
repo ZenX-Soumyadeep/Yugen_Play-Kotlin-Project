@@ -45,7 +45,7 @@ fun LibraryScreen(
 ) {
     val favorites by viewModel.favorites.collectAsStateWithLifecycle()
     val history by viewModel.watchHistory.collectAsStateWithLifecycle()
-    val authState by viewModel.authPreferences.authState.collectAsStateWithLifecycle()
+    val authState by viewModel.authState.collectAsStateWithLifecycle()
     val anilistData by viewModel.anilistData.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
 
@@ -167,8 +167,6 @@ fun LibraryScreen(
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp), modifier = Modifier.fillMaxSize()) {
                         items(history, key = { it.episodeId }) { item ->
-
-                            // FIX: Accurate robust episode number and type extraction
                             val isCloudSync = item.episodeId.startsWith("CLOUD_SYNC_")
                             val cleanEpNum = if (isCloudSync) {
                                 item.episodeId.substringAfterLast("_")
@@ -195,7 +193,6 @@ fun LibraryScreen(
                                         .background(glassBg)
                                         .border(1.dp, glassBorder, RoundedCornerShape(12.dp))
                                         .bounceClick {
-                                            // FIX: Route cloud sync items correctly to DetailScreen instead of crashing the Player
                                             if (isCloudSync) {
                                                 val mediaId = item.episodeId.split("_").getOrNull(2) ?: ""
                                                 onAnimeClick(mediaId, item.animeTitle, item.posterUrl)

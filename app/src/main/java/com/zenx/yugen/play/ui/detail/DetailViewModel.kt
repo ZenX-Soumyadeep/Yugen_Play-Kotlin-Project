@@ -57,9 +57,22 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
+const val STOP_REASON_USER_PAUSED = 1
+
 enum class DownloadState { NONE, DOWNLOADING, COMPLETED, PAUSED, FAILED }
+
+fun mapExoDownloadState(state: Int): DownloadState {
+    return when (state) {
+        Download.STATE_COMPLETED -> DownloadState.COMPLETED
+        Download.STATE_DOWNLOADING, Download.STATE_QUEUED -> DownloadState.DOWNLOADING
+        Download.STATE_STOPPED -> DownloadState.PAUSED
+        Download.STATE_FAILED -> DownloadState.FAILED
+        else -> DownloadState.NONE
+    }
+}
 
 sealed interface IslandState {
     data object Hidden : IslandState
@@ -109,6 +122,8 @@ class DetailViewModel @Inject constructor(
     private val authPreferences: AuthPreferences,
     private val downloadTracker: DownloadTracker,
     private val okHttpClient: OkHttpClient,
+    private val anilistService: AnilistService,
+    private val episodeMetadataService: EpisodeMetadataService,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -164,7 +179,6 @@ class DetailViewModel @Inject constructor(
 
     init { loadMetadata() }
 
-    // --- DYNAMIC ISLAND ENGINE ---
     fun triggerEpisodeAction(episode: EpisodeUiModel, isDownload: Boolean) {
         viewModelScope.launch {
             isDownloadMode = isDownload
@@ -179,16 +193,8 @@ class DetailViewModel @Inject constructor(
                 return@launch
             }
 
-            if (isDownload) {
-                _islandState.value = IslandState.ServerSelection(episode, streams)
-            } else {
-                // CACHE STREAMS SO PLAYER DOESN'T RE-SCRAPE
-                StreamDataCache.set(episode.id, streams)
-
-                _islandState.value = IslandState.Loading("Opening Player...")
-                delay(400)
-                _islandState.value = IslandState.ServerSelection(episode, streams)
-            }
+            StreamDataCache.set(episode.id, streams)
+            _islandState.value = IslandState.ServerSelection(episode, streams)
         }
     }
 
@@ -229,7 +235,6 @@ class DetailViewModel @Inject constructor(
         }
     }
 
-    // --- BOTTOM SHEETS ---
     fun showMappingSheet() { _isMappingSheetVisible.value = true }
     fun hideMappingSheet() { _isMappingSheetVisible.value = false }
     fun showSourceSheet() { _isSourceSheetVisible.value = true }
@@ -241,21 +246,28 @@ class DetailViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = DetailsUiState.Loading
 
-            val details = if (animeId.isNotBlank() && animeId != "null") getAnimeDetailsUseCase(animeId.toInt()) else getAnimeDetailsUseCase(animeTitle)
+            val details = if (animeId.isNotBlank() && animeId != "null") {
+                getAnimeDetailsUseCase(animeId.toInt())
+            } else {
+                getAnimeDetailsUseCase(animeTitle)
+            }
+
             if (details == null) {
                 _uiState.value = DetailsUiState.Error("Failed to load anime details from AniList.")
                 return@launch
             }
 
             animeDetailsFlow.value = details
-            currentMediaId = details.id.toIntOrNull()
+            currentMediaId = details.id.toIntOrNull() ?: animeId.toIntOrNull()
 
             val token = authPreferences.authState.value.token
             if (token != null && currentMediaId != null) {
-                anilistEntryFlow.value = AnilistService.getMediaListEntry(token, currentMediaId!!)
+                anilistEntryFlow.value = anilistService.getMediaListEntry(token, currentMediaId!!)
             }
 
-            if (currentMediaId != null) launch { externalMetaFlow.value = EpisodeMetadataService.getMetadata(currentMediaId!!) }
+            if (currentMediaId != null) {
+                launch { externalMetaFlow.value = episodeMetadataService.getMetadata(currentMediaId!!) }
+            }
 
             loadEpisodes()
             startCollector()
@@ -263,17 +275,24 @@ class DetailViewModel @Inject constructor(
     }
 
     private fun loadEpisodes() {
-        val mediaId = currentMediaId ?: return
+        val mediaId = currentMediaId ?: animeId.toIntOrNull() ?: animeDetailsFlow.value?.id?.toIntOrNull()
         viewModelScope.launch(Dispatchers.IO) {
             isEpisodesLoading.value = true
             episodeError.value = null
             rawEpisodesFlow.value = emptyList()
 
             val provider = _activeProvider.value
-            val mappedUrl = titleMappingRepository.getMappedUrl(mediaId, provider)
+            val mappedUrl = mediaId?.let { titleMappingRepository.getMappedUrl(it, provider) }
             isMappedFlow.value = (mappedUrl != null)
 
-            val result = getEpisodesUseCase(mappedUrl ?: animeTitle, animeTitle, provider)
+            val targetUrl = mappedUrl ?: animeUrl.takeIf { it.startsWith("http") }
+            val result = getEpisodesUseCase(
+                animeUrlOrTitle = targetUrl,
+                title = animeTitle,
+                providerName = provider,
+                anilistId = mediaId
+            )
+
             if (result is Resource.Success) rawEpisodesFlow.value = result.data ?: emptyList()
             else episodeError.value = result.message ?: "Failed to load episodes."
             isEpisodesLoading.value = false
@@ -302,13 +321,21 @@ class DetailViewModel @Inject constructor(
     }
 
     fun saveTitleMapping(mappedUrl: String) {
-        val mediaId = currentMediaId ?: return
-        viewModelScope.launch { titleMappingRepository.saveMapping(mediaId, _activeProvider.value, mappedUrl); hideMappingSheet(); loadEpisodes() }
+        val mediaId = currentMediaId ?: animeId.toIntOrNull() ?: return
+        viewModelScope.launch {
+            titleMappingRepository.saveMapping(mediaId, _activeProvider.value, mappedUrl)
+            hideMappingSheet()
+            loadEpisodes()
+        }
     }
 
     fun clearTitleMapping() {
-        val mediaId = currentMediaId ?: return
-        viewModelScope.launch { titleMappingRepository.deleteMapping(mediaId, _activeProvider.value); hideMappingSheet(); loadEpisodes() }
+        val mediaId = currentMediaId ?: animeId.toIntOrNull() ?: return
+        viewModelScope.launch {
+            titleMappingRepository.deleteMapping(mediaId, _activeProvider.value)
+            hideMappingSheet()
+            loadEpisodes()
+        }
     }
 
     fun changeProvider(providerName: String) {
@@ -320,7 +347,7 @@ class DetailViewModel @Inject constructor(
 
     private fun startCollector() {
         collectorJob?.cancel()
-        collectorJob = viewModelScope.launch(Dispatchers.Default) {
+        collectorJob = viewModelScope.launch {
             val epFlow = combine(rawEpisodesFlow, _activeProvider, isMappedFlow, isEpisodesLoading, episodeError) { eps, provider, mapped, loading, error -> EpisodeData(eps, provider, mapped, loading, error) }.distinctUntilChanged()
             val userFlow = combine(favoriteDao.getAllFavorites(), anilistEntryFlow) { favs, entry -> UserData(favs, entry) }.distinctUntilChanged()
             val pbFlow = combine(watchHistoryDao.getAllHistory(), downloadTracker.downloads, _preparingDownloads) { history, downloadsMap, preparing ->
@@ -348,8 +375,10 @@ class DetailViewModel @Inject constructor(
 
             val baseEpisodeModelsFlow = combine(epFlow, externalMetaFlow, animeDetailsFlow) { epData, extMeta, details ->
                 if (details == null) return@combine emptyList<EpisodeUiModel>()
+                val isMovie = details.format.equals("MOVIE", ignoreCase = true)
+
                 epData.episodes.mapIndexed { index, ep ->
-                    val epNumString = ep.number.toString().removeSuffix(".0")
+                    val epNumString = ep.formattedNumber
                     val epNumInt = ep.number.toInt()
                     val aniListEp = details.streamingEpisodes.find { it.title.contains("Episode $epNumString", ignoreCase = true) || it.title.startsWith("$epNumString -") || it.title.startsWith("$epNumString.") } ?: details.streamingEpisodes.getOrNull(index)
                     val metaData = extMeta[epNumInt]
@@ -357,7 +386,9 @@ class DetailViewModel @Inject constructor(
                     rawTitle = rawTitle.replace(episodePrefixRegex, "").trim()
                     val finalThumbnail = metaData?.image?.takeIf { it.isNotBlank() } ?: aniListEp?.thumbnail?.takeIf { it.isNotBlank() } ?: navPosterUrl
                     val finalDesc = metaData?.description?.takeIf { it.isNotBlank() } ?: "Episode description preview not available."
-                    EpisodeUiModel(id = ep.id, number = epNumString, title = rawTitle, description = finalDesc, thumbnailUrl = finalThumbnail, duration = "24m", watchProgress = 0f, isWatched = false)
+                    val defaultDuration = if (isMovie) "Feature Film" else "24m"
+
+                    EpisodeUiModel(id = ep.id, number = epNumString, title = rawTitle, description = finalDesc, thumbnailUrl = finalThumbnail, duration = defaultDuration, watchProgress = 0f, isWatched = false)
                 }
             }
 
@@ -367,7 +398,7 @@ class DetailViewModel @Inject constructor(
                         val historyRecord = pbData.history.find { it.episodeId == baseEp.id }
                         val progressPercent = if ((historyRecord?.durationMs ?: 0L) > 0L) (historyRecord!!.progressMs.toFloat() / historyRecord.durationMs.toFloat()).coerceIn(0f, 1f) else 0f
                         baseEp.copy(
-                            duration = if ((historyRecord?.durationMs ?: 0L) > 0L) "${historyRecord!!.durationMs / 60000}m" else "24m",
+                            duration = if ((historyRecord?.durationMs ?: 0L) > 0L) "${historyRecord!!.durationMs / 60000}m" else baseEp.duration,
                             watchProgress = progressPercent, isWatched = progressPercent >= 0.85f,
                             downloadState = pbData.dlStates[baseEp.id] ?: DownloadState.NONE, downloadPercent = pbData.dlProgresses[baseEp.id] ?: 0f, isPreparing = pbData.preparing.contains(baseEp.id)
                         )
@@ -387,19 +418,9 @@ class DetailViewModel @Inject constructor(
         }
     }
 
-    private fun mapExoDownloadState(state: Int): DownloadState {
-        return when (state) {
-            Download.STATE_COMPLETED -> DownloadState.COMPLETED
-            Download.STATE_DOWNLOADING, Download.STATE_QUEUED -> DownloadState.DOWNLOADING
-            Download.STATE_STOPPED -> DownloadState.PAUSED
-            Download.STATE_FAILED -> DownloadState.FAILED
-            else -> DownloadState.NONE
-        }
-    }
-
     fun toggleDownloadState(episode: EpisodeUiModel) {
         when (episode.downloadState) {
-            DownloadState.DOWNLOADING -> DownloadService.sendSetStopReason(context, VideoDownloadService::class.java, episode.id, 1, false)
+            DownloadState.DOWNLOADING -> DownloadService.sendSetStopReason(context, VideoDownloadService::class.java, episode.id, STOP_REASON_USER_PAUSED, false)
             DownloadState.PAUSED -> DownloadService.sendSetStopReason(context, VideoDownloadService::class.java, episode.id, Download.STOP_REASON_NONE, false)
             DownloadState.FAILED, DownloadState.NONE -> {}
             else -> {}
@@ -412,12 +433,14 @@ class DetailViewModel @Inject constructor(
                 val requestBuilder = Request.Builder().url(url)
                 headers.forEach { (key, value) -> requestBuilder.addHeader(key, value) }
                 if (!headers.containsKey("User-Agent") && !headers.containsKey("user-agent")) requestBuilder.addHeader("User-Agent", "Mozilla/5.0")
-                val response = okHttpClient.newCall(requestBuilder.build()).execute()
-                if (!response.isSuccessful) return@withContext url
-                val file = File(context.filesDir, "sub_${episodeId.hashCode().toString().replace("-", "N")}_${label.replace(Regex("[^a-zA-Z0-9]"), "")}.vtt")
-                file.writeText(response.body?.string() ?: return@withContext url)
-                "file://${file.absolutePath}"
-            } catch (e: Exception) { url }
+
+                okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+                    if (!response.isSuccessful) return@withContext url
+                    val file = File(context.filesDir, "sub_${episodeId.hashCode().toString().replace("-", "N")}_${label.replace(Regex("[^a-zA-Z0-9]"), "")}.vtt")
+                    file.writeText(response.body?.string() ?: return@withContext url)
+                    "file://${file.absolutePath}"
+                }
+            } catch (_: Exception) { url }
         }
     }
 
@@ -468,36 +491,52 @@ class DetailViewModel @Inject constructor(
     fun updateAnilistStatus(status: String) {
         val token = authPreferences.authState.value.token ?: return
         val mediaId = currentMediaId ?: return
-        viewModelScope.launch { AnilistService.updateMediaListStatus(token, mediaId, status)?.let { anilistEntryFlow.value = it }; hideAnilistSheet() }
+        viewModelScope.launch {
+            val result = anilistService.updateMediaListStatus(token, mediaId, status)
+            if (result != null) {
+                anilistEntryFlow.value = result
+                hideAnilistSheet()
+            } else {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Failed to update AniList status", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
     fun deleteAnilistEntry() {
         val token = authPreferences.authState.value.token ?: return
         val entryId = anilistEntryFlow.value?.id ?: return
-        viewModelScope.launch { if (AnilistService.deleteMediaListEntry(token, entryId)) anilistEntryFlow.value = null; hideAnilistSheet() }
+        viewModelScope.launch {
+            if (anilistService.deleteMediaListEntry(token, entryId)) {
+                anilistEntryFlow.value = null
+                hideAnilistSheet()
+            } else {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Failed to delete AniList entry", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
-    override fun onCleared() { collectorJob?.cancel() }
+    override fun onCleared() {
+        searchJob?.cancel()
+        collectorJob?.cancel()
+    }
 }
 
-// Global cache to pass streams from DetailScreen to PlayerScreen instantly
 object StreamDataCache {
-    private var episodeId: String? = null
-    private var streams: List<VideoStream>? = null
+    private val cache = ConcurrentHashMap<String, List<VideoStream>>()
 
-    fun set(id: String, list: List<VideoStream>) {
-        episodeId = id
-        streams = list
+    fun set(episodeId: String, streams: List<VideoStream>) {
+        cache[episodeId] = streams.toList()
     }
 
-    fun get(id: String): List<VideoStream>? {
-        if (episodeId == id) {
-            val s = streams
-            // Self-cleaning memory drop
-            episodeId = null
-            streams = null
-            return s
-        }
-        return null
+    fun get(episodeId: String): List<VideoStream>? {
+        return cache.remove(episodeId)
+    }
+
+    fun clear() {
+        cache.clear()
     }
 }

@@ -32,9 +32,7 @@ class SettingsViewModel @Inject constructor(
     fun clearWatchHistory(onComplete: () -> Unit) {
         viewModelScope.launch {
             watchHistoryDao.clearAllHistory()
-            withContext(Dispatchers.Main) {
-                onComplete()
-            }
+            onComplete()
         }
     }
 }

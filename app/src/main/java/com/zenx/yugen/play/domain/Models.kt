@@ -1,7 +1,12 @@
 package com.zenx.yugen.play.domain
 
 // --- UI Models ---
-data class AnimeCardItem(val id: String, val title: String, val posterUrl: String)
+data class AnimeCardItem(
+    val id: String,
+    val title: String,
+    val posterUrl: String,
+    val averageScore: Int? = null
+)
 
 data class AiringAnimeItem(
     val id: String,
@@ -42,7 +47,18 @@ data class UserListEntry(
 // --- Scraper Models ---
 data class SearchResult(val title: String, val url: String, val poster: String)
 
-data class Episode(val id: String, val number: Float, val title: String, val thumbnail: String? = null)
+data class Episode(
+    val id: String,
+    val number: Float,
+    val title: String,
+    val thumbnail: String? = null
+) {
+    val numberInt: Int
+        get() = number.toInt()
+
+    val formattedNumber: String
+        get() = if (number % 1f == 0f) number.toInt().toString() else number.toString()
+}
 
 data class VideoStream(
     val quality: String,
@@ -65,7 +81,7 @@ data class Subtitle(
     val isDefault: Boolean = false,
     val isForced: Boolean = false,
     val isSdh: Boolean = false,
-    val format: String = "VTT" // "VTT", "ASS", "SRT"
+    val format: String = "VTT"
 )
 
 // --- Provider Interface ---

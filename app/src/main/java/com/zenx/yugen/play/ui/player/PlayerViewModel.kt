@@ -53,6 +53,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -117,6 +118,8 @@ class PlayerViewModel @Inject constructor(
     private val animeUrl: String = savedStateHandle["animeUrl"] ?: ""
     private val animeTitle: String = checkNotNull(savedStateHandle["title"])
     private val posterUrl: String = savedStateHandle["poster"] ?: ""
+    private val activeProviderName: String = savedStateHandle.get<String>("provider")
+        ?: providerRegistry.getDefaultProvider().name
 
     private var preselectedStreamUrl: String? = savedStateHandle.get<String>("streamUrl")?.takeIf { it.isNotBlank() }
 
@@ -136,6 +139,7 @@ class PlayerViewModel @Inject constructor(
     private var hasSyncedThisEpisodeToCloud = false
     private var currentEpisodeNumberInt = 1
     private var streamRetryCount = 0
+    private var currentStreamIndex = 0
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -175,31 +179,36 @@ class PlayerViewModel @Inject constructor(
         override fun onPlayerError(error: PlaybackException) {
             Log.e(tag, "Playback error: ${error.errorCodeName}", error)
             val state = _uiState.value as? PlayerUiState.Ready ?: run {
-                _uiState.value = PlayerUiState.Error("Playback Error: ${error.errorCodeName}")
+                _uiState.value = PlayerUiState.Error(resolveUserErrorMessage(error))
                 return
             }
 
             val currentPos = getActivePlayer().currentPosition
-            if (state.streams.size > 1 && streamRetryCount < state.streams.size) {
-                streamRetryCount++
-                state.streams.firstOrNull { it.url != state.activeStream?.url }?.let { nextStream ->
-                    showTransientWarning("Stream dropped. Switching server...")
-                    playStream(nextStream, startPositionMs = currentPos)
-                    updateReadyState { it.copy(activeStream = nextStream, skipIntervals = nextStream.skipIntervals, isServerSheetVisible = false) }
-                    return
-                }
-            }
 
             if (streamRetryCount < 2) {
                 streamRetryCount++
-                showTransientWarning("Reconnecting stream...")
-                state.activeStream?.let {
-                    playStream(it, startPositionMs = currentPos)
+                showTransientWarning("Reconnecting stream (Attempt $streamRetryCount/2)...")
+                state.activeStream?.let { playStream(it, startPositionMs = currentPos) }
+                return
+            }
+
+            if (state.streams.size > 1 && currentStreamIndex < state.streams.size - 1) {
+                currentStreamIndex++
+                streamRetryCount = 0
+                val nextStream = state.streams[currentStreamIndex]
+                showTransientWarning("Switching to backup server...")
+                playStream(nextStream, startPositionMs = currentPos)
+                updateReadyState {
+                    it.copy(
+                        activeStream = nextStream,
+                        skipIntervals = nextStream.skipIntervals,
+                        isServerSheetVisible = false
+                    )
                 }
                 return
             }
 
-            _uiState.value = PlayerUiState.Error("Playback Error: ${error.errorCodeName}")
+            _uiState.value = PlayerUiState.Error(resolveUserErrorMessage(error))
         }
     }
 
@@ -210,6 +219,7 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             castSessionManager.initialize(
                 onSessionAvailable = {
+                    cancelAutoPlayCountdown()
                     val currentMs = playerEngine.exoPlayer.currentPosition
                     playerEngine.exoPlayer.pause()
 
@@ -218,24 +228,36 @@ class PlayerViewModel @Inject constructor(
                     val referer = activeStream.headers["Referer"] ?: "https://megaplay.buzz/"
 
                     castSessionManager.startCastProxyService(referer)
-                    val proxiedUrl = CastProxy.getProxyUrl(activeStream.url)
+                    try {
+                        val proxiedUrl = CastProxy.getProxyUrl(activeStream.url)
+                        val subtitleConfigs = buildCastSubtitleConfigs(activeStream.subtitles)
 
-                    val subtitleConfigs = activeStream.subtitles.mapIndexed { index, sub ->
-                        val actualUrl = if (sub.label.startsWith("file://") || sub.label.startsWith("http")) sub.label else sub.url
-                        MediaItem.SubtitleConfiguration.Builder(CastProxy.getProxyUrl(actualUrl).toUri())
-                            .setMimeType(MimeTypes.TEXT_VTT).setLanguage("en-$index")
-                            .setSelectionFlags(if (sub.isDefault) C.SELECTION_FLAG_DEFAULT else 0).build()
+                        val mediaMetadata = MediaMetadata.Builder()
+                            .setTitle(animeTitle)
+                            .setSubtitle(state.episodeTitle)
+                            .setArtworkUri(posterUrl.toUri())
+                            .build()
+
+                        val proxiedMediaItem = MediaItem.Builder()
+                            .setUri(proxiedUrl)
+                            .setMimeType(if (activeStream.isM3U8 || activeStream.url.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.VIDEO_MP4)
+                            .setSubtitleConfigurations(subtitleConfigs)
+                            .setMediaMetadata(mediaMetadata)
+                            .build()
+
+                        castSessionManager.castPlayer?.let { cp ->
+                            cp.setMediaItem(proxiedMediaItem, currentMs)
+                            cp.trackSelectionParameters = cp.trackSelectionParameters.buildUpon()
+                                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                                .setPreferredTextLanguage("en")
+                                .build()
+                            cp.prepare()
+                            cp.play()
+                        }
+                        showTransientWarning("Casting to TV...")
+                    } catch (e: Exception) {
+                        showTransientWarning(e.message ?: "Failed to initialize cast proxy")
                     }
-
-                    val mediaMetadata = MediaMetadata.Builder().setTitle(animeTitle).setSubtitle(state.episodeTitle).setArtworkUri(posterUrl.toUri()).build()
-                    val proxiedMediaItem = MediaItem.Builder().setUri(proxiedUrl)
-                        .setMimeType(if (activeStream.isM3U8 || activeStream.url.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.VIDEO_MP4)
-                        .setSubtitleConfigurations(subtitleConfigs).setMediaMetadata(mediaMetadata).build()
-
-                    castSessionManager.castPlayer?.setMediaItem(proxiedMediaItem, currentMs)
-                    castSessionManager.castPlayer?.prepare()
-                    castSessionManager.castPlayer?.play()
-                    showTransientWarning("Casting to TV...")
                 },
                 onSessionUnavailable = {
                     val currentMs = castSessionManager.castPlayer?.currentPosition ?: playerEngine.exoPlayer.currentPosition
@@ -248,7 +270,19 @@ class PlayerViewModel @Inject constructor(
         loadEpisodesAndPlay(currentEpisodeId)
     }
 
-    private fun getActivePlayer(): Player = if (castSessionManager.castPlayer?.isCastSessionAvailable == true) castSessionManager.castPlayer!! else playerEngine.exoPlayer
+    private fun resolveUserErrorMessage(error: PlaybackException): String {
+        return when (error.errorCode) {
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Network timeout. Check your connection."
+            PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+            PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> "Invalid stream format returned by provider."
+            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> "Hardware decoding error on this stream profile."
+            else -> "Playback failed: ${error.localizedMessage ?: "Unknown media error"}"
+        }
+    }
+
+    private fun getActivePlayer(): Player =
+        castSessionManager.castPlayer?.takeIf { it.isCastSessionAvailable } ?: playerEngine.exoPlayer
 
     private fun showTransientWarning(msg: String) {
         warningClearJob?.cancel()
@@ -256,15 +290,52 @@ class PlayerViewModel @Inject constructor(
         warningClearJob = viewModelScope.launch { delay(3500L.milliseconds); updateReadyState { it.copy(transientWarning = null) } }
     }
 
+    private fun parseIsoLanguageCode(label: String): String {
+        val lower = label.lowercase()
+        return when {
+            lower.contains("english") || lower.contains("eng") -> "en"
+            lower.contains("spanish") || lower.contains("spa") -> "es"
+            lower.contains("french") || lower.contains("fre") -> "fr"
+            lower.contains("german") || lower.contains("ger") -> "de"
+            lower.contains("portuguese") || lower.contains("por") -> "pt"
+            lower.contains("italian") || lower.contains("ita") -> "it"
+            lower.contains("russian") || lower.contains("rus") -> "ru"
+            lower.contains("arabic") || lower.contains("ara") -> "ar"
+            lower.contains("indonesian") || lower.contains("ind") -> "id"
+            lower.contains("vietnamese") || lower.contains("vie") -> "vi"
+            lower.contains("thai") || lower.contains("tha") -> "th"
+            lower.contains("chinese") || lower.contains("chi") -> "zh"
+            lower.contains("japanese") || lower.contains("jpn") -> "ja"
+            else -> "en"
+        }
+    }
+
+    private fun buildCastSubtitleConfigs(subtitles: List<Subtitle>): List<MediaItem.SubtitleConfiguration> {
+        val hasDefault = subtitles.any { it.isDefault }
+        return subtitles.mapIndexed { index, sub ->
+            val actualUrl = sub.url.ifBlank { sub.label }
+            val isDefaultTrack = sub.isDefault || (!hasDefault && sub.label.contains("English", ignoreCase = true))
+            val langCode = parseIsoLanguageCode(sub.label)
+
+            MediaItem.SubtitleConfiguration.Builder(CastProxy.getProxyUrl(actualUrl).toUri())
+                .setMimeType(MimeTypes.TEXT_VTT)
+                .setLanguage(langCode)
+                .setLabel(sub.label)
+                .setRoleFlags(C.ROLE_FLAG_SUBTITLE)
+                .setSelectionFlags(if (isDefaultTrack) C.SELECTION_FLAG_DEFAULT else 0)
+                .build()
+        }
+    }
+
     private fun playStream(stream: VideoStream, startPositionMs: Long? = null) {
         val targetPlayer = getActivePlayer()
-        val isCasting = targetPlayer is CastPlayer && stream.url.startsWith("http")
 
         val epTitle = (_uiState.value as? PlayerUiState.Ready)?.episodeTitle ?: "Episode $currentEpisodeNumberInt"
         val mediaMetadata = MediaMetadata.Builder().setTitle(animeTitle).setSubtitle(epTitle).setArtworkUri(posterUrl.toUri()).build()
 
-        if (targetPlayer === playerEngine.exoPlayer) {
+        val hasDefault = stream.subtitles.any { it.isDefault }
 
+        if (targetPlayer === playerEngine.exoPlayer) {
             val httpDataSourceFactory = DefaultHttpDataSource.Factory()
                 .setUserAgent(stream.headers["User-Agent"] ?: "Mozilla/5.0")
                 .setDefaultRequestProperties(stream.headers)
@@ -292,14 +363,17 @@ class PlayerViewModel @Inject constructor(
             val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
             val subtitleConfigs = stream.subtitles.mapIndexed { index, sub ->
-                val actualUrl = if (sub.label.startsWith("file://") || sub.label.startsWith("http")) sub.label else sub.url
-                val actualLabel = if (sub.label.startsWith("file://") || sub.label.startsWith("http")) sub.url else sub.label
+                val actualUrl = sub.url.ifBlank { sub.label }
+                val actualLabel = sub.label.ifBlank { "Track ${index + 1}" }
+                val isDefaultTrack = sub.isDefault || (!hasDefault && (actualLabel.contains("English", ignoreCase = true) || index == 0))
 
                 MediaItem.SubtitleConfiguration.Builder(actualUrl.toUri())
                     .setMimeType(MimeTypes.TEXT_VTT)
-                    .setLanguage("en-$index")
+                    .setLanguage(parseIsoLanguageCode(actualLabel))
                     .setLabel(actualLabel)
-                    .setSelectionFlags(if (sub.isDefault) C.SELECTION_FLAG_DEFAULT else 0).build()
+                    .setRoleFlags(C.ROLE_FLAG_SUBTITLE)
+                    .setSelectionFlags(if (isDefaultTrack) C.SELECTION_FLAG_DEFAULT else 0)
+                    .build()
             }
 
             val mediaItem = MediaItem.Builder().setUri(stream.url)
@@ -311,17 +385,31 @@ class PlayerViewModel @Inject constructor(
             val finalMediaSource = mediaSourceFactory.createMediaSource(mediaItem)
             targetPlayer.setMediaSource(finalMediaSource)
 
-        } else {
-            val subtitleConfigs = stream.subtitles.mapIndexed { index, sub ->
-                val actualUrl = if (sub.label.startsWith("file://") || sub.label.startsWith("http")) sub.label else sub.url
-                MediaItem.SubtitleConfiguration.Builder(CastProxy.getProxyUrl(actualUrl).toUri())
-                    .setMimeType(MimeTypes.TEXT_VTT).setLanguage("en-$index")
-                    .setSelectionFlags(if (sub.isDefault) C.SELECTION_FLAG_DEFAULT else 0).build()
+            val defaultTrackLang = stream.subtitles.firstOrNull { it.isDefault }?.label
+                ?: stream.subtitles.firstOrNull { it.label.contains("English", ignoreCase = true) }?.label
+                ?: stream.subtitles.firstOrNull()?.label
+
+            if (defaultTrackLang != null) {
+                targetPlayer.trackSelectionParameters = targetPlayer.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setPreferredTextLanguage(parseIsoLanguageCode(defaultTrackLang))
+                    .build()
             }
-            val proxiedMediaItem = MediaItem.Builder().setUri(CastProxy.getProxyUrl(stream.url))
-                .setMimeType(if (stream.isM3U8 || stream.url.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.VIDEO_MP4)
-                .setSubtitleConfigurations(subtitleConfigs).setMediaMetadata(mediaMetadata).build()
-            targetPlayer.setMediaItem(proxiedMediaItem)
+        } else {
+            try {
+                val subtitleConfigs = buildCastSubtitleConfigs(stream.subtitles)
+                val proxiedMediaItem = MediaItem.Builder().setUri(CastProxy.getProxyUrl(stream.url))
+                    .setMimeType(if (stream.isM3U8 || stream.url.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.VIDEO_MP4)
+                    .setSubtitleConfigurations(subtitleConfigs).setMediaMetadata(mediaMetadata).build()
+
+                targetPlayer.setMediaItem(proxiedMediaItem)
+                targetPlayer.trackSelectionParameters = targetPlayer.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setPreferredTextLanguage("en")
+                    .build()
+            } catch (e: Exception) {
+                showTransientWarning(e.message ?: "Failed to generate cast endpoint")
+            }
         }
 
         if (startPositionMs != null) {
@@ -334,8 +422,8 @@ class PlayerViewModel @Inject constructor(
 
     private fun buildSafeSubtitleUiModels(subtitles: List<Subtitle>): List<SubtitleTrackUiModel> {
         return subtitles.mapIndexed { index, sub ->
-            val actualLabel = if (sub.label.startsWith("file://") || sub.label.startsWith("http")) sub.url else sub.label
-            SubtitleTrackUiModel(index, actualLabel.ifBlank { "Track ${index + 1}" }, "en-$index")
+            val label = sub.label.ifBlank { "Track ${index + 1}" }
+            SubtitleTrackUiModel(index, label, parseIsoLanguageCode(label))
         }
     }
 
@@ -350,32 +438,55 @@ class PlayerViewModel @Inject constructor(
         hasSyncedThisEpisodeToCloud = false
         skipIntervals = emptyList()
         currentEpisodeId = episodeId
+        currentStreamIndex = 0
+        streamRetryCount = 0
+
+        val parsedEpNum = episodeId.split("~~~").getOrNull(2)?.toIntOrNull()
+            ?: Regex("""(?:ep|episode)[-_=/]?(\d+)""", RegexOption.IGNORE_CASE).find(episodeId)?.groupValues?.getOrNull(1)?.toIntOrNull()
+            ?: 1
+        currentEpisodeNumberInt = parsedEpNum
 
         val targetStreamUrl = preselectedStreamUrl
-        preselectedStreamUrl = null // Clear so it only applies to the initial load
+        preselectedStreamUrl = null
 
         _uiState.value = PlayerUiState.Loading
 
         viewModelScope.launch {
-            val download = withContext(Dispatchers.IO) { downloadManager.downloadIndex.getDownload(episodeId) }
-            val isDownloaded = download != null && download.state == Download.STATE_COMPLETED
-            val meta = if (isDownloaded && download != null) {
-                try { JSONObject(String(download.request.data)) } catch (e: Exception) { JSONObject() }
-            } else null
-
-            viewModelScope.launch {
-                if (anilistMediaId == null) anilistMediaId = getAnimeDetailsUseCase(animeTitle)?.id?.toIntOrNull()
+            val episodesDeferred = async {
+                if (anilistMediaId == null) {
+                    anilistMediaId = getAnimeDetailsUseCase(animeTitle)?.id?.toIntOrNull()
+                }
 
                 val fallbackUrl = episodeId.split("~~~").firstOrNull() ?: ""
                 val validUrl = if (animeUrl.isNotBlank() && animeUrl != "null") animeUrl else fallbackUrl
 
                 if (allEpisodes.isEmpty() && validUrl.isNotBlank()) {
-                    val epResult = getEpisodesUseCase(validUrl, animeTitle, providerRegistry.getDefaultProvider().name)
+                    val epResult = getEpisodesUseCase(
+                        animeUrlOrTitle = validUrl,
+                        title = animeTitle,
+                        providerName = activeProviderName,
+                        anilistId = anilistMediaId
+                    )
                     if (epResult is Resource.Success) {
-                        allEpisodes = epResult.data ?: emptyList()
-                        updateReadyState { it.copy(episodes = allEpisodes) }
+                        epResult.data ?: emptyList()
+                    } else {
+                        emptyList()
                     }
+                } else {
+                    allEpisodes
                 }
+            }
+
+            val download = withContext(Dispatchers.IO) { downloadManager.downloadIndex.getDownload(episodeId) }
+            val isDownloaded = download != null && download.state == Download.STATE_COMPLETED
+            val meta = if (isDownloaded && download != null) {
+                try { JSONObject(String(download.request.data)) } catch (_: Exception) { JSONObject() }
+            } else null
+
+            val resolvedEpisodes = episodesDeferred.await()
+            allEpisodes = resolvedEpisodes
+            resolvedEpisodes.find { it.id == episodeId }?.let {
+                currentEpisodeNumberInt = it.number.toInt()
             }
 
             if (isDownloaded && meta != null) {
@@ -383,7 +494,30 @@ class PlayerViewModel @Inject constructor(
                 meta.optJSONArray("subtitles")?.let { arr ->
                     for (i in 0 until arr.length()) {
                         val obj = arr.getJSONObject(i)
-                        parsedSubtitles.add(Subtitle(obj.optString("url"), obj.optString("label", "Unknown"), obj.optBoolean("isDefault", false)))
+                        var rawUrl = obj.optString("url", "")
+                        var rawLabel = obj.optString("label", "English")
+
+                        if ((rawLabel.startsWith("file://") || rawLabel.startsWith("http://") || rawLabel.startsWith("https://")) &&
+                            (!rawUrl.startsWith("file://") && !rawUrl.startsWith("http://") && !rawUrl.startsWith("https://"))
+                        ) {
+                            val temp = rawUrl
+                            rawUrl = rawLabel
+                            rawLabel = if (temp.isNotBlank() && temp != "null") temp else "English"
+                        }
+
+                        if (rawLabel.startsWith("file://") || rawLabel.contains(".vtt")) {
+                            rawLabel = rawLabel.substringAfterLast("_")
+                                .substringBeforeLast(".")
+                                .ifBlank { "English" }
+                        }
+
+                        parsedSubtitles.add(
+                            Subtitle(
+                                label = rawLabel.ifBlank { "English" },
+                                url = rawUrl,
+                                isDefault = obj.optBoolean("isDefault", false)
+                            )
+                        )
                     }
                 }
 
@@ -410,21 +544,23 @@ class PlayerViewModel @Inject constructor(
                 val epTitle = allEpisodes.find { it.id == episodeId }?.title ?: meta.optString("episodeTitle", "Offline Episode")
                 val safeUiSubtitles = buildSafeSubtitleUiModels(offlineStream.subtitles)
 
+                val defaultIndex = offlineStream.subtitles.indexOfFirst { it.isDefault }.takeIf { it != -1 }
+                    ?: if (offlineStream.subtitles.isNotEmpty()) 0 else -1
+
                 _uiState.value = PlayerUiState.Ready(
                     animeTitle = animeTitle, episodeTitle = epTitle, currentEpisodeId = episodeId,
                     streams = listOf(offlineStream), activeStream = offlineStream, episodes = allEpisodes,
                     subtitles = safeUiSubtitles,
-                    selectedSubtitleIndex = offlineStream.subtitles.indexOfFirst { it.isDefault }.takeIf { it != -1 } ?: if (offlineStream.subtitles.isNotEmpty()) 0 else -1,
+                    selectedSubtitleIndex = defaultIndex,
                     qualities = listOf(VideoQualityUiModel(-1, "Offline")), selectedQualityHeight = -1,
                     playbackSpeed = 1.0f, isPlaying = true,
                     currentPosition = getActivePlayer().currentPosition, bufferedPosition = getActivePlayer().bufferedPosition.coerceAtLeast(0L),
                     duration = getActivePlayer().duration, skipIntervals = skipIntervals
                 )
             } else {
-                // --- INSTANT CACHE RETRIEVAL ---
-                // Grab the pre-scraped streams from DetailScreen. Completely eliminates the double load!
                 val cachedStreams = StreamDataCache.get(episodeId)
                 val streamResult = if (cachedStreams != null) {
+                    StreamDataCache.clear()
                     Resource.Success(cachedStreams)
                 } else {
                     getVideoStreamsUseCase(episodeId)
@@ -436,6 +572,7 @@ class PlayerViewModel @Inject constructor(
                         val activeStream = if (targetStreamUrl != null) streams.find { it.url == targetStreamUrl } ?: streams.firstOrNull() else streams.firstOrNull()
 
                         if (activeStream != null) {
+                            currentStreamIndex = streams.indexOf(activeStream).coerceAtLeast(0)
                             skipIntervals = activeStream.skipIntervals
 
                             playStream(activeStream)
@@ -444,11 +581,14 @@ class PlayerViewModel @Inject constructor(
                             val epTitle = allEpisodes.find { it.id == episodeId }?.title ?: "Episode $currentEpisodeNumberInt"
                             val safeUiSubtitles = buildSafeSubtitleUiModels(activeStream.subtitles)
 
+                            val defaultIndex = activeStream.subtitles.indexOfFirst { it.isDefault }.takeIf { it != -1 }
+                                ?: if (activeStream.subtitles.isNotEmpty()) 0 else -1
+
                             _uiState.value = PlayerUiState.Ready(
                                 animeTitle = animeTitle, episodeTitle = epTitle, currentEpisodeId = episodeId,
                                 streams = streams, activeStream = activeStream, episodes = allEpisodes,
                                 subtitles = safeUiSubtitles,
-                                selectedSubtitleIndex = activeStream.subtitles.indexOfFirst { it.isDefault }.takeIf { it != -1 } ?: if (activeStream.subtitles.isNotEmpty()) 0 else -1,
+                                selectedSubtitleIndex = defaultIndex,
                                 qualities = listOf(VideoQualityUiModel(-1, "Auto")), selectedQualityHeight = -1,
                                 playbackSpeed = 1.0f, isPlaying = true,
                                 currentPosition = getActivePlayer().currentPosition, bufferedPosition = getActivePlayer().bufferedPosition.coerceAtLeast(0L),
@@ -500,9 +640,8 @@ class PlayerViewModel @Inject constructor(
                 val activeSkip = skipIntervals.find { it.type in listOf("op", "mixed-op", "recap") && currentSec in it.startTime..it.endTime }
                 val activeEd = skipIntervals.find { it.type in listOf("ed", "mixed-ed") && currentSec in it.startTime..it.endTime }
 
-                if (activeEd != null && !hasTriggeredOutroAutoPlay) {
-                    val currentIndex = allEpisodes.indexOfFirst { it.id == currentEpisodeId }
-                    if (currentIndex != -1 && currentIndex < allEpisodes.size - 1) startAutoPlayCountdown(allEpisodes[currentIndex + 1])
+                if (activeEd != null) {
+                    triggerOutroCountdown()
                 }
 
                 updateReadyState { it.copy(currentPosition = pos, bufferedPosition = bufferedPos, duration = dur, activeSkipInterval = activeSkip) }
@@ -516,22 +655,35 @@ class PlayerViewModel @Inject constructor(
     private fun stopProgressTracker() { progressTrackerJob?.cancel(); progressTrackerJob = null }
 
     private fun handlePlaybackEnded() {
-        if (!hasTriggeredOutroAutoPlay) {
-            val currentIndex = allEpisodes.indexOfFirst { it.id == currentEpisodeId }
-            if (currentIndex != -1 && currentIndex < allEpisodes.size - 1) startAutoPlayCountdown(allEpisodes[currentIndex + 1])
+        triggerOutroCountdown()
+    }
+
+    private fun triggerOutroCountdown() {
+        if (castSessionManager.castPlayer?.isCastSessionAvailable == true) return
+        if (hasTriggeredOutroAutoPlay) return
+
+        val currentIndex = allEpisodes.indexOfFirst { it.id == currentEpisodeId }
+        if (currentIndex != -1 && currentIndex < allEpisodes.size - 1) {
+            val nextEp = allEpisodes[currentIndex + 1]
+            hasTriggeredOutroAutoPlay = true
+
+            autoPlayJob?.cancel()
+            autoPlayJob = viewModelScope.launch {
+                for (sec in 5 downTo 1) {
+                    updateReadyState { it.copy(nextEpisode = nextEp, autoPlayCountdown = sec, isControlsVisible = false) }
+                    delay(1000L.milliseconds)
+                }
+                updateReadyState { it.copy(autoPlayCountdown = null) }
+                selectEpisode(nextEp)
+            }
         }
     }
 
-    private fun startAutoPlayCountdown(nextEp: Episode) {
-        if (autoPlayJob?.isActive == true) return
-        hasTriggeredOutroAutoPlay = true
-        autoPlayJob = viewModelScope.launch {
-            for (sec in 5 downTo 1) { updateReadyState { it.copy(nextEpisode = nextEp, autoPlayCountdown = sec, isControlsVisible = false) }; delay(1000L.milliseconds) }
-            updateReadyState { it.copy(autoPlayCountdown = null) }; selectEpisode(nextEp)
-        }
+    fun cancelAutoPlayCountdown() {
+        autoPlayJob?.cancel()
+        autoPlayJob = null
+        updateReadyState { it.copy(autoPlayCountdown = null) }
     }
-
-    fun cancelAutoPlayCountdown() { autoPlayJob?.cancel(); updateReadyState { it.copy(autoPlayCountdown = null) } }
 
     private suspend fun restoreSavedPosition(epId: String) {
         val saved = watchHistoryDao.getProgressForEpisode(epId)
@@ -549,6 +701,10 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun selectStream(stream: VideoStream) {
+        val state = _uiState.value as? PlayerUiState.Ready ?: return
+        currentStreamIndex = state.streams.indexOf(stream).coerceAtLeast(0)
+        streamRetryCount = 0
+
         val currentPos = getActivePlayer().currentPosition
         playStream(stream, startPositionMs = currentPos)
         skipIntervals = stream.skipIntervals
@@ -562,16 +718,34 @@ class PlayerViewModel @Inject constructor(
 
     fun selectSubtitleTrack(index: Int) {
         val state = _uiState.value as? PlayerUiState.Ready ?: return
+        val targetPlayer = getActivePlayer()
 
-        playerEngine.exoPlayer.trackSelectionParameters = if (index == -1) {
-            playerEngine.exoPlayer.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+        if (index == -1) {
+            targetPlayer.trackSelectionParameters = targetPlayer.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .build()
+            if (castSessionManager.castPlayer?.isCastSessionAvailable == true) {
+                castSessionManager.disableSubtitles()
+            }
         } else {
-            val safeTrackLang = state.subtitles.getOrNull(index)?.language ?: "en-$index"
-            playerEngine.exoPlayer.trackSelectionParameters.buildUpon()
+            val selectedSub = state.subtitles.getOrNull(index)
+            val safeTrackLang = selectedSub?.language ?: "en"
+            val label = selectedSub?.label ?: ""
+
+            targetPlayer.trackSelectionParameters = targetPlayer.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                 .setPreferredTextLanguage(safeTrackLang)
                 .build()
+
+            if (castSessionManager.castPlayer?.isCastSessionAvailable == true) {
+                castSessionManager.setActiveSubtitleTrack(safeTrackLang.ifBlank { label })
+            }
         }
+
+        if (targetPlayer !== playerEngine.exoPlayer) {
+            playerEngine.exoPlayer.trackSelectionParameters = targetPlayer.trackSelectionParameters
+        }
+
         updateReadyState { it.copy(selectedSubtitleIndex = index, isSubtitleSheetVisible = false) }
     }
 
@@ -592,17 +766,40 @@ class PlayerViewModel @Inject constructor(
         val position = getActivePlayer().currentPosition
         val duration = getActivePlayer().duration
 
-        if (position > 0 && duration > 0) {
+        // Guard: require at least 15 seconds of watch time to avoid history pollution
+        if (position >= 15_000L && duration > 0) {
             if ((position.toDouble() / duration.toDouble()) >= 0.85 && !hasSyncedThisEpisodeToCloud) {
                 hasSyncedThisEpisodeToCloud = true
                 if (authPreferences.authState.value.token != null && anilistMediaId != null) {
                     viewModelScope.launch(Dispatchers.IO) {
-                        offlineSyncDao.insertSyncTask(OfflineSyncEntity(mediaId = anilistMediaId!!, progress = currentEpisodeNumberInt))
-                        WorkManager.getInstance(context).enqueueUniqueWork("AnilistOfflineSync", ExistingWorkPolicy.REPLACE, OneTimeWorkRequestBuilder<AnilistSyncWorker>().setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build())
+                        offlineSyncDao.insertSyncTask(
+                            OfflineSyncEntity(
+                                mediaId = anilistMediaId!!,
+                                progress = currentEpisodeNumberInt
+                            )
+                        )
+                        WorkManager.getInstance(context).enqueueUniqueWork(
+                            "AnilistOfflineSync",
+                            ExistingWorkPolicy.REPLACE,
+                            OneTimeWorkRequestBuilder<AnilistSyncWorker>()
+                                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                                .build()
+                        )
                     }
                 }
             }
-            viewModelScope.launch { watchHistoryDao.saveProgress(WatchHistoryEntity(episodeId = currentEpisodeId, animeTitle = animeTitle, posterUrl = posterUrl, progressMs = position, durationMs = duration, lastWatchedAt = System.currentTimeMillis())) }
+            viewModelScope.launch {
+                watchHistoryDao.saveProgress(
+                    WatchHistoryEntity(
+                        episodeId = currentEpisodeId,
+                        animeTitle = animeTitle,
+                        posterUrl = posterUrl,
+                        progressMs = position,
+                        durationMs = duration,
+                        lastWatchedAt = System.currentTimeMillis()
+                    )
+                )
+            }
         }
     }
 

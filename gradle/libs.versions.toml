@@ -25,6 +25,7 @@ workRuntimeKtx = "2.11.2"
 hiltWork = "1.4.0"
 playServicesCast = "22.3.1"
 appcompat = "1.8.0"
+securityCrypto = "1.1.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -81,6 +82,8 @@ androidx-media3-cast = { group = "androidx.media3", name = "media3-cast", versio
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 
 androidx-media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
+
+androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "securityCrypto" }
 
 
 [plugins]

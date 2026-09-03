@@ -2,6 +2,7 @@ package com.zenx.yugen.play.di
 
 import android.content.Context
 import androidx.room.Room
+import com.zenx.yugen.play.BuildConfig
 import com.zenx.yugen.play.data.local.AppDatabase
 import com.zenx.yugen.play.data.local.FavoriteDao
 import com.zenx.yugen.play.data.local.OfflineSyncDao
@@ -21,36 +22,33 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
-        return Room.databaseBuilder(
+        val builder = Room.databaseBuilder(
             context,
             AppDatabase::class.java,
             AppDatabase.DATABASE_NAME
         )
-            .fallbackToDestructiveMigration()
-            .build()
+
+        // Allow destructive rebuilds in debug builds; enforce manual migrations in release
+        if (BuildConfig.DEBUG) {
+            builder.fallbackToDestructiveMigration(dropAllTables = true)
+        }
+
+        return builder.build()
     }
 
     @Provides
     @Singleton
-    fun provideWatchHistoryDao(database: AppDatabase): WatchHistoryDao {
-        return database.watchHistoryDao()
-    }
+    fun provideWatchHistoryDao(database: AppDatabase): WatchHistoryDao = database.watchHistoryDao()
 
     @Provides
     @Singleton
-    fun provideFavoriteDao(database: AppDatabase): FavoriteDao {
-        return database.favoriteDao()
-    }
+    fun provideFavoriteDao(database: AppDatabase): FavoriteDao = database.favoriteDao()
 
     @Provides
     @Singleton
-    fun provideTitleMappingDao(database: AppDatabase): TitleMappingDao {
-        return database.titleMappingDao()
-    }
+    fun provideTitleMappingDao(database: AppDatabase): TitleMappingDao = database.titleMappingDao()
 
     @Provides
     @Singleton
-    fun provideOfflineSyncDao(database: AppDatabase): OfflineSyncDao {
-        return database.offlineSyncDao()
-    }
+    fun provideOfflineSyncDao(database: AppDatabase): OfflineSyncDao = database.offlineSyncDao()
 }

@@ -46,7 +46,8 @@ class HomeViewModel @Inject constructor(
     private val getAiringScheduleUseCase: GetAiringScheduleUseCase,
     private val watchHistoryDao: WatchHistoryDao,
     private val favoriteDao: FavoriteDao,
-    private val authPreferences: AuthPreferences
+    private val authPreferences: AuthPreferences,
+    private val anilistService: AnilistService
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -62,12 +63,19 @@ class HomeViewModel @Inject constructor(
         fetchAnilistWatching()
     }
 
+    private fun normalizeTitleForComparison(title: String): String {
+        return title.lowercase()
+            .replace(Regex("""\b(season|part|cour) \d+\b""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""[^a-z0-9]"""), "")
+            .trim()
+    }
+
     private fun fetchAnilistWatching() {
         viewModelScope.launch {
             authPreferences.authState.collectLatest { authState ->
                 if (authState.isAuthenticated && authState.userId != null && authState.token != null) {
                     try {
-                        val data = AnilistService.getUserAnimeList(authState.userId, authState.token)
+                        val data = anilistService.getUserAnimeList(authState.userId, authState.token)
                         anilistWatchingFlow.value = data["Watching"]?.distinctBy { it.mediaId } ?: emptyList()
                     } catch (e: Exception) {
                         anilistWatchingFlow.value = emptyList()
@@ -91,10 +99,10 @@ class HomeViewModel @Inject constructor(
 
                 val baseTime = System.currentTimeMillis()
                 val mergedHistory = history.toMutableList()
-                val localTitles = history.map { it.animeTitle.lowercase() }.toSet()
+                val localNormalizedTitles = history.map { normalizeTitleForComparison(it.animeTitle) }.toSet()
 
                 anilistWatching.forEachIndexed { index, cloudEntry ->
-                    if (cloudEntry.title.lowercase() !in localTitles) {
+                    if (normalizeTitleForComparison(cloudEntry.title) !in localNormalizedTitles) {
                         val nextEpNum = cloudEntry.progress + 1
                         mergedHistory.add(
                             WatchHistoryEntity(
@@ -109,7 +117,6 @@ class HomeViewModel @Inject constructor(
                     }
                 }
 
-                // FIX: Pass the exact AniList title without stripping out "Season X" keywords
                 val heroList = popular.take(5).map {
                     HeroUiModel(
                         id = it.id,
@@ -122,12 +129,13 @@ class HomeViewModel @Inject constructor(
                 }
 
                 val trendingList = popular.drop(5).map {
+                    val realScore = it.averageScore?.let { s -> String.format("%.1f", s / 10.0) } ?: "N/A"
                     TrendingUiModel(
                         id = it.id,
                         title = it.title,
                         subtitle = extractSeason(it.title),
                         posterUrl = it.posterUrl,
-                        score = "8.${(0..9).random()}"
+                        score = realScore
                     )
                 }
 

@@ -10,6 +10,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import java.io.Closeable
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -19,7 +20,7 @@ import kotlin.time.Duration.Companion.milliseconds
 @Singleton
 class DownloadTracker @Inject constructor(
     private val context: Context
-) : DownloadManager.Listener {
+) : DownloadManager.Listener, Closeable {
 
     private val _downloads = MutableSharedFlow<Map<String, Download>>(
         replay = 1,
@@ -34,7 +35,7 @@ class DownloadTracker @Inject constructor(
 
     private var downloadManager: DownloadManager? = null
     private var progressJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     fun initialize(manager: DownloadManager) {
         if (downloadManager == manager) return
@@ -48,7 +49,7 @@ class DownloadTracker @Inject constructor(
     }
 
     private fun loadInitialDownloads(manager: DownloadManager) {
-        scope.launch(Dispatchers.IO) {
+        scope.launch {
             try {
                 manager.downloadIndex.getDownloads().use { cursor ->
                     while (cursor.moveToNext()) {
@@ -58,8 +59,7 @@ class DownloadTracker @Inject constructor(
                 }
                 _downloads.tryEmit(currentMap.toMap())
                 checkProgressLoop()
-            } catch (e: Exception) {
-                // Preserve map
+            } catch (_: Exception) {
             }
         }
     }
@@ -97,7 +97,6 @@ class DownloadTracker @Inject constructor(
                             val id = dl.request.id
                             currentMap[id] = dl
 
-                            // Compute Speed Delta
                             val previousSample = byteSamples[id]
                             if (previousSample != null) {
                                 val timeDelta = now - previousSample.first
@@ -127,5 +126,11 @@ class DownloadTracker @Inject constructor(
                 }
             }
         }
+    }
+
+    override fun close() {
+        progressJob?.cancel()
+        scope.cancel()
+        downloadManager?.removeListener(this)
     }
 }

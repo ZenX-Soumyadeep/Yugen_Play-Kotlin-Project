@@ -1,6 +1,7 @@
 package com.zenx.yugen.play.ui.player.components
 
 import java.util.Locale
+import androidx.appcompat.view.ContextThemeWrapper
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -29,10 +30,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.mediarouter.app.MediaRouteButton
+import com.google.android.gms.cast.framework.CastButtonFactory
 import com.zenx.yugen.play.domain.Episode
 import com.zenx.yugen.play.domain.SkipInterval
 import com.zenx.yugen.play.ui.components.bounceClick
-import androidx.compose.ui.platform.LocalContext
 
 private val AccentPurple = Color(0xFFC4C4FF)
 private val AmberSkip = Color(0xFFFFC107).copy(alpha = 0.85f)
@@ -182,6 +185,8 @@ private fun PlayerTopBar(
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var routeButtonInstance by remember { mutableStateOf<MediaRouteButton?>(null) }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -205,7 +210,6 @@ private fun PlayerTopBar(
             GlassyIconButton(icon = Icons.Rounded.ArrowBackIosNew, onClick = onBackClick)
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-
                 Text(
                     text = episodeString,
                     color = Color.White,
@@ -226,21 +230,30 @@ private fun PlayerTopBar(
             }
             Spacer(modifier = Modifier.width(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                // NEW: Native Google Cast Button wrapped purely in Compose
                 Box(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(RoundedCornerShape(14.dp))
                         .background(GlassCardBg)
-                        .border(1.dp, GlassBorder, RoundedCornerShape(14.dp)),
+                        .border(1.dp, GlassBorder, RoundedCornerShape(14.dp))
+                        .bounceClick {
+                            routeButtonInstance?.showDialog()
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    androidx.compose.ui.viewinterop.AndroidView(
+                    AndroidView(
                         factory = { ctx ->
-                            androidx.mediarouter.app.MediaRouteButton(ctx).apply {
-                                com.google.android.gms.cast.framework.CastButtonFactory.setUpMediaRouteButton(ctx, this)
+                            val themedContext = ContextThemeWrapper(
+                                ctx,
+                                androidx.appcompat.R.style.ThemeOverlay_AppCompat_Dark
+                            )
+                            MediaRouteButton(themedContext).apply {
+                                CastButtonFactory.setUpMediaRouteButton(ctx, this)
+                                setAlwaysVisible(true)
+                                routeButtonInstance = this
                             }
-                        }
+                        },
+                        modifier = Modifier.size(26.dp)
                     )
                 }
 
@@ -380,16 +393,11 @@ private fun PlayerBottomBar(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-
                     ToolbarIcon(icon = Icons.Rounded.Subtitles, onClick = onSubtitlesClick)
                     ToolbarIcon(icon = Icons.Rounded.CloudQueue, onClick = onServerClick)
                     ToolbarIcon(icon = Icons.Rounded.HighQuality, onClick = onQualityClick)
-
-                    // FIX: Reverted to purely the Speed Icon
                     ToolbarIcon(icon = Icons.Rounded.Speed, onClick = onSpeedClick)
-
                     ToolbarIcon(icon = Icons.Rounded.AspectRatio, onClick = onFitClick)
-
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 GlassyLabel(text = formatDuration(maxDur))
