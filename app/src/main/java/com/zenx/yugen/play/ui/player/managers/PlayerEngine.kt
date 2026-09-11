@@ -5,20 +5,17 @@ import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.Cache
-import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.android.scopes.ViewModelScoped
 import javax.inject.Inject
 
 @OptIn(UnstableApi::class)
+@ViewModelScoped
 class PlayerEngine @Inject constructor(
     @ApplicationContext private val context: Context,
     private val downloadCache: Cache
@@ -59,29 +56,10 @@ class PlayerEngine @Inject constructor(
             }
     }
 
-    fun createMediaSourceFactory(headers: Map<String, String>): DefaultMediaSourceFactory {
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(headers["User-Agent"] ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            .setConnectTimeoutMs(10_000)
-            .setReadTimeoutMs(15_000)
-            .setAllowCrossProtocolRedirects(true)
-            .setDefaultRequestProperties(headers)
-
-        val cacheDataSourceFactory = CacheDataSource.Factory()
-            .setCache(downloadCache)
-            .setUpstreamDataSourceFactory(httpDataSourceFactory)
-            .setCacheWriteDataSinkFactory(null)
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-
-        val dataSourceFactory = DefaultDataSource.Factory(context, cacheDataSourceFactory)
-
-        return DefaultMediaSourceFactory(dataSourceFactory)
-            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(3))
-    }
-
     fun release() {
         if (isReleased) return
         isReleased = true
+        exoPlayer.playWhenReady = false
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
         exoPlayer.release()

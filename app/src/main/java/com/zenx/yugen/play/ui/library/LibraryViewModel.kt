@@ -1,12 +1,12 @@
 package com.zenx.yugen.play.ui.library
 
 import android.content.Context
+import android.util.Log
 import androidx.annotation.OptIn
-import androidx.media3.common.util.UnstableApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.offline.Download
-import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadService
 import com.zenx.yugen.play.data.local.AuthPreferences
 import com.zenx.yugen.play.data.local.FavoriteDao
@@ -15,6 +15,7 @@ import com.zenx.yugen.play.data.local.WatchHistoryDao
 import com.zenx.yugen.play.data.local.WatchHistoryEntity
 import com.zenx.yugen.play.data.remote.AnilistService
 import com.zenx.yugen.play.domain.AnilistListEntry
+import com.zenx.yugen.play.service.DownloadTracker
 import com.zenx.yugen.play.service.VideoDownloadService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -25,8 +26,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 data class OfflineEpisode(
@@ -38,13 +41,15 @@ data class OfflineEpisode(
     val sizeMb: Long
 )
 
+private const val TAG = "LibraryViewModel"
+
 @OptIn(UnstableApi::class)
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val favoriteDao: FavoriteDao,
     private val watchHistoryDao: WatchHistoryDao,
     private val authPreferences: AuthPreferences,
-    private val downloadManager: DownloadManager,
+    private val downloadTracker: DownloadTracker,
     private val anilistService: AnilistService,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -66,6 +71,9 @@ class LibraryViewModel @Inject constructor(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    // H-6: Quarantine items actively being deleted so flow emissions don't resurrect them
+    private val pendingDeletionIds = ConcurrentHashMap.newKeySet<String>()
+
     init {
         viewModelScope.launch {
             authPreferences.authState.collectLatest { authState ->
@@ -76,26 +84,35 @@ class LibraryViewModel @Inject constructor(
                 }
             }
         }
-        fetchDownloads()
-        setupDownloadListener()
+        observeDownloads()
     }
 
-    private fun setupDownloadListener() {
-        downloadManager.addListener(object : DownloadManager.Listener {
-            override fun onDownloadChanged(
-                downloadManager: DownloadManager,
-                download: Download,
-                finalException: Exception?
-            ) {
-                if (download.state == Download.STATE_COMPLETED || download.state == Download.STATE_FAILED) {
-                    fetchDownloads()
-                }
+    // L-12: Reactive subscription to DownloadTracker.downloads instead of duplicate DownloadManager.Listener
+    private fun observeDownloads() {
+        viewModelScope.launch(Dispatchers.Default) {
+            downloadTracker.downloads.collect { downloadsMap ->
+                pendingDeletionIds.retainAll(downloadsMap.keys)
+                val completedList = downloadsMap.values
+                    .filter { it.state == Download.STATE_COMPLETED && it.request.id !in pendingDeletionIds }
+                    .mapNotNull { dl ->
+                        try {
+                            val meta = JSONObject(String(dl.request.data, Charsets.UTF_8))
+                            OfflineEpisode(
+                                id = dl.request.id,
+                                animeTitle = meta.optString("animeTitle", "Unknown Anime"),
+                                episodeTitle = meta.optString("episodeTitle", "Episode"),
+                                episodeNumber = meta.optString("episodeNumber", "1"),
+                                posterUrl = meta.optString("posterUrl", ""),
+                                sizeMb = dl.bytesDownloaded / (1024 * 1024)
+                            )
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Malformed download metadata for ${dl.request.id}", e)
+                            null
+                        }
+                    }
+                _downloads.value = completedList
             }
-
-            override fun onDownloadRemoved(downloadManager: DownloadManager, download: Download) {
-                fetchDownloads()
-            }
-        })
+        }
     }
 
     fun refresh() {
@@ -103,7 +120,6 @@ class LibraryViewModel @Inject constructor(
         if (authState.isAuthenticated && authState.userId != null && authState.token != null) {
             fetchAnilistData(authState.userId, authState.token)
         }
-        fetchDownloads()
     }
 
     private fun fetchAnilistData(userId: Int, token: String) {
@@ -114,39 +130,10 @@ class LibraryViewModel @Inject constructor(
                 val cleanData = data.mapValues { (_, entries) -> entries.distinctBy { it.mediaId } }
                 _anilistData.value = cleanData
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(TAG, "Failed to fetch AniList data", e)
             } finally {
                 _isLoading.value = false
             }
-        }
-    }
-
-    private fun fetchDownloads() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val list = mutableListOf<OfflineEpisode>()
-            val cursor = downloadManager.downloadIndex.getDownloads()
-            while (cursor.moveToNext()) {
-                val dl = cursor.download
-                if (dl.state == Download.STATE_COMPLETED) {
-                    try {
-                        val meta = JSONObject(String(dl.request.data))
-                        list.add(
-                            OfflineEpisode(
-                                id = dl.request.id,
-                                animeTitle = meta.optString("animeTitle", "Unknown Anime"),
-                                episodeTitle = meta.optString("episodeTitle", "Episode"),
-                                episodeNumber = meta.optString("episodeNumber", "1"),
-                                posterUrl = meta.optString("posterUrl", ""),
-                                sizeMb = dl.bytesDownloaded / (1024 * 1024)
-                            )
-                        )
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-            }
-            cursor.close()
-            _downloads.value = list
         }
     }
 
@@ -173,12 +160,14 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun deleteDownload(episodeId: String) {
+        pendingDeletionIds.add(episodeId)
+        _downloads.update { current -> current.filter { it.id != episodeId } }
+
         DownloadService.sendRemoveDownload(
             context,
             VideoDownloadService::class.java,
             episodeId,
             false
         )
-        _downloads.value = _downloads.value.filter { it.id != episodeId }
     }
 }

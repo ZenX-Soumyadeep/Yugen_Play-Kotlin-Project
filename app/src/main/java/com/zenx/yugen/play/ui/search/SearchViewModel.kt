@@ -1,23 +1,28 @@
 package com.zenx.yugen.play.ui.search
 
-import androidx.core.content.edit
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.util.Log
+import androidx.core.content.edit
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zenx.yugen.play.data.remote.AnilistService
 import com.zenx.yugen.play.domain.AnimeCardItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Calendar
 import javax.inject.Inject
+
+private const val TAG = "SearchViewModel"
 
 sealed interface SearchUiState {
     data object Idle : SearchUiState
@@ -29,10 +34,14 @@ sealed interface SearchUiState {
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     @ApplicationContext context: Context,
-    private val anilistService: AnilistService
+    private val anilistService: AnilistService,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     private val prefs = context.getSharedPreferences("yugen_search_history", Context.MODE_PRIVATE)
+
+    private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -49,7 +58,7 @@ class SearchViewModel @Inject constructor(
     private val _selectedYear = MutableStateFlow<Int?>(null)
     val selectedYear: StateFlow<Int?> = _selectedYear.asStateFlow()
 
-    private val _selectedSort = MutableStateFlow<String?>(null)
+    private val _selectedSort = MutableStateFlow<String?>(savedStateHandle.get<String>("sort"))
     val selectedSort: StateFlow<String?> = _selectedSort.asStateFlow()
 
     private val _recentSearches = MutableStateFlow<List<String>>(emptyList())
@@ -76,22 +85,35 @@ class SearchViewModel @Inject constructor(
 
     init {
         loadRecentSearches()
-        setupNetworkObserver(context)
+        setupNetworkObserver()
+
+        if (_selectedSort.value != null) {
+            executeSearch()
+        }
     }
 
-    private fun setupNetworkObserver(context: Context) {
-        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-
-        connectivityManager.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+    private fun setupNetworkObserver() {
+        val cm = connectivityManager ?: return
+        val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                if (_uiState.value is SearchUiState.Error && _searchQuery.value.isNotBlank()) {
-                    executeSearch()
+                viewModelScope.launch(Dispatchers.Main) {
+                    if (_uiState.value is SearchUiState.Error && _searchQuery.value.isNotBlank()) {
+                        executeSearch()
+                    }
                 }
             }
-        })
+        }
+
+        try {
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            cm.registerNetworkCallback(request, callback)
+            networkCallback = callback
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register network callback on this device profile", e)
+            networkCallback = null
+        }
     }
 
     private fun loadRecentSearches() {
@@ -206,5 +228,15 @@ class SearchViewModel @Inject constructor(
                 _uiState.value = SearchUiState.Error(e.localizedMessage ?: "Failed to find anime from AniList.")
             }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        networkCallback?.let { callback ->
+            try {
+                connectivityManager?.unregisterNetworkCallback(callback)
+            } catch (_: Exception) {}
+        }
+        networkCallback = null
     }
 }

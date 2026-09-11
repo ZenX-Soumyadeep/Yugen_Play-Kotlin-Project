@@ -1,7 +1,10 @@
 package com.zenx.yugen.play.di
 
+import android.app.Activity
+import android.app.Application
 import android.content.Context
 import android.net.Uri
+import android.os.Bundle
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
@@ -23,7 +26,6 @@ import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import java.io.File
-import java.io.IOException
 import java.net.CookieHandler
 import java.net.CookieManager
 import java.net.CookiePolicy
@@ -49,7 +51,47 @@ object DownloadModule {
         databaseProvider: DatabaseProvider
     ): Cache {
         val downloadDirectory = File(context.filesDir, "offline_anime")
-        return SimpleCache(downloadDirectory, NoOpCacheEvictor(), databaseProvider)
+        val cache = SimpleCache(downloadDirectory, NoOpCacheEvictor(), databaseProvider)
+
+        // Ensure database write-ahead log mode is configured cleanly
+        try {
+            databaseProvider.writableDatabase.execSQL("PRAGMA synchronous = NORMAL;")
+        } catch (_: Exception) {}
+
+        // Flush and checkpoint WAL journal when app transitions to background
+        (context.applicationContext as? Application)?.registerActivityLifecycleCallbacks(
+            object : Application.ActivityLifecycleCallbacks {
+                private var runningActivities = 0
+
+                override fun onActivityStarted(activity: Activity) {
+                    runningActivities++
+                }
+
+                override fun onActivityStopped(activity: Activity) {
+                    runningActivities = (runningActivities - 1).coerceAtLeast(0)
+                    if (runningActivities == 0) {
+                        try {
+                            databaseProvider.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL);")
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+                override fun onActivityResumed(activity: Activity) {}
+                override fun onActivityPaused(activity: Activity) {}
+                override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+                override fun onActivityDestroyed(activity: Activity) {}
+            }
+        )
+
+        // Graceful release on process termination
+        Runtime.getRuntime().addShutdownHook(Thread {
+            try {
+                cache.release()
+            } catch (_: Exception) {}
+        })
+
+        return cache
     }
 
     @Provides
@@ -74,61 +116,16 @@ object DownloadModule {
             CookieHandler.setDefault(cookieManager)
         }
 
-        val rateLimitLock = Any()
-        var lastGlobalRequestTime = 0L
-
+        // Dedicated download client without thread-blocking sleeps in the interceptor
         val downloadOkHttpClient = globalOkHttpClient.newBuilder()
             .dispatcher(Dispatcher().apply {
-                maxRequests = 12
-                maxRequestsPerHost = 3
+                maxRequests = 16
+                maxRequestsPerHost = 4
             })
             .connectionPool(ConnectionPool(10, 2, TimeUnit.MINUTES))
-            .connectTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
-            .addInterceptor { chain ->
-                val request = chain.request()
-                val minDelayMs = 125L
-
-                var sleepTime = 0L
-                synchronized(rateLimitLock) {
-                    val now = System.currentTimeMillis()
-                    if (now - lastGlobalRequestTime < minDelayMs) {
-                        sleepTime = minDelayMs - (now - lastGlobalRequestTime)
-                        lastGlobalRequestTime = now + sleepTime
-                    } else {
-                        lastGlobalRequestTime = now
-                    }
-                }
-
-                if (sleepTime > 0L) {
-                    try {
-                        Thread.sleep(sleepTime.coerceIn(0L, 5000L))
-                    } catch (e: InterruptedException) {
-                        Thread.currentThread().interrupt()
-                        throw IOException("Download request cancelled during pace delay", e)
-                    }
-                }
-
-                var response = chain.proceed(request)
-                var tryCount = 0
-
-                while ((response.code == 429 || response.code == 503) && tryCount < 3) {
-                    tryCount++
-                    val retryAfterSeconds = response.header("Retry-After")?.toLongOrNull() ?: (2L * tryCount)
-                    val backoffMs = (retryAfterSeconds * 1000L).coerceIn(1000L, 5000L)
-                    response.close()
-                    try {
-                        Thread.sleep(backoffMs)
-                    } catch (e: InterruptedException) {
-                        Thread.currentThread().interrupt()
-                        throw IOException("Download request cancelled during backoff delay", e)
-                    }
-                    response = chain.proceed(request)
-                }
-
-                response
-            }
             .build()
 
         val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"

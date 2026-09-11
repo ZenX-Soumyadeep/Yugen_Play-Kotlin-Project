@@ -2,7 +2,6 @@ package com.zenx.yugen.play.ui.detail
 
 import android.content.Context
 import android.net.Uri
-import android.os.Environment
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
@@ -57,6 +56,7 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
@@ -106,6 +106,8 @@ data class EpisodeUiModel(
 private data class EpisodeData(val episodes: List<Episode>, val provider: String, val isMapped: Boolean, val isLoading: Boolean, val error: String?)
 private data class UserData(val favorites: List<FavoriteEntity>, val anilistEntry: UserListEntry?)
 private data class PlaybackData(val history: List<WatchHistoryEntity>, val dlStates: Map<String, DownloadState>, val dlProgresses: Map<String, Float>, val preparing: Set<String>)
+
+private data class MetadataPayloadResult(val data: ByteArray, val wasSubtitlesTruncated: Boolean)
 
 @OptIn(UnstableApi::class)
 @HiltViewModel
@@ -176,6 +178,7 @@ class DetailViewModel @Inject constructor(
     private var currentMediaId: Int? = null
     private var collectorJob: Job? = null
     private var searchJob: Job? = null
+    private var loadEpisodesJob: Job? = null
 
     init { loadMetadata() }
 
@@ -210,7 +213,7 @@ class DetailViewModel @Inject constructor(
     fun dismissIsland() {
         val targetEp = _resumeEpisode.value ?: _episodes.value.firstOrNull()?.firstOrNull()
         if (targetEp != null) {
-            val isCont = _resumeEpisode.value != null
+            val isCont = _resumeEpisode.value != null && !_resumeEpisode.value!!.isWatched
             val current = _islandState.value
             if (current is IslandState.Idle && current.episode.id == targetEp.id && current.isContinue == isCont) return
             _islandState.value = IslandState.Idle(targetEp, isContinue = isCont)
@@ -225,7 +228,7 @@ class DetailViewModel @Inject constructor(
 
         val targetEp = resumeEp ?: allChunks.firstOrNull()?.firstOrNull()
         if (targetEp != null) {
-            val isCont = resumeEp != null
+            val isCont = resumeEp != null && !resumeEp.isWatched
             if (current is IslandState.Idle && current.episode.id == targetEp.id && current.isContinue == isCont) {
                 return
             }
@@ -246,8 +249,9 @@ class DetailViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = DetailsUiState.Loading
 
-            val details = if (animeId.isNotBlank() && animeId != "null") {
-                getAnimeDetailsUseCase(animeId.toInt())
+            val numericId = animeId.toIntOrNull()
+            val details = if (numericId != null) {
+                getAnimeDetailsUseCase(numericId)
             } else {
                 getAnimeDetailsUseCase(animeTitle)
             }
@@ -258,7 +262,7 @@ class DetailViewModel @Inject constructor(
             }
 
             animeDetailsFlow.value = details
-            currentMediaId = details.id.toIntOrNull() ?: animeId.toIntOrNull()
+            currentMediaId = details.id.toIntOrNull() ?: numericId
 
             val token = authPreferences.authState.value.token
             if (token != null && currentMediaId != null) {
@@ -276,7 +280,8 @@ class DetailViewModel @Inject constructor(
 
     private fun loadEpisodes() {
         val mediaId = currentMediaId ?: animeId.toIntOrNull() ?: animeDetailsFlow.value?.id?.toIntOrNull()
-        viewModelScope.launch(Dispatchers.IO) {
+        loadEpisodesJob?.cancel()
+        loadEpisodesJob = viewModelScope.launch(Dispatchers.IO) {
             isEpisodesLoading.value = true
             episodeError.value = null
             rawEpisodesFlow.value = emptyList()
@@ -299,8 +304,8 @@ class DetailViewModel @Inject constructor(
         }
     }
 
-    fun triggerMappingSearch() {
-        if (_mappingSearchQuery.value.isNotBlank() && _mappingSearchResults.value.data.isNullOrEmpty()) {
+    fun triggerMappingSearch(force: Boolean = false) {
+        if (_mappingSearchQuery.value.isNotBlank() && (force || _mappingSearchResults.value.data.isNullOrEmpty())) {
             searchProviderForMapping(_mappingSearchQuery.value)
         }
     }
@@ -406,9 +411,35 @@ class DetailViewModel @Inject constructor(
 
                     val sortedHistory = pbData.history.filter { it.animeTitle == animeTitle }.sortedByDescending { it.lastWatchedAt }
                     if (sortedHistory.isNotEmpty() && sortedHistory.first().progressMs > 0L) {
-                        val lastUi = updatedEps.find { it.id == sortedHistory.first().episodeId }
-                        _resumeEpisode.value = if (lastUi?.isWatched == true) updatedEps.getOrNull(updatedEps.indexOf(lastUi) + 1) else lastUi
-                    } else _resumeEpisode.value = null
+                        val lastWatchedId = sortedHistory.first().episodeId
+                        val lastUiIndex = updatedEps.indexOfFirst { it.id == lastWatchedId }
+
+                        if (lastUiIndex != -1) {
+                            val lastUi = updatedEps[lastUiIndex]
+                            _resumeEpisode.value = if (lastUi.isWatched) {
+                                updatedEps.getOrNull(lastUiIndex + 1) ?: lastUi
+                            } else {
+                                lastUi
+                            }
+                        } else {
+                            val fallbackIndex = updatedEps.indexOfFirst { ep ->
+                                val num = ep.number.toIntOrNull()
+                                num != null && (
+                                        lastWatchedId.endsWith("_$num") ||
+                                                lastWatchedId.contains("ep$num", ignoreCase = true) ||
+                                                lastWatchedId.contains("episode$num", ignoreCase = true)
+                                        )
+                            }
+                            _resumeEpisode.value = if (fallbackIndex != -1) {
+                                val fallbackUi = updatedEps[fallbackIndex]
+                                if (fallbackUi.isWatched) updatedEps.getOrNull(fallbackIndex + 1) ?: fallbackUi else fallbackUi
+                            } else {
+                                null
+                            }
+                        }
+                    } else {
+                        _resumeEpisode.value = null
+                    }
 
                     val chunks = updatedEps.chunked(24)
                     updateDefaultIslandState(_resumeEpisode.value, chunks)
@@ -427,16 +458,24 @@ class DetailViewModel @Inject constructor(
         }
     }
 
+    private fun hashEpisodeId(episodeId: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(episodeId.toByteArray(Charsets.UTF_8))
+        return bytes.take(8).joinToString("") { "%02x".format(it) }
+    }
+
     private suspend fun downloadSubtitleLocally(url: String, episodeId: String, label: String, headers: Map<String, String>): String {
         return withContext(Dispatchers.IO) {
             try {
+                val safeId = hashEpisodeId(episodeId)
+                val safeLabel = label.replace(Regex("[^a-zA-Z0-9]"), "")
+                val file = File(context.filesDir, "sub_${safeId}_${safeLabel}.vtt")
+
                 val requestBuilder = Request.Builder().url(url)
                 headers.forEach { (key, value) -> requestBuilder.addHeader(key, value) }
                 if (!headers.containsKey("User-Agent") && !headers.containsKey("user-agent")) requestBuilder.addHeader("User-Agent", "Mozilla/5.0")
 
                 okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
                     if (!response.isSuccessful) return@withContext url
-                    val file = File(context.filesDir, "sub_${episodeId.hashCode().toString().replace("-", "N")}_${label.replace(Regex("[^a-zA-Z0-9]"), "")}.vtt")
                     file.writeText(response.body?.string() ?: return@withContext url)
                     "file://${file.absolutePath}"
                 }
@@ -444,9 +483,71 @@ class DetailViewModel @Inject constructor(
         }
     }
 
+    private fun buildOptimizedMetadataPayload(
+        animeTitle: String,
+        episodeNumber: String,
+        episodeTitle: String,
+        posterUrl: String,
+        subtitles: List<JSONObject>,
+        headers: JSONObject,
+        skipIntervals: List<JSONObject>
+    ): MetadataPayloadResult {
+        val fullJson = JSONObject().apply {
+            put("animeTitle", animeTitle)
+            put("episodeNumber", episodeNumber)
+            put("episodeTitle", episodeTitle)
+            put("posterUrl", posterUrl)
+            put("subtitles", JSONArray(subtitles))
+            put("headers", headers)
+            put("skipIntervals", JSONArray(skipIntervals))
+        }
+
+        var bytes = fullJson.toString().toByteArray(Charsets.UTF_8)
+        if (bytes.size <= 3800) return MetadataPayloadResult(bytes, wasSubtitlesTruncated = false)
+
+        fullJson.remove("posterUrl")
+        bytes = fullJson.toString().toByteArray(Charsets.UTF_8)
+        if (bytes.size <= 3800) return MetadataPayloadResult(bytes, wasSubtitlesTruncated = false)
+
+        fullJson.remove("skipIntervals")
+        bytes = fullJson.toString().toByteArray(Charsets.UTF_8)
+        if (bytes.size <= 3800) return MetadataPayloadResult(bytes, wasSubtitlesTruncated = false)
+
+        fullJson.remove("episodeTitle")
+        bytes = fullJson.toString().toByteArray(Charsets.UTF_8)
+        if (bytes.size <= 3800) return MetadataPayloadResult(bytes, wasSubtitlesTruncated = false)
+
+        var wasTruncated = false
+        if (subtitles.isNotEmpty()) {
+            val sortedSubs = subtitles.sortedByDescending {
+                it.optBoolean("isDefault", false) || it.optString("label").contains("English", ignoreCase = true)
+            }
+            val prunedSubs = JSONArray()
+
+            for (sub in sortedSubs) {
+                prunedSubs.put(sub)
+                fullJson.put("subtitles", prunedSubs)
+                if (fullJson.toString().toByteArray(Charsets.UTF_8).size > 3800) {
+                    prunedSubs.remove(prunedSubs.length() - 1)
+                    fullJson.put("subtitles", prunedSubs)
+                    wasTruncated = true
+                    break
+                }
+            }
+
+            if (prunedSubs.length() == 0 && sortedSubs.isNotEmpty()) {
+                prunedSubs.put(sortedSubs.first())
+                fullJson.put("subtitles", prunedSubs)
+                wasTruncated = true
+            }
+        }
+
+        return MetadataPayloadResult(fullJson.toString().toByteArray(Charsets.UTF_8), wasSubtitlesTruncated = wasTruncated)
+    }
+
     fun enqueueDownload(episode: EpisodeUiModel, stream: VideoStream) {
         if (stream.url.isBlank() || stream.url.contains("/watch/")) return
-        if (Environment.getDataDirectory().usableSpace < 500L * 1024 * 1024) {
+        if (context.filesDir.usableSpace < 500L * 1024 * 1024) {
             viewModelScope.launch(Dispatchers.Main) { Toast.makeText(context, "Not enough storage.", Toast.LENGTH_LONG).show() }
             return
         }
@@ -455,26 +556,49 @@ class DetailViewModel @Inject constructor(
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val subsArray = JSONArray()
+                val downloadedSubs = mutableListOf<JSONObject>()
                 stream.subtitles.forEach { sub ->
-                    if (sub.url.isNotBlank()) subsArray.put(JSONObject().apply { put("url", downloadSubtitleLocally(sub.url, episode.id, sub.label, stream.headers)); put("label", sub.label); put("isDefault", sub.isDefault) })
+                    if (sub.url.isNotBlank()) {
+                        val localPath = downloadSubtitleLocally(sub.url, episode.id, sub.label, stream.headers)
+                        downloadedSubs.add(
+                            JSONObject().apply {
+                                put("url", localPath)
+                                put("label", sub.label)
+                                put("isDefault", sub.isDefault)
+                            }
+                        )
+                    }
                 }
+
                 val headersObj = JSONObject().apply { stream.headers.forEach { (k, v) -> put(k, v) } }
-                val skipsArray = JSONArray().apply { stream.skipIntervals.forEach { skip -> put(JSONObject().apply { put("startTime", skip.startTime); put("endTime", skip.endTime); put("type", skip.type) }) } }
-
-                val fullJson = JSONObject().apply {
-                    put("animeTitle", animeTitle); put("episodeNumber", episode.number); put("episodeTitle", episode.title)
-                    put("posterUrl", navPosterUrl); put("subtitles", subsArray); put("headers", headersObj); put("skipIntervals", skipsArray)
+                val skipObjs = stream.skipIntervals.map { skip ->
+                    JSONObject().apply {
+                        put("startTime", skip.startTime)
+                        put("endTime", skip.endTime)
+                        put("type", skip.type)
+                    }
                 }
 
-                var customMetadata = fullJson.toString().toByteArray(Charsets.UTF_8)
-                if (customMetadata.size > 4000) { fullJson.remove("subtitles"); fullJson.remove("skipIntervals"); customMetadata = fullJson.toString().toByteArray(Charsets.UTF_8) }
-                if (customMetadata.size > 4000) { fullJson.remove("posterUrl"); fullJson.remove("episodeTitle"); customMetadata = fullJson.toString().toByteArray(Charsets.UTF_8) }
+                val payloadResult = buildOptimizedMetadataPayload(
+                    animeTitle = animeTitle,
+                    episodeNumber = episode.number,
+                    episodeTitle = episode.title,
+                    posterUrl = navPosterUrl,
+                    subtitles = downloadedSubs,
+                    headers = headersObj,
+                    skipIntervals = skipObjs
+                )
+
+                if (payloadResult.wasSubtitlesTruncated) {
+                    viewModelScope.launch(Dispatchers.Main) {
+                        Toast.makeText(context, "Secondary subtitles truncated to fit download limits.", Toast.LENGTH_SHORT).show()
+                    }
+                }
 
                 val secureStreamUrl = "${stream.url}${if(stream.url.contains("?")) "&" else "?"}y_ref=${Uri.encode(stream.headers["Referer"] ?: "https://megaplay.buzz/")}&y_ori=${Uri.encode(stream.headers["Origin"] ?: "https://megaplay.buzz/")}"
                 val request = DownloadRequest.Builder(episode.id, secureStreamUrl.toUri())
                     .setMimeType(if (stream.isM3U8 || stream.url.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.VIDEO_MP4)
-                    .setData(customMetadata).build()
+                    .setData(payloadResult.data).build()
 
                 DownloadService.sendAddDownload(context, VideoDownloadService::class.java, request, false)
             } finally {
@@ -522,6 +646,7 @@ class DetailViewModel @Inject constructor(
     override fun onCleared() {
         searchJob?.cancel()
         collectorJob?.cancel()
+        loadEpisodesJob?.cancel()
     }
 }
 

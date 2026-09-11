@@ -1,5 +1,6 @@
 package com.zenx.yugen.play.ui.detail
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -28,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.zenx.yugen.play.ui.components.bounceClick
+import com.zenx.yugen.play.ui.components.premiumShimmerEffect
 
 @Composable
 fun DetailScreen(
@@ -48,6 +50,7 @@ fun DetailScreen(
     val glassBorder = Color.White.copy(alpha = 0.12f)
     val accentPurple = Color(0xFF8B5CF6)
 
+    // Auto-play the stream once the island successfully fetches the servers
     LaunchedEffect(islandState) {
         if (islandState is IslandState.ServerSelection) {
             val s = islandState as IslandState.ServerSelection
@@ -71,7 +74,7 @@ fun DetailScreen(
         }
 
         when (val state = uiState) {
-            is DetailsUiState.Loading -> CircularProgressIndicator(color = accentPurple, modifier = Modifier.align(Alignment.Center))
+            is DetailsUiState.Loading -> DetailSkeleton()
             is DetailsUiState.Error -> Text(state.message, color = Color.Red, modifier = Modifier.align(Alignment.Center).padding(24.dp))
             is DetailsUiState.Success -> {
                 var selectedChunkIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -158,7 +161,7 @@ fun DetailScreen(
                     }
 
                     if (state.isEpisodesLoading) {
-                        item { Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = accentPurple) } }
+                        items(6) { EpisodeSkeletonRow() }
                     } else if (state.episodeError != null) {
                         item { Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { Text(state.episodeError, color = Color.Red) } }
                     } else {
@@ -207,10 +210,12 @@ fun DetailScreen(
             }
         }
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
+        // Restored: Dynamic Action Island for BOTH Streaming and Downloads
+        AnimatedVisibility(
+            visible = islandState !is IslandState.Hidden,
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
         ) {
             DynamicActionIsland(
                 state = islandState,
@@ -222,8 +227,16 @@ fun DetailScreen(
                 onStreamSelected = { selectedStream ->
                     val currentState = islandState
                     if (currentState is IslandState.ServerSelection) {
-                        viewModel.enqueueDownload(currentState.episode, selectedStream)
-                        viewModel.dismissIsland()
+                        if (viewModel.isDownloadMode) {
+                            viewModel.enqueueDownload(currentState.episode, selectedStream)
+                            viewModel.dismissIsland()
+                        } else {
+                            val state = uiState as? DetailsUiState.Success
+                            if (state != null) {
+                                onEpisodeClick(currentState.episode.id, viewModel.animeUrl, viewModel.animeTitle, state.posterUrl, selectedStream.url)
+                                viewModel.dismissIsland()
+                            }
+                        }
                     }
                 },
                 onConfirmDelete = { ep ->
@@ -231,6 +244,43 @@ fun DetailScreen(
                 },
                 onDismiss = { viewModel.dismissIsland() }
             )
+        }
+    }
+}
+
+@Composable
+fun DetailSkeleton() {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxWidth().height(350.dp).premiumShimmerEffect())
+        Column(modifier = Modifier.padding(16.dp)) {
+            Box(modifier = Modifier.width(220.dp).height(28.dp).clip(RoundedCornerShape(8.dp)).premiumShimmerEffect())
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(modifier = Modifier.width(60.dp).height(24.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
+                Box(modifier = Modifier.width(80.dp).height(24.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            Box(modifier = Modifier.fillMaxWidth().height(14.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(modifier = Modifier.fillMaxWidth(0.85f).height(14.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(modifier = Modifier.fillMaxWidth(0.6f).height(14.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
+        }
+    }
+}
+
+@Composable
+fun EpisodeSkeletonRow() {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(modifier = Modifier.width(130.dp).aspectRatio(16 / 9f).clip(RoundedCornerShape(12.dp)).premiumShimmerEffect())
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Box(modifier = Modifier.fillMaxWidth(0.8f).height(16.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(modifier = Modifier.fillMaxWidth(0.5f).height(12.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
         }
     }
 }

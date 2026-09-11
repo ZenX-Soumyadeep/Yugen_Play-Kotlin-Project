@@ -2,27 +2,19 @@ package com.zenx.yugen.play.ui
 
 import android.net.Uri
 import androidx.compose.animation.*
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -31,7 +23,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.zenx.yugen.play.ui.calendar.CalendarScreen
-import com.zenx.yugen.play.ui.components.bounceClick
+import com.zenx.yugen.play.ui.components.FloatingAnimatedBottomBar
 import com.zenx.yugen.play.ui.detail.DetailScreen
 import com.zenx.yugen.play.ui.home.HomeScreen
 import com.zenx.yugen.play.ui.library.LibraryScreen
@@ -45,6 +37,21 @@ sealed class BottomNavItem(val route: String, val label: String, val selectedIco
     data object Calendar : BottomNavItem("calendar", "Calendar", Icons.Filled.DateRange, Icons.Outlined.DateRange)
     data object Library : BottomNavItem("library", "Library", Icons.Filled.Favorite, Icons.Outlined.FavoriteBorder)
     data object Downloads : BottomNavItem("downloads", "Downloads", Icons.Filled.Download, Icons.Outlined.Download)
+}
+
+private fun buildPlayerRoute(
+    episodeId: String,
+    animeUrl: String = "",
+    title: String = "",
+    poster: String = "",
+    streamUrl: String? = null
+): String {
+    val epId = Uri.encode(episodeId)
+    val aUrl = Uri.encode(animeUrl)
+    val t = Uri.encode(title)
+    val p = Uri.encode(poster)
+    val s = streamUrl?.takeIf { it.isNotBlank() }?.let { Uri.encode(it) } ?: ""
+    return "player/$epId?animeUrl=$aUrl&title=$t&poster=$p&streamUrl=$s"
 }
 
 @Composable
@@ -61,16 +68,16 @@ fun MainScreen() {
     )
     val bottomNavRoutes = remember { bottomNavItems.map { it.route } }
 
-    var activeTabRoute by remember { mutableStateOf(BottomNavItem.Home.route) }
-
-    // FIX 1: Synchronous state calculation. No more LaunchedEffect 1-frame jitter.
-    val showBottomBar = currentRoute in bottomNavRoutes
-    remember(currentRoute) {
-        if (showBottomBar && currentRoute != null) {
-            activeTabRoute = currentRoute
+    val activeTabRoute = remember(currentRoute) {
+        when {
+            currentRoute?.startsWith(BottomNavItem.Calendar.route) == true -> BottomNavItem.Calendar.route
+            currentRoute?.startsWith(BottomNavItem.Library.route) == true -> BottomNavItem.Library.route
+            currentRoute?.startsWith(BottomNavItem.Downloads.route) == true -> BottomNavItem.Downloads.route
+            else -> BottomNavItem.Home.route
         }
-        true
     }
+
+    val showBottomBar = currentRoute in bottomNavRoutes
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF09090B))) {
 
@@ -80,30 +87,42 @@ fun MainScreen() {
             modifier = Modifier.fillMaxSize(),
             enterTransition = {
                 if (initialState.destination.route in bottomNavRoutes && targetState.destination.route in bottomNavRoutes) {
-                    fadeIn(tween(250))
+                    EnterTransition.None
                 } else {
-                    slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300)) + fadeIn()
+                    slideIntoContainer(
+                        towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                        animationSpec = tween(250, easing = FastOutSlowInEasing)
+                    ) + fadeIn(tween(200))
                 }
             },
             exitTransition = {
                 if (initialState.destination.route in bottomNavRoutes && targetState.destination.route in bottomNavRoutes) {
-                    fadeOut(tween(250))
+                    ExitTransition.None
                 } else {
-                    fadeOut(tween(300))
+                    slideOutOfContainer(
+                        towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                        animationSpec = tween(250, easing = FastOutSlowInEasing)
+                    ) + fadeOut(tween(200))
                 }
             },
             popEnterTransition = {
                 if (initialState.destination.route in bottomNavRoutes && targetState.destination.route in bottomNavRoutes) {
-                    fadeIn(tween(250))
+                    EnterTransition.None
                 } else {
-                    fadeIn(tween(300))
+                    slideIntoContainer(
+                        towards = AnimatedContentTransitionScope.SlideDirection.End,
+                        animationSpec = tween(250, easing = FastOutSlowInEasing)
+                    ) + fadeIn(tween(200))
                 }
             },
             popExitTransition = {
                 if (initialState.destination.route in bottomNavRoutes && targetState.destination.route in bottomNavRoutes) {
-                    fadeOut(tween(250))
+                    ExitTransition.None
                 } else {
-                    slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(300)) + fadeOut()
+                    slideOutOfContainer(
+                        towards = AnimatedContentTransitionScope.SlideDirection.End,
+                        animationSpec = tween(250, easing = FastOutSlowInEasing)
+                    ) + fadeOut(tween(200))
                 }
             }
         ) {
@@ -111,11 +130,24 @@ fun MainScreen() {
                 HomeScreen(
                     onSearchClick = { navController.navigate("search") },
                     onAnimeClick = { id, title, posterUrl -> navController.navigate("detail?id=${Uri.encode(id)}&url=&title=${Uri.encode(title)}&poster=${Uri.encode(posterUrl)}") },
-                    onHistoryClick = { episodeId, title, poster -> navController.navigate("player/${Uri.encode(episodeId)}?animeUrl=&title=${Uri.encode(title)}&poster=${Uri.encode(poster)}&streamUrl=") },
+                    onHistoryClick = { episodeId, title, poster ->
+                        if (episodeId.startsWith("CLOUD_SYNC_")) {
+                            val mediaId = episodeId.removePrefix("CLOUD_SYNC_").substringBefore("_")
+                            navController.navigate("detail?id=${Uri.encode(mediaId)}&url=&title=${Uri.encode(title)}&poster=${Uri.encode(poster)}")
+                        } else {
+                            navController.navigate(buildPlayerRoute(episodeId = episodeId, title = title, poster = poster))
+                        }
+                    },
                     onProfileClick = { navController.navigate("profile") },
                     onSettingsClick = { navController.navigate("settings") },
-                    onTrendingViewAll = { navController.navigate("search") },
-                    onAiringViewAll = { navController.navigate(BottomNavItem.Calendar.route) }
+                    onTrendingViewAll = { navController.navigate("search?sort=TRENDING_DESC") },
+                    onAiringViewAll = {
+                        navController.navigate(BottomNavItem.Calendar.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
                 )
             }
 
@@ -125,7 +157,10 @@ fun MainScreen() {
                 )
             }
 
-            composable("search") {
+            composable(
+                route = "search?sort={sort}",
+                arguments = listOf(navArgument("sort") { type = NavType.StringType; nullable = true })
+            ) {
                 SearchScreen(
                     onAnimeClick = { id, title, posterUrl ->
                         navController.navigate("detail?id=${Uri.encode(id)}&url=&title=${Uri.encode(title)}&poster=${Uri.encode(posterUrl)}")
@@ -137,7 +172,14 @@ fun MainScreen() {
             composable(BottomNavItem.Library.route) {
                 LibraryScreen(
                     onAnimeClick = { id, title, posterUrl -> navController.navigate("detail?id=${Uri.encode(id)}&url=&title=${Uri.encode(title)}&poster=${Uri.encode(posterUrl)}") },
-                    onHistoryClick = { episodeId, title, poster -> navController.navigate("player/${Uri.encode(episodeId)}?animeUrl=&title=${Uri.encode(title)}&poster=${Uri.encode(poster)}&streamUrl=") }
+                    onHistoryClick = { episodeId, title, poster ->
+                        if (episodeId.startsWith("CLOUD_SYNC_")) {
+                            val mediaId = episodeId.removePrefix("CLOUD_SYNC_").substringBefore("_")
+                            navController.navigate("detail?id=${Uri.encode(mediaId)}&url=&title=${Uri.encode(title)}&poster=${Uri.encode(poster)}")
+                        } else {
+                            navController.navigate(buildPlayerRoute(episodeId = episodeId, title = title, poster = poster))
+                        }
+                    }
                 )
             }
 
@@ -145,7 +187,7 @@ fun MainScreen() {
                 com.zenx.yugen.play.ui.downloads.DownloadsScreen(
                     onBackClick = { navController.popBackStack() },
                     onPlayClick = { episodeId, animeUrl, title, poster ->
-                        navController.navigate("player/${Uri.encode(episodeId)}?animeUrl=${Uri.encode(animeUrl)}&title=${Uri.encode(title)}&poster=${Uri.encode(poster)}&streamUrl=")
+                        navController.navigate(buildPlayerRoute(episodeId = episodeId, animeUrl = animeUrl, title = title, poster = poster))
                     }
                 )
             }
@@ -170,8 +212,7 @@ fun MainScreen() {
             ) {
                 DetailScreen(
                     onEpisodeClick = { episodeId, animeUrl, title, poster, streamUrl ->
-                        val encodedStream = streamUrl?.let { Uri.encode(it) } ?: ""
-                        navController.navigate("player/${Uri.encode(episodeId)}?animeUrl=${Uri.encode(animeUrl)}&title=${Uri.encode(title)}&poster=${Uri.encode(poster)}&streamUrl=$encodedStream")
+                        navController.navigate(buildPlayerRoute(episodeId = episodeId, animeUrl = animeUrl, title = title, poster = poster, streamUrl = streamUrl))
                     },
                     onBackClick = { navController.popBackStack() },
                     onDownloadsClick = { navController.navigate(BottomNavItem.Downloads.route) }
@@ -208,7 +249,7 @@ fun MainScreen() {
                     items = bottomNavItems,
                     currentRoute = activeTabRoute,
                     onItemClick = { route ->
-                        if (activeTabRoute != route) {
+                        if (currentRoute != route) {
                             navController.navigate(route) {
                                 popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                                 launchSingleTop = true
@@ -218,87 +259,6 @@ fun MainScreen() {
                     }
                 )
             }
-        }
-    }
-}
-
-@Composable
-fun FloatingAnimatedBottomBar(
-    items: List<BottomNavItem>,
-    currentRoute: String,
-    onItemClick: (String) -> Unit
-) {
-    val glassPillBg = Color(0xFF141416).copy(alpha = 0.85f)
-    val glassBorder = Color.White.copy(alpha = 0.12f)
-
-    Row(
-        modifier = Modifier
-            // FIX 2: Removed .animateContentSize() from the parent Row.
-            // It was creating a recursive layout calculation loop with the child items.
-            .clip(RoundedCornerShape(100.dp))
-            .background(glassPillBg)
-            .border(1.dp, glassBorder, RoundedCornerShape(100.dp))
-            .padding(horizontal = 8.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        items.forEach { item ->
-            AnimatedBottomBarItem(
-                item = item,
-                isSelected = currentRoute == item.route,
-                onClick = { onItemClick(item.route) }
-            )
-        }
-    }
-}
-
-@Composable
-fun AnimatedBottomBarItem(
-    item: BottomNavItem,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    val accentPurple = Color(0xFF8B5CF6)
-
-    val backgroundColor by animateColorAsState(
-        targetValue = if (isSelected) accentPurple.copy(alpha = 0.15f) else Color.Transparent,
-        label = "bottom_bar_bg_color"
-    )
-
-    val contentColor by animateColorAsState(
-        targetValue = if (isSelected) accentPurple else Color.Gray,
-        label = "bottom_bar_content_color"
-    )
-
-    Row(
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(backgroundColor)
-            .bounceClick { onClick() }
-            .padding(horizontal = 14.dp, vertical = 10.dp)
-            .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Icon(
-            imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
-            contentDescription = item.label,
-            tint = contentColor,
-            modifier = Modifier.size(24.dp)
-        )
-
-        if (isSelected) {
-            Text(
-                text = item.label,
-                color = contentColor,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
-            )
         }
     }
 }

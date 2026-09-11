@@ -17,6 +17,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -25,16 +26,25 @@ import org.jsoup.Jsoup
 import java.io.IOException
 import java.net.URI
 import java.net.URLEncoder
+import java.security.GeneralSecurityException
 import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
-    continuation.invokeOnCancellation { cancel() }
+    continuation.invokeOnCancellation {
+        try {
+            cancel()
+        } catch (_: Throwable) {}
+    }
     enqueue(object : Callback {
         override fun onResponse(call: Call, response: Response) {
-            continuation.resume(response)
+            continuation.resume(response) {
+                try {
+                    response.close()
+                } catch (_: Throwable) {}
+            }
         }
         override fun onFailure(call: Call, e: IOException) {
             if (!continuation.isCancelled) {
@@ -43,6 +53,16 @@ private suspend fun Call.await(): Response = suspendCancellableCoroutine { conti
         }
     })
 }
+
+// Issue 4 Fix: Encapsulate keys into a data class to support dynamic fetching/overrides
+data class ProviderKeys(
+    val exchangeKey1: List<String>,
+    val key1: String,
+    val key2: String,
+    val exchangeKey2: List<String>,
+    val exchangeKey3: List<String>,
+    val key3: String
+)
 
 class AnikotoProvider(
     private val client: OkHttpClient
@@ -53,47 +73,100 @@ class AnikotoProvider(
 
     private val tag = "YUGEN_PLAYER"
 
-    // --- VRF Cryptography Engine ---
-    private val exchangeKey1 = listOf("AP6GeR8H0lwUz1", "UAz8Gwl10P6ReH")
-    private val key1 = "ItFKjuWokn4ZpB"
-    private val key2 = "fOyt97QWFB3"
-    private val exchangeKey2 = listOf("1majSlPQd2M5", "da1l2jSmP5QM")
-    private val exchangeKey3 = listOf("CPYvHj09Au3", "0jHA9CPYu3v")
-    private val key3 = "736y1uTJpBLUX"
+    // Default hardcoded fallback keys
+    private val defaultKeys = ProviderKeys(
+        exchangeKey1 = listOf("AP6GeR8H0lwUz1", "UAz8Gwl10P6ReH"),
+        key1 = "ItFKjuWokn4ZpB",
+        key2 = "fOyt97QWFB3",
+        exchangeKey2 = listOf("1majSlPQd2M5", "da1l2jSmP5QM"),
+        exchangeKey3 = listOf("CPYvHj09Au3", "0jHA9CPYu3v"),
+        key3 = "736y1uTJpBLUX"
+    )
 
-    private fun vrfEncrypt(input: String): String {
-        var vrf = input
-        vrf = exchange(vrf, exchangeKey1)
-        vrf = rc4Encrypt(key1, vrf)
-        vrf = rc4Encrypt(key2, vrf)
-        vrf = exchange(vrf, exchangeKey2)
-        vrf = exchange(vrf, exchangeKey3)
-        vrf = vrf.reversed()
-        vrf = rc4Encrypt(key3, vrf)
-        vrf = Base64.encodeToString(vrf.toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP)
-        return URLEncoder.encode(vrf, "utf-8")
+    private var activeKeys: ProviderKeys? = null
+
+    // Issue 4 Fix: Dynamically fetch keys from a remote config URL, falling back to local defaults if offline.
+    private suspend fun getActiveKeys(): ProviderKeys {
+        activeKeys?.let { return it }
+        val configUrl = "https://raw.githubusercontent.com/ZenX-Soumyadeep/Yugen_Play-Kotlin-Project/main/provider_keys.json"
+
+        try {
+            val response = client.newCall(Request.Builder().url(configUrl).build()).await().use {
+                if (it.isSuccessful) it.body?.string() else null
+            }
+            if (!response.isNullOrBlank()) {
+                val json = JSONObject(response)
+                val parsedKeys = ProviderKeys(
+                    exchangeKey1 = listOf(json.optString("ek1_1"), json.optString("ek1_2")),
+                    key1 = json.optString("k1"),
+                    key2 = json.optString("k2"),
+                    exchangeKey2 = listOf(json.optString("ek2_1"), json.optString("ek2_2")),
+                    exchangeKey3 = listOf(json.optString("ek3_1"), json.optString("ek3_2")),
+                    key3 = json.optString("k3")
+                )
+                // Basic validation to ensure keys aren't empty
+                if (parsedKeys.key1.isNotBlank()) {
+                    activeKeys = parsedKeys
+                    return parsedKeys
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to fetch dynamic provider keys, using local defaults.", e)
+        }
+
+        activeKeys = defaultKeys
+        return defaultKeys
+    }
+
+    private suspend fun vrfEncrypt(input: String): String {
+        val keys = getActiveKeys()
+        try {
+            var vrf = input
+            vrf = exchange(vrf, keys.exchangeKey1)
+            vrf = rc4Encrypt(keys.key1, vrf)
+            vrf = rc4Encrypt(keys.key2, vrf)
+            vrf = exchange(vrf, keys.exchangeKey2)
+            vrf = exchange(vrf, keys.exchangeKey3)
+            vrf = vrf.reversed()
+            vrf = rc4Encrypt(keys.key3, vrf)
+            val encodedBytes = Base64.encodeToString(vrf.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
+            return URLEncoder.encode(encodedBytes, "UTF-8")
+        } catch (e: GeneralSecurityException) {
+            Log.e(tag, "VRF cipher failure. Encryption keys may be invalid.", e)
+            throw IllegalStateException("Provider encryption keys are outdated.", e)
+        } catch (e: Exception) {
+            Log.e(tag, "Unexpected failure during VRF transformation: ${e.message}", e)
+            throw e
+        }
     }
 
     private fun rc4Encrypt(key: String, input: String): String {
-        val rc4Key = SecretKeySpec(key.toByteArray(), "RC4")
+        val rc4Key = SecretKeySpec(key.toByteArray(Charsets.UTF_8), "RC4")
         val cipher = Cipher.getInstance("RC4")
         cipher.init(Cipher.ENCRYPT_MODE, rc4Key)
-        val output = cipher.doFinal(input.toByteArray())
+        val output = cipher.doFinal(input.toByteArray(Charsets.UTF_8))
         return Base64.encodeToString(output, Base64.URL_SAFE or Base64.NO_WRAP)
     }
 
+    // Issue 4 Fix: Safe index bounds checking to prevent IndexOutOfBoundsException if remote table lengths change
     private fun exchange(input: String, keys: List<String>): String {
-        val sourceChars = keys[0]
-        val targetChars = keys[1]
+        val sourceChars = keys.getOrNull(0) ?: return input
+        val targetChars = keys.getOrNull(1) ?: return input
         return input.map { i ->
             val idx = sourceChars.indexOf(i)
-            if (idx != -1) targetChars[idx] else i
+            if (idx != -1 && idx < targetChars.length) targetChars[idx] else i
         }.joinToString("")
     }
 
     override suspend fun search(query: String): List<SearchResult> = withContext(Dispatchers.IO) {
         val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
-        val vrf = if (query.isNotEmpty()) vrfEncrypt(query) else ""
+
+        val vrf = try {
+            if (query.isNotEmpty()) vrfEncrypt(query) else ""
+        } catch (e: IllegalStateException) {
+            return@withContext emptyList()
+        }
+
         val searchUrl = "$baseUrl/filter?keyword=$encodedQuery&vrf=$vrf"
 
         val request = Request.Builder()
@@ -104,6 +177,7 @@ class AnikotoProvider(
 
         val html = try {
             client.newCall(request).await().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
                 response.body?.string().orEmpty()
             }
         } catch (e: Exception) {
@@ -147,6 +221,7 @@ class AnikotoProvider(
 
         val html = try {
             client.newCall(request).await().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
                 response.body?.string().orEmpty()
             }
         } catch (e: Exception) {
@@ -162,7 +237,12 @@ class AnikotoProvider(
             ?: ""
 
         if (animeId.isNotEmpty()) {
-            val vrf = vrfEncrypt(animeId)
+            val vrf = try {
+                vrfEncrypt(animeId)
+            } catch (e: IllegalStateException) {
+                return@withContext emptyList()
+            }
+
             val ajaxUrl = "$baseUrl/ajax/episode/list/$animeId?vrf=$vrf"
 
             try {
@@ -174,7 +254,10 @@ class AnikotoProvider(
                     .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                     .build()
 
-                val ajaxResp = client.newCall(ajaxReq).await().use { it.body?.string().orEmpty() }
+                val ajaxResp = client.newCall(ajaxReq).await().use {
+                    if (!it.isSuccessful) return@use ""
+                    it.body?.string().orEmpty()
+                }
 
                 if (ajaxResp.isNotEmpty()) {
                     val ajaxHtml = if (ajaxResp.startsWith("{")) {
@@ -199,7 +282,7 @@ class AnikotoProvider(
                             }
                             if (title.isEmpty()) title = "Episode $epNum"
 
-                            val compoundId = "$animeUrl~~~$ids~~~$epNum"
+                            val compoundId = "$animeUrl~~~$ids~~~$epNum~~~$name"
                             episodes.add(Episode(id = compoundId, title = title, number = epNum.toFloatOrNull() ?: 0f))
                         }
                     }
@@ -210,7 +293,7 @@ class AnikotoProvider(
         }
 
         if (episodes.isEmpty()) {
-            episodes.add(Episode(id = "$animeUrl~~~$animeId~~~1", title = "Full Movie / Episode 1", number = 1f))
+            episodes.add(Episode(id = "$animeUrl~~~$animeId~~~1~~~$name", title = "Full Movie / Episode 1", number = 1f))
         }
 
         episodes.sortedBy { it.number }
@@ -233,7 +316,10 @@ class AnikotoProvider(
                 .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .build()
 
-            val respStr = client.newCall(serverReq).await().use { it.body?.string().orEmpty() }
+            val respStr = client.newCall(serverReq).await().use {
+                if (!it.isSuccessful) return@use ""
+                it.body?.string().orEmpty()
+            }
 
             if (respStr.trim().startsWith("{")) {
                 val json = JSONObject(respStr)
@@ -271,7 +357,10 @@ class AnikotoProvider(
                                 .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                                 .build()
 
-                            val embedResp = client.newCall(embedReq).await().use { it.body?.string().orEmpty() }
+                            val embedResp = client.newCall(embedReq).await().use {
+                                if (!it.isSuccessful) return@use ""
+                                it.body?.string().orEmpty()
+                            }
 
                             if (embedResp.trim().startsWith("{")) {
                                 val json = JSONObject(embedResp)
@@ -338,7 +427,10 @@ class AnikotoProvider(
                     val reqBuilder = Request.Builder().url(embedUrl)
                     pageHeaders.forEach { (k, v) -> reqBuilder.addHeader(k, v) }
 
-                    val pageHtml = client.newCall(reqBuilder.build()).await().use { it.body?.string().orEmpty() }
+                    val pageHtml = client.newCall(reqBuilder.build()).await().use {
+                        if (!it.isSuccessful) return@use ""
+                        it.body?.string().orEmpty()
+                    }
                     val hostMapRegex = Regex("""var HOST_MAP\s*=\s*\{([^}]+)\}""")
                     val entryRegex = Regex("""'([^']+)'\s*:\s*'([^']+)'""")
 
@@ -396,7 +488,10 @@ class AnikotoProvider(
                     .addHeader("Referer", referer)
                     .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                     .build()
-            ).await().use { it.body?.string().orEmpty() }
+            ).await().use {
+                if (!it.isSuccessful) return@use ""
+                it.body?.string().orEmpty()
+            }
 
             val dataId = Regex("""data-id="([^"]+)"""").find(pageBody)?.groupValues?.get(1).orEmpty()
 
@@ -426,7 +521,10 @@ class AnikotoProvider(
                             .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                             .build()
 
-                        val sourceResp = client.newCall(apiReq).await().use { it.body?.string().orEmpty() }
+                        val sourceResp = client.newCall(apiReq).await().use {
+                            if (!it.isSuccessful) return@use ""
+                            it.body?.string().orEmpty()
+                        }
 
                         if (sourceResp.trim().startsWith("{")) {
                             val sourceJson = JSONObject(sourceResp)
@@ -557,13 +655,17 @@ class AnikotoProvider(
         serverName: String,
         prefix: String,
         subtitles: List<Subtitle>,
-        skipIntervals: List<SkipInterval>
+        skipIntervals: List<SkipInterval>,
+        durationMs: Long? = null
     ): List<VideoStream> {
         val reqBuilder = Request.Builder().url(masterUrl)
         headers.forEach { (k, v) -> reqBuilder.addHeader(k, v) }
 
         val manifestText = try {
-            client.newCall(reqBuilder.build()).await().use { it.body?.string().orEmpty() }
+            client.newCall(reqBuilder.build()).await().use {
+                if (!it.isSuccessful) return@use ""
+                it.body?.string().orEmpty()
+            }
         } catch (e: Exception) {
             Log.e(tag, "Failed to fetch master manifest: $masterUrl", e)
             return emptyList()
@@ -590,11 +692,17 @@ class AnikotoProvider(
                 currentResolution = resRegex.find(line)?.groupValues?.get(1)
                 currentCodecs = codecRegex.find(line)?.groupValues?.get(1)
             } else if (line.isNotEmpty() && !line.startsWith("#")) {
-                val variantUrl = try {
-                    URI(masterUrl).resolve(line).toString()
-                } catch (_: Exception) {
-                    if (line.startsWith("http")) line else "${masterUrl.substringBeforeLast("/")}/$line"
-                }
+                val variantUrl = masterUrl.toHttpUrlOrNull()?.resolve(line)?.toString()
+                    ?: try {
+                        URI(masterUrl).resolve(line.replace(" ", "%20")).toString()
+                    } catch (_: Exception) {
+                        if (line.startsWith("http://") || line.startsWith("https://")) {
+                            line
+                        } else {
+                            val base = if (masterUrl.endsWith("/")) masterUrl else "${masterUrl.substringBeforeLast("/")}/"
+                            base + line.removePrefix("/")
+                        }
+                    }
 
                 val height = currentResolution?.substringAfter("x")?.toIntOrNull()
                 val qualityLabel = when {
@@ -606,8 +714,14 @@ class AnikotoProvider(
                     else -> "HD"
                 }
 
+                val durationSeconds = if (durationMs != null && durationMs > 0L) {
+                    durationMs / 1000.0
+                } else {
+                    1440.0
+                }
+
                 val estimatedSizeBytes = currentBandwidth?.let { bw ->
-                    ((bw.toDouble() / 8.0) * 1440.0).toLong()
+                    ((bw.toDouble() / 8.0) * durationSeconds).toLong()
                 }
 
                 streams.add(

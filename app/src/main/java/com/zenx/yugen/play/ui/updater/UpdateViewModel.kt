@@ -3,6 +3,7 @@ package com.zenx.yugen.play.ui.updater
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zenx.yugen.play.BuildConfig
@@ -30,14 +31,29 @@ class UpdateViewModel @Inject constructor(
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
+    private val tag = "UpdateViewModel"
+
     private val _updateInfo = MutableStateFlow<AppUpdateInfo?>(null)
     val updateInfo: StateFlow<AppUpdateInfo?> = _updateInfo.asStateFlow()
+
+    companion object {
+        private var cachedUpdateInfo: AppUpdateInfo? = null
+        private var lastCheckTime: Long = 0L
+        // 4.6: 6-hour TTL to guard GitHub API rate-limits
+        private const val UPDATE_CHECK_TTL_MS = 6 * 60 * 60 * 1000L
+    }
 
     init {
         checkForUpdates()
     }
 
-    private fun checkForUpdates() {
+    fun checkForUpdates(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && (now - lastCheckTime) < UPDATE_CHECK_TTL_MS && lastCheckTime > 0L) {
+            _updateInfo.value = cachedUpdateInfo
+            return
+        }
+
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val request = Request.Builder()
@@ -53,6 +69,8 @@ class UpdateViewModel @Inject constructor(
                 val json = JSONObject(body)
                 val latestVersion = json.getString("tag_name").replace("v", "")
                 val currentVersion = BuildConfig.VERSION_NAME.replace("v", "")
+
+                lastCheckTime = System.currentTimeMillis()
 
                 if (isNewerVersion(currentVersion, latestVersion)) {
                     val assets = json.optJSONArray("assets")
@@ -72,21 +90,29 @@ class UpdateViewModel @Inject constructor(
                         apkUrl = json.getString("html_url")
                     }
 
-                    _updateInfo.value = AppUpdateInfo(
+                    val info = AppUpdateInfo(
                         version = json.getString("tag_name"),
                         releaseNotes = json.getString("body"),
                         downloadUrl = apkUrl
                     )
+                    cachedUpdateInfo = info
+                    _updateInfo.value = info
+                } else {
+                    cachedUpdateInfo = null
+                    _updateInfo.value = null
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(tag, "Failed to check for updates", e)
             }
         }
     }
 
     private fun isNewerVersion(current: String, latest: String): Boolean {
-        val currentParts = current.split(".").map { it.toIntOrNull() ?: 0 }
-        val latestParts = latest.split(".").map { it.toIntOrNull() ?: 0 }
+        val cleanCurrent = current.substringBefore("-")
+        val cleanLatest = latest.substringBefore("-")
+
+        val currentParts = cleanCurrent.split(".").map { it.toIntOrNull() ?: 0 }
+        val latestParts = cleanLatest.split(".").map { it.toIntOrNull() ?: 0 }
 
         val length = maxOf(currentParts.size, latestParts.size)
         for (i in 0 until length) {
@@ -95,6 +121,11 @@ class UpdateViewModel @Inject constructor(
             if (l > c) return true
             if (l < c) return false
         }
+
+        val currentIsPreRelease = current.contains("-")
+        val latestIsPreRelease = latest.contains("-")
+        if (currentIsPreRelease && !latestIsPreRelease) return true
+
         return false
     }
 

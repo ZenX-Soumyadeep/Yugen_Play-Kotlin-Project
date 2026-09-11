@@ -24,6 +24,8 @@ object ProviderModule {
     @Provides
     @Singleton
     fun provideDefaultAnimeProvider(registry: ProviderRegistry): AnimeProvider {
-        return registry.getDefaultProvider()
+        return runCatching { registry.getDefaultProvider() }.getOrNull()
+            ?: registry.getAllProviders().firstOrNull()
+            ?: throw IllegalStateException("ProviderRegistry is empty. At least one AnimeProvider must be registered.")
     }
 }

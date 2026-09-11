@@ -1,6 +1,7 @@
 package com.zenx.yugen.play.ui.player
 
 import android.content.Context
+import android.content.Intent
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
@@ -36,6 +37,7 @@ import com.zenx.yugen.play.data.local.OfflineSyncEntity
 import com.zenx.yugen.play.data.local.WatchHistoryDao
 import com.zenx.yugen.play.data.local.WatchHistoryEntity
 import com.zenx.yugen.play.domain.Episode
+import com.zenx.yugen.play.domain.EpisodeId
 import com.zenx.yugen.play.domain.ProviderRegistry
 import com.zenx.yugen.play.domain.Resource
 import com.zenx.yugen.play.domain.SkipInterval
@@ -44,6 +46,7 @@ import com.zenx.yugen.play.domain.VideoStream
 import com.zenx.yugen.play.domain.usecase.GetAnimeDetailsUseCase
 import com.zenx.yugen.play.domain.usecase.GetEpisodesUseCase
 import com.zenx.yugen.play.domain.usecase.GetVideoStreamsUseCase
+import com.zenx.yugen.play.service.CastProxyService
 import com.zenx.yugen.play.ui.detail.StreamDataCache
 import com.zenx.yugen.play.ui.player.managers.CastSessionManager
 import com.zenx.yugen.play.ui.player.managers.PlayerEngine
@@ -53,15 +56,22 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -72,21 +82,43 @@ enum class VideoResizeMode(val label: String) {
 data class SubtitleTrackUiModel(val index: Int, val label: String, val language: String)
 data class VideoQualityUiModel(val height: Int, val label: String)
 
+data class PlayerPlaybackProgress(
+    val currentPosition: Long = 0L,
+    val bufferedPosition: Long = 0L,
+    val duration: Long = 0L,
+    val activeSkipInterval: SkipInterval? = null
+)
+
 sealed interface PlayerUiState {
     data object Loading : PlayerUiState
     data class Ready(
-        val animeTitle: String, val episodeTitle: String, val currentEpisodeId: String,
-        val streams: List<VideoStream>, val activeStream: VideoStream?, val episodes: List<Episode>,
-        val subtitles: List<SubtitleTrackUiModel>, val selectedSubtitleIndex: Int,
-        val qualities: List<VideoQualityUiModel>, val selectedQualityHeight: Int,
-        val playbackSpeed: Float, val resizeMode: VideoResizeMode = VideoResizeMode.FIT,
-        val isPlaying: Boolean, val isBuffering: Boolean = false,
-        val currentPosition: Long, val bufferedPosition: Long = 0L, val duration: Long,
-        val isControlsVisible: Boolean = true, val isServerSheetVisible: Boolean = false,
-        val isEpisodeSheetVisible: Boolean = false, val isSubtitleSheetVisible: Boolean = false,
-        val isQualitySheetVisible: Boolean = false, val isSpeedSheetVisible: Boolean = false,
-        val skipIntervals: List<SkipInterval> = emptyList(), val activeSkipInterval: SkipInterval? = null,
-        val nextEpisode: Episode? = null, val autoPlayCountdown: Int? = null,
+        val animeTitle: String,
+        val episodeTitle: String,
+        val currentEpisodeId: String,
+        val streams: List<VideoStream>,
+        val activeStream: VideoStream?,
+        val episodes: List<Episode>,
+        val subtitles: List<SubtitleTrackUiModel>,
+        val selectedSubtitleIndex: Int,
+        val qualities: List<VideoQualityUiModel>,
+        val selectedQualityHeight: Int,
+        val playbackSpeed: Float,
+        val resizeMode: VideoResizeMode = VideoResizeMode.FIT,
+        val isPlaying: Boolean,
+        val isBuffering: Boolean = false,
+        val currentPosition: Long = 0L,
+        val bufferedPosition: Long = 0L,
+        val duration: Long = 0L,
+        val isControlsVisible: Boolean = true,
+        val isServerSheetVisible: Boolean = false,
+        val isEpisodeSheetVisible: Boolean = false,
+        val isSubtitleSheetVisible: Boolean = false,
+        val isQualitySheetVisible: Boolean = false,
+        val isSpeedSheetVisible: Boolean = false,
+        val skipIntervals: List<SkipInterval> = emptyList(),
+        val activeSkipInterval: SkipInterval? = null,
+        val nextEpisode: Episode? = null,
+        val autoPlayCountdown: Int? = null,
         val transientWarning: String? = null,
         val subtitleSize: Float = 0.053f,
         val subtitleEdgeStyle: Int = 2
@@ -118,7 +150,7 @@ class PlayerViewModel @Inject constructor(
     private val animeUrl: String = savedStateHandle["animeUrl"] ?: ""
     private val animeTitle: String = checkNotNull(savedStateHandle["title"])
     private val posterUrl: String = savedStateHandle["poster"] ?: ""
-    private val activeProviderName: String = savedStateHandle.get<String>("provider")
+    private val activeProviderName: String = savedStateHandle.get<String>("provider")?.takeIf { it.isNotBlank() }
         ?: providerRegistry.getDefaultProvider().name
 
     private var preselectedStreamUrl: String? = savedStateHandle.get<String>("streamUrl")?.takeIf { it.isNotBlank() }
@@ -126,69 +158,180 @@ class PlayerViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
+    private val _playbackProgress = MutableStateFlow(PlayerPlaybackProgress())
+    val playbackProgress: StateFlow<PlayerPlaybackProgress> = _playbackProgress.asStateFlow()
+
     val player get() = playerEngine.exoPlayer
     private var mediaSession: MediaSession? = null
 
+    private val saveProgressMutex = Mutex()
     private var progressTrackerJob: Job? = null
     private var autoPlayJob: Job? = null
     private var warningClearJob: Job? = null
     private var allEpisodes: List<Episode> = emptyList()
     private var skipIntervals: List<SkipInterval> = emptyList()
     private var hasTriggeredOutroAutoPlay = false
-    private var anilistMediaId: Int? = null
-    private var hasSyncedThisEpisodeToCloud = false
-    private var currentEpisodeNumberInt = 1
+
+    private val hasSyncedThisEpisodeToCloud = AtomicBoolean(false)
+    private val currentEpisodeNumberInt = AtomicInteger(1)
+
+    @Volatile
+    private var anilistMediaId: Int? = savedStateHandle.get<String>("mediaId")?.toIntOrNull()
+
+    @Volatile
     private var streamRetryCount = 0
+
+    @Volatile
     private var currentStreamIndex = 0
+
+    @Volatile
+    private var cachedTracks: Tracks = Tracks.EMPTY
+
+    @Volatile
+    private var cachedQualities: List<VideoQualityUiModel> = listOf(VideoQualityUiModel(-1, "Auto"))
+
+    @Volatile
+    private var cachedIsPlaying: Boolean = false
+
+    @Volatile
+    private var cachedIsBuffering: Boolean = false
+
+    @Volatile
+    private var cachedPlaybackState: Int = Player.STATE_IDLE
+
+    companion object {
+        private val LANGUAGE_MAP = mapOf(
+            "en" to "en", "eng" to "en", "english" to "en",
+            "es" to "es", "spa" to "es", "spanish" to "es",
+            "es-419" to "es-419", "latin spanish" to "es-419", "spanish (latin america)" to "es-419",
+            "fr" to "fr", "fre" to "fr", "fra" to "fr", "french" to "fr",
+            "de" to "de", "ger" to "de", "deu" to "de", "german" to "de",
+            "pt" to "pt", "por" to "pt", "portuguese" to "pt",
+            "pt-br" to "pt-BR", "brazilian portuguese" to "pt-BR", "portuguese (brazil)" to "pt-BR",
+            "it" to "it", "ita" to "it", "italian" to "it",
+            "ru" to "ru", "rus" to "ru", "russian" to "ru",
+            "ar" to "ar", "ara" to "ar", "arabic" to "ar",
+            "ja" to "ja", "jpn" to "ja", "japanese" to "ja",
+            "ko" to "ko", "kor" to "ko", "korean" to "ko",
+            "he" to "he", "heb" to "he", "iw" to "he", "hebrew" to "he",
+            "zh-hans" to "zh-Hans", "chinese simplified" to "zh-Hans", "simplified chinese" to "zh-Hans", "chs" to "zh-Hans",
+            "zh-hant" to "zh-Hant", "chinese traditional" to "zh-Hant", "traditional chinese" to "zh-Hant", "cht" to "zh-Hant",
+            "zh" to "zh", "chi" to "zh", "zho" to "zh", "chinese" to "zh",
+            "id" to "id", "ind" to "id", "indonesian" to "id",
+            "ms" to "ms", "msa" to "ms", "may" to "ms", "malay" to "ms",
+            "vi" to "vi", "vie" to "vi", "vietnamese" to "vi",
+            "th" to "th", "tha" to "th", "thai" to "th",
+            "hi" to "hi", "hin" to "hi", "hindi" to "hi",
+            "pl" to "pl", "pol" to "pl", "polish" to "pl",
+            "tr" to "tr", "tur" to "tr", "turkish" to "tr",
+            "nl" to "nl", "nld" to "nl", "dutch" to "nl",
+            "uk" to "uk", "ukr" to "uk", "ukrainian" to "uk",
+            "sv" to "sv", "swe" to "sv", "swedish" to "sv",
+            "da" to "da", "dan" to "da", "danish" to "da",
+            "fi" to "fi", "fin" to "fi", "finnish" to "fi",
+            "no" to "no", "nor" to "no", "norwegian" to "no",
+            "cs" to "cs", "ces" to "cs", "cze" to "cs", "czech" to "cs",
+            "el" to "el", "ell" to "el", "gre" to "el", "greek" to "el",
+            "hu" to "hu", "hun" to "hu", "hungarian" to "hu",
+            "ro" to "ro", "ron" to "ro", "rum" to "ro", "romanian" to "ro",
+            "bg" to "bg", "bul" to "bg", "bulgarian" to "bg",
+            "hr" to "hr", "hrv" to "hr", "croatian" to "hr",
+            "fil" to "fil", "tgl" to "fil", "tl" to "fil", "tagalog" to "fil", "filipino" to "fil",
+            "fa" to "fa", "fas" to "fa", "per" to "fa", "persian" to "fa", "farsi" to "fa"
+        )
+
+        private val SYSTEM_LOCALES_MAP: Map<String, String> by lazy {
+            val map = HashMap<String, String>(512)
+            try {
+                for (locale in Locale.getAvailableLocales()) {
+                    val lang = locale.language
+                    if (lang.isNotBlank()) {
+                        val display = locale.displayLanguage.lowercase(Locale.ROOT)
+                        if (display.isNotBlank()) map.putIfAbsent(display, lang)
+                        map.putIfAbsent(lang.lowercase(Locale.ROOT), lang)
+                        try {
+                            val iso3 = locale.isO3Language.lowercase(Locale.ROOT)
+                            if (iso3.isNotBlank()) map.putIfAbsent(iso3, lang)
+                        } catch (_: Exception) {}
+                    }
+                }
+            } catch (_: Exception) {}
+            map
+        }
+    }
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
+            cachedPlaybackState = playbackState
             when (playbackState) {
-                Player.STATE_BUFFERING -> updateReadyState { it.copy(isBuffering = true) }
+                Player.STATE_BUFFERING -> {
+                    if (!cachedIsBuffering) {
+                        cachedIsBuffering = true
+                        updateReadyState { it.copy(isBuffering = true) }
+                    }
+                }
                 Player.STATE_READY -> {
+                    val wasBuffering = cachedIsBuffering
+                    cachedIsBuffering = false
                     streamRetryCount = 0
-                    updateReadyState { it.copy(isBuffering = false) }
-                    startProgressTracker()
+                    if (wasBuffering) {
+                        updateReadyState { it.copy(isBuffering = false) }
+                    }
+                    if (getActivePlayer().isPlaying) {
+                        startProgressTracker()
+                    }
                 }
                 Player.STATE_ENDED -> {
-                    updateReadyState { it.copy(isBuffering = false) }
+                    if (cachedIsBuffering) {
+                        cachedIsBuffering = false
+                        updateReadyState { it.copy(isBuffering = false) }
+                    }
                     stopProgressTracker()
                     saveCurrentProgress()
                     handlePlaybackEnded()
                 }
-                Player.STATE_IDLE -> updateReadyState { it.copy(isBuffering = false) }
+                Player.STATE_IDLE -> {
+                    if (cachedIsBuffering) {
+                        cachedIsBuffering = false
+                        updateReadyState { it.copy(isBuffering = false) }
+                    }
+                }
             }
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            updateReadyState { it.copy(isPlaying = isPlaying) }
+            if (cachedIsPlaying != isPlaying) {
+                cachedIsPlaying = isPlaying
+                updateReadyState { it.copy(isPlaying = isPlaying) }
+            }
             if (isPlaying) startProgressTracker() else stopProgressTracker()
         }
 
         override fun onTracksChanged(tracks: Tracks) {
-            val availableQualities = mutableListOf<VideoQualityUiModel>().apply { add(VideoQualityUiModel(-1, "Auto")) }
-            tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }.forEach { group ->
-                for (i in 0 until group.length) {
-                    val format = group.getTrackFormat(i)
-                    if (format.height > 0) availableQualities.add(VideoQualityUiModel(format.height, "${format.height}p"))
-                }
-            }
-            updateReadyState { it.copy(qualities = availableQualities.distinctBy { it.height }.sortedByDescending { it.height }) }
+            cachedTracks = tracks
+            val availableQualities = extractQualitiesFromTracks(tracks, isOffline = false)
+            cachedQualities = availableQualities
+            updateReadyState { it.copy(qualities = availableQualities) }
         }
 
         override fun onPlayerError(error: PlaybackException) {
             Log.e(tag, "Playback error: ${error.errorCodeName}", error)
+            cachedIsBuffering = false
+
             val state = _uiState.value as? PlayerUiState.Ready ?: run {
                 _uiState.value = PlayerUiState.Error(resolveUserErrorMessage(error))
                 return
             }
 
-            val currentPos = getActivePlayer().currentPosition
+            val lastValidPos = _playbackProgress.value.currentPosition.takeIf { it > 0L }
+                ?: getActivePlayer().currentPosition.takeIf { it > 0L && it != C.TIME_UNSET }
+                ?: 0L
 
             if (streamRetryCount < 2) {
                 streamRetryCount++
+                updateReadyState { it.copy(isBuffering = true, isPlaying = false) }
                 showTransientWarning("Reconnecting stream (Attempt $streamRetryCount/2)...")
-                state.activeStream?.let { playStream(it, startPositionMs = currentPos) }
+                state.activeStream?.let { playStream(it, startPositionMs = lastValidPos) }
                 return
             }
 
@@ -197,17 +340,21 @@ class PlayerViewModel @Inject constructor(
                 streamRetryCount = 0
                 val nextStream = state.streams[currentStreamIndex]
                 showTransientWarning("Switching to backup server...")
-                playStream(nextStream, startPositionMs = currentPos)
+
                 updateReadyState {
                     it.copy(
                         activeStream = nextStream,
                         skipIntervals = nextStream.skipIntervals,
-                        isServerSheetVisible = false
+                        isServerSheetVisible = false,
+                        isBuffering = true,
+                        isPlaying = false
                     )
                 }
+                playStream(nextStream, startPositionMs = lastValidPos)
                 return
             }
 
+            playerEngine.exoPlayer.pause()
             _uiState.value = PlayerUiState.Error(resolveUserErrorMessage(error))
         }
     }
@@ -225,9 +372,13 @@ class PlayerViewModel @Inject constructor(
 
                     val state = _uiState.value as? PlayerUiState.Ready
                     val activeStream = state?.activeStream ?: return@initialize
-                    val referer = activeStream.headers["Referer"] ?: "https://megaplay.buzz/"
 
-                    castSessionManager.startCastProxyService(referer)
+                    val defaultReferer = activeStream.headers["Referer"]
+                        ?: activeStream.headers["Origin"]
+                        ?: providerRegistry.getProvider(activeProviderName)?.baseUrl?.let { "$it/" }
+                        ?: "https://anikoto.cz/"
+
+                    castSessionManager.startCastProxyService(defaultReferer)
                     try {
                         val proxiedUrl = CastProxy.getProxyUrl(activeStream.url)
                         val subtitleConfigs = buildCastSubtitleConfigs(activeStream.subtitles)
@@ -260,6 +411,8 @@ class PlayerViewModel @Inject constructor(
                     }
                 },
                 onSessionUnavailable = {
+                    stopCastProxy()
+
                     val currentMs = castSessionManager.castPlayer?.currentPosition ?: playerEngine.exoPlayer.currentPosition
                     playerEngine.exoPlayer.seekTo(currentMs)
                     playerEngine.exoPlayer.play()
@@ -268,6 +421,33 @@ class PlayerViewModel @Inject constructor(
             )
         }
         loadEpisodesAndPlay(currentEpisodeId)
+    }
+
+    private fun stopCastProxy() {
+        try {
+            castSessionManager.stopCastProxyService()
+        } catch (_: Throwable) {}
+        try {
+            val stopIntent = Intent(context, CastProxyService::class.java).apply {
+                action = CastProxyService.ACTION_STOP
+            }
+            context.startService(stopIntent)
+        } catch (_: Throwable) {}
+        try {
+            CastProxy.stop()
+        } catch (_: Throwable) {}
+    }
+
+    private fun extractQualitiesFromTracks(tracks: Tracks, isOffline: Boolean = false): List<VideoQualityUiModel> {
+        val defaultLabel = if (isOffline) "Offline" else "Auto"
+        val availableQualities = mutableListOf(VideoQualityUiModel(-1, defaultLabel))
+        tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }.forEach { group ->
+            for (i in 0 until group.length) {
+                val format = group.getTrackFormat(i)
+                if (format.height > 0) availableQualities.add(VideoQualityUiModel(format.height, "${format.height}p"))
+            }
+        }
+        return availableQualities.distinctBy { it.height }.sortedByDescending { it.height }
     }
 
     private fun resolveUserErrorMessage(error: PlaybackException): String {
@@ -287,33 +467,37 @@ class PlayerViewModel @Inject constructor(
     private fun showTransientWarning(msg: String) {
         warningClearJob?.cancel()
         updateReadyState { it.copy(transientWarning = msg) }
-        warningClearJob = viewModelScope.launch { delay(3500L.milliseconds); updateReadyState { it.copy(transientWarning = null) } }
-    }
-
-    private fun parseIsoLanguageCode(label: String): String {
-        val lower = label.lowercase()
-        return when {
-            lower.contains("english") || lower.contains("eng") -> "en"
-            lower.contains("spanish") || lower.contains("spa") -> "es"
-            lower.contains("french") || lower.contains("fre") -> "fr"
-            lower.contains("german") || lower.contains("ger") -> "de"
-            lower.contains("portuguese") || lower.contains("por") -> "pt"
-            lower.contains("italian") || lower.contains("ita") -> "it"
-            lower.contains("russian") || lower.contains("rus") -> "ru"
-            lower.contains("arabic") || lower.contains("ara") -> "ar"
-            lower.contains("indonesian") || lower.contains("ind") -> "id"
-            lower.contains("vietnamese") || lower.contains("vie") -> "vi"
-            lower.contains("thai") || lower.contains("tha") -> "th"
-            lower.contains("chinese") || lower.contains("chi") -> "zh"
-            lower.contains("japanese") || lower.contains("jpn") -> "ja"
-            else -> "en"
+        warningClearJob = viewModelScope.launch {
+            delay(3500L.milliseconds)
+            updateReadyState { it.copy(transientWarning = null) }
         }
     }
 
+    private fun parseIsoLanguageCode(label: String): String {
+        val clean = label.trim().lowercase(Locale.ROOT)
+        if (clean.isEmpty()) return "en"
+
+        LANGUAGE_MAP[clean]?.let { return it }
+
+        val bcp47Locale = Locale.forLanguageTag(clean)
+        if (bcp47Locale.language.isNotBlank() && bcp47Locale.language != "und") {
+            return if (bcp47Locale.script.isNotBlank()) "${bcp47Locale.language}-${bcp47Locale.script}" else bcp47Locale.language
+        }
+
+        for ((key, code) in LANGUAGE_MAP) {
+            if (clean.contains(key)) return code
+        }
+
+        SYSTEM_LOCALES_MAP[clean]?.let { return it }
+
+        return "en"
+    }
+
     private fun buildCastSubtitleConfigs(subtitles: List<Subtitle>): List<MediaItem.SubtitleConfiguration> {
-        val hasDefault = subtitles.any { it.isDefault }
-        return subtitles.mapIndexed { index, sub ->
-            val actualUrl = sub.url.ifBlank { sub.label }
+        val validSubtitles = subtitles.filter { it.url.isNotBlank() }
+        val hasDefault = validSubtitles.any { it.isDefault }
+        return validSubtitles.map { sub ->
+            val actualUrl = sub.url
             val isDefaultTrack = sub.isDefault || (!hasDefault && sub.label.contains("English", ignoreCase = true))
             val langCode = parseIsoLanguageCode(sub.label)
 
@@ -330,10 +514,15 @@ class PlayerViewModel @Inject constructor(
     private fun playStream(stream: VideoStream, startPositionMs: Long? = null) {
         val targetPlayer = getActivePlayer()
 
-        val epTitle = (_uiState.value as? PlayerUiState.Ready)?.episodeTitle ?: "Episode $currentEpisodeNumberInt"
-        val mediaMetadata = MediaMetadata.Builder().setTitle(animeTitle).setSubtitle(epTitle).setArtworkUri(posterUrl.toUri()).build()
+        val epTitle = (_uiState.value as? PlayerUiState.Ready)?.episodeTitle ?: "Episode ${currentEpisodeNumberInt.get()}"
+        val mediaMetadata = MediaMetadata.Builder()
+            .setTitle(animeTitle)
+            .setSubtitle(epTitle)
+            .setArtworkUri(posterUrl.toUri())
+            .build()
 
-        val hasDefault = stream.subtitles.any { it.isDefault }
+        val validSubtitles = stream.subtitles.filter { it.url.isNotBlank() }
+        val hasDefault = validSubtitles.any { it.isDefault }
 
         if (targetPlayer === playerEngine.exoPlayer) {
             val httpDataSourceFactory = DefaultHttpDataSource.Factory()
@@ -341,6 +530,7 @@ class PlayerViewModel @Inject constructor(
                 .setDefaultRequestProperties(stream.headers)
                 .setConnectTimeoutMs(15000)
                 .setReadTimeoutMs(15000)
+                .setAllowCrossProtocolRedirects(true)
 
             val resolvingDataSourceFactory = ResolvingDataSource.Factory(httpDataSourceFactory) { dataSpec ->
                 val uriStr = dataSpec.uri.toString()
@@ -362,12 +552,11 @@ class PlayerViewModel @Inject constructor(
             val dataSourceFactory = DefaultDataSource.Factory(context, cacheDataSourceFactory)
             val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
-            val subtitleConfigs = stream.subtitles.mapIndexed { index, sub ->
-                val actualUrl = sub.url.ifBlank { sub.label }
+            val subtitleConfigs = validSubtitles.mapIndexed { index, sub ->
                 val actualLabel = sub.label.ifBlank { "Track ${index + 1}" }
                 val isDefaultTrack = sub.isDefault || (!hasDefault && (actualLabel.contains("English", ignoreCase = true) || index == 0))
 
-                MediaItem.SubtitleConfiguration.Builder(actualUrl.toUri())
+                MediaItem.SubtitleConfiguration.Builder(sub.url.toUri())
                     .setMimeType(MimeTypes.TEXT_VTT)
                     .setLanguage(parseIsoLanguageCode(actualLabel))
                     .setLabel(actualLabel)
@@ -385,9 +574,9 @@ class PlayerViewModel @Inject constructor(
             val finalMediaSource = mediaSourceFactory.createMediaSource(mediaItem)
             targetPlayer.setMediaSource(finalMediaSource)
 
-            val defaultTrackLang = stream.subtitles.firstOrNull { it.isDefault }?.label
-                ?: stream.subtitles.firstOrNull { it.label.contains("English", ignoreCase = true) }?.label
-                ?: stream.subtitles.firstOrNull()?.label
+            val defaultTrackLang = validSubtitles.firstOrNull { it.isDefault }?.label
+                ?: validSubtitles.firstOrNull { it.label.contains("English", ignoreCase = true) }?.label
+                ?: validSubtitles.firstOrNull()?.label
 
             if (defaultTrackLang != null) {
                 targetPlayer.trackSelectionParameters = targetPlayer.trackSelectionParameters.buildUpon()
@@ -412,7 +601,7 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
-        if (startPositionMs != null) {
+        if (startPositionMs != null && startPositionMs > 0) {
             targetPlayer.seekTo(startPositionMs)
         }
 
@@ -421,10 +610,25 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun buildSafeSubtitleUiModels(subtitles: List<Subtitle>): List<SubtitleTrackUiModel> {
-        return subtitles.mapIndexed { index, sub ->
+        return subtitles.filter { it.url.isNotBlank() }.mapIndexed { index, sub ->
             val label = sub.label.ifBlank { "Track ${index + 1}" }
             SubtitleTrackUiModel(index, label, parseIsoLanguageCode(label))
         }
+    }
+
+    private suspend fun getSavedPosition(epId: String): Long? {
+        val saved = watchHistoryDao.getProgressForEpisode(epId)
+        return if (saved != null && saved.progressMs > 0 && saved.durationMs > 0 && saved.progressMs < (saved.durationMs * 0.95)) {
+            saved.progressMs
+        } else null
+    }
+
+    private fun sanitizeTitleForAnilist(title: String): String {
+        return title
+            .replace(Regex("""(?i)\b(season|part|cour)\s*\d+\b"""), "")
+            .replace(Regex("""(?i)\(dub\)|\(sub\)|\b(dub|sub)\b"""), "")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
     }
 
     private fun loadEpisodesAndPlay(episodeId: String) {
@@ -435,16 +639,25 @@ class PlayerViewModel @Inject constructor(
         getActivePlayer().seekTo(0, 0L)
 
         hasTriggeredOutroAutoPlay = false
-        hasSyncedThisEpisodeToCloud = false
+        hasSyncedThisEpisodeToCloud.set(false)
         skipIntervals = emptyList()
-        currentEpisodeId = episodeId
         currentStreamIndex = 0
         streamRetryCount = 0
 
-        val parsedEpNum = episodeId.split("~~~").getOrNull(2)?.toIntOrNull()
-            ?: Regex("""(?:ep|episode)[-_=/]?(\d+)""", RegexOption.IGNORE_CASE).find(episodeId)?.groupValues?.getOrNull(1)?.toIntOrNull()
-            ?: 1
-        currentEpisodeNumberInt = parsedEpNum
+        cachedTracks = Tracks.EMPTY
+        cachedQualities = listOf(VideoQualityUiModel(-1, "Auto"))
+        cachedIsPlaying = false
+        cachedIsBuffering = false
+        cachedPlaybackState = Player.STATE_IDLE
+        _playbackProgress.value = PlayerPlaybackProgress()
+
+        val parsedEpisode = EpisodeId.parse(episodeId)
+        if (parsedEpisode.isCloudSync) {
+            parsedEpisode.cloudSyncMediaId?.let { anilistMediaId = it }
+            currentEpisodeNumberInt.set(parsedEpisode.episodeNumberInt)
+        } else {
+            currentEpisodeNumberInt.set(parsedEpisode.episodeNumberInt)
+        }
 
         val targetStreamUrl = preselectedStreamUrl
         preselectedStreamUrl = null
@@ -452,17 +665,24 @@ class PlayerViewModel @Inject constructor(
         _uiState.value = PlayerUiState.Loading
 
         viewModelScope.launch {
-            val episodesDeferred = async {
+            val episodesDeferred = async(Dispatchers.IO) {
                 if (anilistMediaId == null) {
-                    anilistMediaId = getAnimeDetailsUseCase(animeTitle)?.id?.toIntOrNull()
+                    var details = getAnimeDetailsUseCase(animeTitle)
+                    if (details == null) {
+                        val sanitized = sanitizeTitleForAnilist(animeTitle)
+                        if (sanitized.isNotBlank() && !sanitized.equals(animeTitle, ignoreCase = true)) {
+                            details = getAnimeDetailsUseCase(sanitized)
+                        }
+                    }
+                    anilistMediaId = details?.id?.toIntOrNull()
                 }
 
-                val fallbackUrl = episodeId.split("~~~").firstOrNull() ?: ""
+                val fallbackUrl = parsedEpisode.sourceUrl.takeIf { !parsedEpisode.isCloudSync } ?: ""
                 val validUrl = if (animeUrl.isNotBlank() && animeUrl != "null") animeUrl else fallbackUrl
 
-                if (allEpisodes.isEmpty() && validUrl.isNotBlank()) {
+                if (allEpisodes.isEmpty()) {
                     val epResult = getEpisodesUseCase(
-                        animeUrlOrTitle = validUrl,
+                        animeUrlOrTitle = validUrl.ifBlank { animeTitle },
                         title = animeTitle,
                         providerName = activeProviderName,
                         anilistId = anilistMediaId
@@ -477,17 +697,32 @@ class PlayerViewModel @Inject constructor(
                 }
             }
 
-            val download = withContext(Dispatchers.IO) { downloadManager.downloadIndex.getDownload(episodeId) }
+            val resolvedEpisodes = episodesDeferred.await()
+            allEpisodes = resolvedEpisodes
+
+            var targetEpId = episodeId
+            val currentEpInt = currentEpisodeNumberInt.get()
+            if (parsedEpisode.isCloudSync && resolvedEpisodes.isNotEmpty()) {
+                val matchedEp = resolvedEpisodes.find { it.number.toInt() == currentEpInt }
+                    ?: resolvedEpisodes.firstOrNull()
+                if (matchedEp != null) {
+                    targetEpId = matchedEp.id
+                    currentEpisodeNumberInt.set(matchedEp.number.toInt())
+                }
+            } else {
+                resolvedEpisodes.find { it.id == targetEpId }?.let {
+                    currentEpisodeNumberInt.set(it.number.toInt())
+                }
+            }
+            currentEpisodeId = targetEpId
+
+            val download = withContext(Dispatchers.IO) { downloadManager.downloadIndex.getDownload(targetEpId) }
             val isDownloaded = download != null && download.state == Download.STATE_COMPLETED
             val meta = if (isDownloaded && download != null) {
                 try { JSONObject(String(download.request.data)) } catch (_: Exception) { JSONObject() }
             } else null
 
-            val resolvedEpisodes = episodesDeferred.await()
-            allEpisodes = resolvedEpisodes
-            resolvedEpisodes.find { it.id == episodeId }?.let {
-                currentEpisodeNumberInt = it.number.toInt()
-            }
+            val savedPosition = getSavedPosition(targetEpId)
 
             if (isDownloaded && meta != null) {
                 val parsedSubtitles = mutableListOf<Subtitle>()
@@ -511,13 +746,15 @@ class PlayerViewModel @Inject constructor(
                                 .ifBlank { "English" }
                         }
 
-                        parsedSubtitles.add(
-                            Subtitle(
-                                label = rawLabel.ifBlank { "English" },
-                                url = rawUrl,
-                                isDefault = obj.optBoolean("isDefault", false)
+                        if (rawUrl.isNotBlank()) {
+                            parsedSubtitles.add(
+                                Subtitle(
+                                    label = rawLabel.ifBlank { "English" },
+                                    url = rawUrl,
+                                    isDefault = obj.optBoolean("isDefault", false)
+                                )
                             )
-                        )
+                        }
                     }
                 }
 
@@ -535,35 +772,54 @@ class PlayerViewModel @Inject constructor(
                     }
                 }
 
-                val offlineStream = VideoStream("Offline (Local)", download!!.request.uri.toString(), parsedHeaders, true, parsedSubtitles, parsedSkipIntervals)
+                val offlineStream = VideoStream("Offline (Local)", download.request.uri.toString(), parsedHeaders, true, parsedSubtitles, parsedSkipIntervals)
                 skipIntervals = parsedSkipIntervals
 
-                playStream(offlineStream)
-                restoreSavedPosition(episodeId)
+                playStream(offlineStream, startPositionMs = savedPosition)
 
-                val epTitle = allEpisodes.find { it.id == episodeId }?.title ?: meta.optString("episodeTitle", "Offline Episode")
-                val safeUiSubtitles = buildSafeSubtitleUiModels(offlineStream.subtitles)
+                val epTitle = allEpisodes.find { it.id == targetEpId }?.title ?: meta.optString("episodeTitle", "Offline Episode")
+                val safeUiSubtitles = withContext(Dispatchers.Default) {
+                    buildSafeSubtitleUiModels(offlineStream.subtitles)
+                }
 
                 val defaultIndex = offlineStream.subtitles.indexOfFirst { it.isDefault }.takeIf { it != -1 }
                     ?: if (offlineStream.subtitles.isNotEmpty()) 0 else -1
 
+                val activePlayer = getActivePlayer()
+                val liveTracks = activePlayer.currentTracks.takeIf { !it.isEmpty } ?: cachedTracks
+                val liveQualities = extractQualitiesFromTracks(liveTracks, isOffline = true)
+                val liveIsPlaying = activePlayer.isPlaying || cachedIsPlaying
+                val liveBuffering = activePlayer.playbackState == Player.STATE_BUFFERING || cachedIsBuffering
+                val liveDuration = activePlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
+
+                val nextProgress = PlayerPlaybackProgress(
+                    currentPosition = activePlayer.currentPosition.coerceAtLeast(0L),
+                    bufferedPosition = activePlayer.bufferedPosition.coerceAtLeast(0L),
+                    duration = liveDuration,
+                    activeSkipInterval = null
+                )
+                if (_playbackProgress.value != nextProgress) {
+                    _playbackProgress.value = nextProgress
+                }
+
                 _uiState.value = PlayerUiState.Ready(
-                    animeTitle = animeTitle, episodeTitle = epTitle, currentEpisodeId = episodeId,
+                    animeTitle = animeTitle, episodeTitle = epTitle, currentEpisodeId = targetEpId,
                     streams = listOf(offlineStream), activeStream = offlineStream, episodes = allEpisodes,
                     subtitles = safeUiSubtitles,
                     selectedSubtitleIndex = defaultIndex,
-                    qualities = listOf(VideoQualityUiModel(-1, "Offline")), selectedQualityHeight = -1,
-                    playbackSpeed = 1.0f, isPlaying = true,
-                    currentPosition = getActivePlayer().currentPosition, bufferedPosition = getActivePlayer().bufferedPosition.coerceAtLeast(0L),
-                    duration = getActivePlayer().duration, skipIntervals = skipIntervals
+                    qualities = liveQualities, selectedQualityHeight = -1,
+                    playbackSpeed = 1.0f, isPlaying = liveIsPlaying, isBuffering = liveBuffering,
+                    currentPosition = _playbackProgress.value.currentPosition,
+                    bufferedPosition = _playbackProgress.value.bufferedPosition,
+                    duration = liveDuration, skipIntervals = skipIntervals
                 )
+                if (liveIsPlaying) startProgressTracker()
             } else {
-                val cachedStreams = StreamDataCache.get(episodeId)
+                val cachedStreams = StreamDataCache.get(targetEpId)
                 val streamResult = if (cachedStreams != null) {
-                    StreamDataCache.clear()
                     Resource.Success(cachedStreams)
                 } else {
-                    getVideoStreamsUseCase(episodeId)
+                    getVideoStreamsUseCase(targetEpId)
                 }
 
                 when (streamResult) {
@@ -575,25 +831,45 @@ class PlayerViewModel @Inject constructor(
                             currentStreamIndex = streams.indexOf(activeStream).coerceAtLeast(0)
                             skipIntervals = activeStream.skipIntervals
 
-                            playStream(activeStream)
-                            restoreSavedPosition(episodeId)
+                            playStream(activeStream, startPositionMs = savedPosition)
 
-                            val epTitle = allEpisodes.find { it.id == episodeId }?.title ?: "Episode $currentEpisodeNumberInt"
-                            val safeUiSubtitles = buildSafeSubtitleUiModels(activeStream.subtitles)
+                            val epTitle = allEpisodes.find { it.id == targetEpId }?.title ?: "Episode ${currentEpisodeNumberInt.get()}"
+                            val safeUiSubtitles = withContext(Dispatchers.Default) {
+                                buildSafeSubtitleUiModels(activeStream.subtitles)
+                            }
 
                             val defaultIndex = activeStream.subtitles.indexOfFirst { it.isDefault }.takeIf { it != -1 }
                                 ?: if (activeStream.subtitles.isNotEmpty()) 0 else -1
 
+                            val activePlayer = getActivePlayer()
+                            val liveTracks = activePlayer.currentTracks.takeIf { !it.isEmpty } ?: cachedTracks
+                            val liveQualities = extractQualitiesFromTracks(liveTracks, isOffline = false)
+                            val liveIsPlaying = activePlayer.isPlaying || cachedIsPlaying
+                            val liveBuffering = activePlayer.playbackState == Player.STATE_BUFFERING || cachedIsBuffering
+                            val liveDuration = activePlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
+
+                            val nextProgress = PlayerPlaybackProgress(
+                                currentPosition = activePlayer.currentPosition.coerceAtLeast(0L),
+                                bufferedPosition = activePlayer.bufferedPosition.coerceAtLeast(0L),
+                                duration = liveDuration,
+                                activeSkipInterval = null
+                            )
+                            if (_playbackProgress.value != nextProgress) {
+                                _playbackProgress.value = nextProgress
+                            }
+
                             _uiState.value = PlayerUiState.Ready(
-                                animeTitle = animeTitle, episodeTitle = epTitle, currentEpisodeId = episodeId,
+                                animeTitle = animeTitle, episodeTitle = epTitle, currentEpisodeId = targetEpId,
                                 streams = streams, activeStream = activeStream, episodes = allEpisodes,
                                 subtitles = safeUiSubtitles,
                                 selectedSubtitleIndex = defaultIndex,
-                                qualities = listOf(VideoQualityUiModel(-1, "Auto")), selectedQualityHeight = -1,
-                                playbackSpeed = 1.0f, isPlaying = true,
-                                currentPosition = getActivePlayer().currentPosition, bufferedPosition = getActivePlayer().bufferedPosition.coerceAtLeast(0L),
-                                duration = getActivePlayer().duration, skipIntervals = skipIntervals
+                                qualities = liveQualities, selectedQualityHeight = -1,
+                                playbackSpeed = 1.0f, isPlaying = liveIsPlaying, isBuffering = liveBuffering,
+                                currentPosition = _playbackProgress.value.currentPosition,
+                                bufferedPosition = _playbackProgress.value.bufferedPosition,
+                                duration = liveDuration, skipIntervals = skipIntervals
                             )
+                            if (liveIsPlaying) startProgressTracker()
                         } else {
                             _uiState.value = PlayerUiState.Error("No playable streams available.")
                         }
@@ -620,17 +896,20 @@ class PlayerViewModel @Inject constructor(
         getActivePlayer().setPlaybackSpeed(next); updateReadyState { it.copy(playbackSpeed = next) }; showTransientWarning("Speed: ${next}x")
     }
 
+    @Synchronized
     private fun startProgressTracker() {
-        if (progressTrackerJob?.isActive == true) return
-        progressTrackerJob = viewModelScope.launch {
+        progressTrackerJob?.cancel()
+        progressTrackerJob = viewModelScope.launch(Dispatchers.Main.immediate) {
             var saveCounter = 0
-            while (getActivePlayer().isPlaying) {
-                val pos = getActivePlayer().currentPosition.coerceAtLeast(0L)
-                val bufferedPos = getActivePlayer().bufferedPosition.coerceAtLeast(0L)
-                val rawDuration = getActivePlayer().duration
+            while (isActive && getActivePlayer().isPlaying) {
+                val player = getActivePlayer()
+                val pos = player.currentPosition.coerceAtLeast(0L)
+                val bufferedPos = player.bufferedPosition.coerceAtLeast(0L)
+                val rawDuration = player.duration
 
                 val dur = if (rawDuration <= 0L || rawDuration == C.TIME_UNSET) {
-                    (_uiState.value as? PlayerUiState.Ready)?.duration ?: 0L
+                    _playbackProgress.value.duration.takeIf { it > 0 }
+                        ?: (_uiState.value as? PlayerUiState.Ready)?.duration ?: 0L
                 } else {
                     rawDuration
                 }
@@ -644,7 +923,15 @@ class PlayerViewModel @Inject constructor(
                     triggerOutroCountdown()
                 }
 
-                updateReadyState { it.copy(currentPosition = pos, bufferedPosition = bufferedPos, duration = dur, activeSkipInterval = activeSkip) }
+                val updatedProgress = PlayerPlaybackProgress(
+                    currentPosition = pos,
+                    bufferedPosition = bufferedPos,
+                    duration = dur,
+                    activeSkipInterval = activeSkip
+                )
+                if (_playbackProgress.value != updatedProgress) {
+                    _playbackProgress.value = updatedProgress
+                }
 
                 if (++saveCounter >= 20) { saveCurrentProgress(); saveCounter = 0 }
                 delay(500L.milliseconds)
@@ -652,7 +939,11 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    private fun stopProgressTracker() { progressTrackerJob?.cancel(); progressTrackerJob = null }
+    @Synchronized
+    private fun stopProgressTracker() {
+        progressTrackerJob?.cancel()
+        progressTrackerJob = null
+    }
 
     private fun handlePlaybackEnded() {
         triggerOutroCountdown()
@@ -670,6 +961,10 @@ class PlayerViewModel @Inject constructor(
             autoPlayJob?.cancel()
             autoPlayJob = viewModelScope.launch {
                 for (sec in 5 downTo 1) {
+                    if (castSessionManager.castPlayer?.isCastSessionAvailable == true) {
+                        cancelAutoPlayCountdown()
+                        return@launch
+                    }
                     updateReadyState { it.copy(nextEpisode = nextEp, autoPlayCountdown = sec, isControlsVisible = false) }
                     delay(1000L.milliseconds)
                 }
@@ -685,14 +980,7 @@ class PlayerViewModel @Inject constructor(
         updateReadyState { it.copy(autoPlayCountdown = null) }
     }
 
-    private suspend fun restoreSavedPosition(epId: String) {
-        val saved = watchHistoryDao.getProgressForEpisode(epId)
-        if (saved != null && saved.progressMs > 0 && saved.durationMs > 0 && saved.progressMs < (saved.durationMs * 0.95)) {
-            getActivePlayer().seekTo(saved.progressMs)
-        }
-    }
-
-    fun skipCurrentInterval() = (_uiState.value as? PlayerUiState.Ready)?.activeSkipInterval?.let { seekTo((it.endTime * 1000).toLong()) }
+    fun skipCurrentInterval() = _playbackProgress.value.activeSkipInterval?.let { seekTo((it.endTime * 1000).toLong()) }
 
     fun selectQuality(height: Int) {
         playerEngine.exoPlayer.trackSelectionParameters = if (height == -1) playerEngine.exoPlayer.trackSelectionParameters.buildUpon().clearVideoSizeConstraints().build()
@@ -706,13 +994,18 @@ class PlayerViewModel @Inject constructor(
         streamRetryCount = 0
 
         val currentPos = getActivePlayer().currentPosition
-        playStream(stream, startPositionMs = currentPos)
         skipIntervals = stream.skipIntervals
+
         updateReadyState { it.copy(activeStream = stream, skipIntervals = stream.skipIntervals, isServerSheetVisible = false) }
+        playStream(stream, startPositionMs = currentPos)
     }
 
     fun selectEpisode(episode: Episode) {
+        cancelAutoPlayCountdown()
         saveCurrentProgress()
+        if (castSessionManager.castPlayer?.isCastSessionAvailable != true) {
+            stopCastProxy()
+        }
         loadEpisodesAndPlay(episode.id)
     }
 
@@ -749,11 +1042,36 @@ class PlayerViewModel @Inject constructor(
         updateReadyState { it.copy(selectedSubtitleIndex = index, isSubtitleSheetVisible = false) }
     }
 
-    fun playNextEpisode() { val idx = allEpisodes.indexOfFirst { it.id == currentEpisodeId }; if (idx != -1 && idx < allEpisodes.size - 1) selectEpisode(allEpisodes[idx + 1]) }
-    fun playPreviousEpisode() { val idx = allEpisodes.indexOfFirst { it.id == currentEpisodeId }; if (idx > 0) selectEpisode(allEpisodes[idx - 1]) }
-    fun seekTo(positionMs: Long) { cancelAutoPlayCountdown(); getActivePlayer().seekTo(positionMs); updateReadyState { it.copy(currentPosition = positionMs) } }
-    fun seekRelative(offsetMs: Long) { seekTo((getActivePlayer().currentPosition + offsetMs).coerceIn(0L, getActivePlayer().duration.coerceAtLeast(0L))) }
-    fun togglePlayPause() { cancelAutoPlayCountdown(); if (getActivePlayer().isPlaying) getActivePlayer().pause() else getActivePlayer().play() }
+    fun playNextEpisode() {
+        cancelAutoPlayCountdown()
+        val idx = allEpisodes.indexOfFirst { it.id == currentEpisodeId }
+        if (idx != -1 && idx < allEpisodes.size - 1) {
+            selectEpisode(allEpisodes[idx + 1])
+        }
+    }
+
+    fun playPreviousEpisode() {
+        cancelAutoPlayCountdown()
+        val idx = allEpisodes.indexOfFirst { it.id == currentEpisodeId }
+        if (idx > 0) {
+            selectEpisode(allEpisodes[idx - 1])
+        }
+    }
+
+    fun seekTo(positionMs: Long) {
+        cancelAutoPlayCountdown()
+        getActivePlayer().seekTo(positionMs)
+        _playbackProgress.update { it.copy(currentPosition = positionMs) }
+    }
+
+    fun seekRelative(offsetMs: Long) {
+        seekTo((getActivePlayer().currentPosition + offsetMs).coerceIn(0L, getActivePlayer().duration.coerceAtLeast(0L)))
+    }
+
+    fun togglePlayPause() {
+        cancelAutoPlayCountdown()
+        if (getActivePlayer().isPlaying) getActivePlayer().pause() else getActivePlayer().play()
+    }
 
     fun toggleControlsVisibility() = updateReadyState { it.copy(isControlsVisible = !it.isControlsVisible) }
     fun setServerSheetVisibility(visible: Boolean) = updateReadyState { it.copy(isServerSheetVisible = visible) }
@@ -763,48 +1081,61 @@ class PlayerViewModel @Inject constructor(
     fun retryPlayback() { loadEpisodesAndPlay(currentEpisodeId) }
 
     fun saveCurrentProgress() {
-        val position = getActivePlayer().currentPosition
-        val duration = getActivePlayer().duration
+        val player = getActivePlayer()
+        val position = player.currentPosition
+        val duration = player.duration
+        val epId = currentEpisodeId
+        val mediaId = anilistMediaId
+        val epNum = currentEpisodeNumberInt.get()
 
-        // Guard: require at least 15 seconds of watch time to avoid history pollution
         if (position >= 15_000L && duration > 0) {
-            if ((position.toDouble() / duration.toDouble()) >= 0.85 && !hasSyncedThisEpisodeToCloud) {
-                hasSyncedThisEpisodeToCloud = true
-                if (authPreferences.authState.value.token != null && anilistMediaId != null) {
-                    viewModelScope.launch(Dispatchers.IO) {
-                        offlineSyncDao.insertSyncTask(
-                            OfflineSyncEntity(
-                                mediaId = anilistMediaId!!,
-                                progress = currentEpisodeNumberInt
+            viewModelScope.launch {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    saveProgressMutex.withLock {
+                        val isNearEnd = (position.toDouble() / duration.toDouble()) >= 0.85
+                        if (isNearEnd && hasSyncedThisEpisodeToCloud.compareAndSet(false, true)) {
+                            if (authPreferences.authState.value.token != null && mediaId != null) {
+                                offlineSyncDao.insertSyncTask(
+                                    OfflineSyncEntity(
+                                        mediaId = mediaId,
+                                        progress = epNum
+                                    )
+                                )
+                                WorkManager.getInstance(context).enqueueUniqueWork(
+                                    "AnilistOfflineSync",
+                                    ExistingWorkPolicy.KEEP,
+                                    OneTimeWorkRequestBuilder<AnilistSyncWorker>()
+                                        .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                                        .build()
+                                )
+                            }
+                        }
+                        watchHistoryDao.saveProgress(
+                            WatchHistoryEntity(
+                                episodeId = epId,
+                                animeTitle = animeTitle,
+                                posterUrl = posterUrl,
+                                progressMs = position,
+                                durationMs = duration,
+                                lastWatchedAt = System.currentTimeMillis()
                             )
-                        )
-                        WorkManager.getInstance(context).enqueueUniqueWork(
-                            "AnilistOfflineSync",
-                            ExistingWorkPolicy.REPLACE,
-                            OneTimeWorkRequestBuilder<AnilistSyncWorker>()
-                                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                                .build()
                         )
                     }
                 }
             }
-            viewModelScope.launch {
-                watchHistoryDao.saveProgress(
-                    WatchHistoryEntity(
-                        episodeId = currentEpisodeId,
-                        animeTitle = animeTitle,
-                        posterUrl = posterUrl,
-                        progressMs = position,
-                        durationMs = duration,
-                        lastWatchedAt = System.currentTimeMillis()
-                    )
-                )
-            }
         }
     }
 
+    // Issue 9 Fix: Avoid redundant StateFlow emissions when the updated state is structurally equal
     private fun updateReadyState(update: (PlayerUiState.Ready) -> PlayerUiState.Ready) {
-        val current = _uiState.value; if (current is PlayerUiState.Ready) _uiState.update { update(current) }
+        _uiState.update { current ->
+            if (current is PlayerUiState.Ready) {
+                val next = update(current)
+                if (next == current) current else next
+            } else {
+                current
+            }
+        }
     }
 
     override fun onCleared() {
@@ -812,10 +1143,16 @@ class PlayerViewModel @Inject constructor(
         warningClearJob?.cancel()
         stopProgressTracker()
 
-        playerEngine.exoPlayer.removeListener(playerListener)
-        playerEngine.release()
+        stopCastProxy()
 
+        playerEngine.exoPlayer.removeListener(playerListener)
+        mediaSession?.run {
+            player.pause()
+            release()
+        }
+        mediaSession = null
+
+        playerEngine.release()
         castSessionManager.release()
-        mediaSession?.release()
     }
 }

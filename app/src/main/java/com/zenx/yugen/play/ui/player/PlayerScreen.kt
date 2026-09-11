@@ -67,6 +67,7 @@ fun PlayerScreen(
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val playbackProgress by viewModel.playbackProgress.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = context as? ComponentActivity
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -105,6 +106,11 @@ fun PlayerScreen(
         activity?.addOnPictureInPictureModeChangedListener(pipListener)
 
         onDispose {
+            // Immediately pause and save progress when navigating away
+            if (!isInPipMode) {
+                viewModel.player.pause()
+                viewModel.saveCurrentProgress()
+            }
             insetsController?.show(WindowInsetsCompat.Type.systemBars())
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
@@ -244,8 +250,8 @@ fun PlayerScreen(
                     PlayerGestureOverlay(
                         deviceController = deviceController,
                         isLocked = isLocked,
-                        durationMs = state.duration,
-                        currentPositionMs = state.currentPosition,
+                        durationMs = playbackProgress.duration,
+                        currentPositionMs = playbackProgress.currentPosition,
                         onToggleControls = { showControls = !showControls },
                         onSeekRelative = { offsetSeconds -> viewModel.seekRelative(offsetSeconds * 1000L) },
                         onSeekScrub = { targetMs -> viewModel.seekTo(targetMs) },
@@ -271,11 +277,11 @@ fun PlayerScreen(
                             quality = currentQuality,
                             isLocked = isLocked,
                             isPlaying = state.isPlaying,
-                            positionMs = state.currentPosition,
-                            durationMs = state.duration,
-                            bufferMs = state.bufferedPosition,
+                            positionMs = playbackProgress.currentPosition,
+                            durationMs = playbackProgress.duration,
+                            bufferMs = playbackProgress.bufferedPosition,
                             skipIntervals = state.skipIntervals,
-                            activeSkipInterval = state.activeSkipInterval,
+                            activeSkipInterval = playbackProgress.activeSkipInterval,
                             episodes = state.episodes,
                             currentEpisodeId = state.currentEpisodeId,
                             currentSpeed = state.playbackSpeed,

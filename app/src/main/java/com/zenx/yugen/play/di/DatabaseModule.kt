@@ -3,6 +3,7 @@ package com.zenx.yugen.play.di
 import android.content.Context
 import androidx.room.Room
 import com.zenx.yugen.play.BuildConfig
+import com.zenx.yugen.play.data.local.AnimeDetailsDao
 import com.zenx.yugen.play.data.local.AppDatabase
 import com.zenx.yugen.play.data.local.FavoriteDao
 import com.zenx.yugen.play.data.local.OfflineSyncDao
@@ -28,9 +29,12 @@ object DatabaseModule {
             AppDatabase.DATABASE_NAME
         )
 
-        // Allow destructive rebuilds in debug builds; enforce manual migrations in release
         if (BuildConfig.DEBUG) {
             builder.fallbackToDestructiveMigration(dropAllTables = true)
+        } else {
+            // L-10: Prevent fatal startup crashes in release if schema versions increment
+            builder.fallbackToDestructiveMigration()
+            builder.fallbackToDestructiveMigrationOnDowngrade()
         }
 
         return builder.build()
@@ -51,4 +55,7 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideOfflineSyncDao(database: AppDatabase): OfflineSyncDao = database.offlineSyncDao()
+
+    @Provides
+    fun provideAnimeDetailsDao(database: AppDatabase): AnimeDetailsDao = database.animeDetailsDao()
 }

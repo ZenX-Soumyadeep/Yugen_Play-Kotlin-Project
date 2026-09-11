@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -33,10 +34,12 @@ fun HomeFloatingTopBar(
     avatarUrl: String?,
     isAuthenticated: Boolean,
     isUpdateAvailable: Boolean,
+    unreadNotificationCount: Int = 0,
     onUpdateClick: () -> Unit,
     onSearchClick: () -> Unit,
     onProfileClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onNotificationsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -86,7 +89,6 @@ fun HomeFloatingTopBar(
             label = "TopBarMiddle"
         ) { hasUpdate ->
             if (hasUpdate) {
-                // Update Badge
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -101,7 +103,6 @@ fun HomeFloatingTopBar(
                     Text("Update Available", color = accentPurple, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             } else {
-                // Default Logo
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.bounceClick { onSettingsClick() }.padding(horizontal = 8.dp)
@@ -126,15 +127,39 @@ fun HomeFloatingTopBar(
                 Icon(Icons.Default.Search, contentDescription = "Search", tint = accentPurple, modifier = Modifier.size(22.dp))
             }
 
+            // Notification Bell with Number Badge
             Box(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(CircleShape)
                     .background(accentBlue.copy(alpha = 0.15f))
-                    .bounceClick { /* Future Alerts Update */ },
+                    .bounceClick { onNotificationsClick() },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Default.NotificationsNone, contentDescription = "Alerts", tint = accentBlue, modifier = Modifier.size(22.dp))
+
+                if (unreadNotificationCount > 0) {
+                    val countStr = if (unreadNotificationCount > 99) "99+" else unreadNotificationCount.toString()
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 2.dp, y = (-2).dp)
+                            .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEF4444))
+                            .border(1.5.dp, Color(0xFF141416), CircleShape)
+                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = countStr,
+                            color = Color.White,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
             }
         }
     }

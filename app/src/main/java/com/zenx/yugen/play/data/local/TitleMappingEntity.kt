@@ -4,12 +4,14 @@ import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
-import androidx.room.PrimaryKey
 import androidx.room.Query
 
-@Entity(tableName = "title_mappings")
+@Entity(
+    tableName = "title_mappings",
+    primaryKeys = ["anilistId", "providerName"]
+)
 data class TitleMappingEntity(
-    @PrimaryKey val anilistId: Int,
+    val anilistId: Int,
     val providerName: String,
     val mappedUrl: String
 )

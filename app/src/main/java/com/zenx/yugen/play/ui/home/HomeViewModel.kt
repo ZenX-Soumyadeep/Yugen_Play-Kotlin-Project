@@ -1,5 +1,11 @@
 package com.zenx.yugen.play.ui.home
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zenx.yugen.play.data.local.AuthPreferences
@@ -7,6 +13,7 @@ import com.zenx.yugen.play.data.local.FavoriteDao
 import com.zenx.yugen.play.data.local.FavoriteEntity
 import com.zenx.yugen.play.data.local.WatchHistoryDao
 import com.zenx.yugen.play.data.local.WatchHistoryEntity
+import com.zenx.yugen.play.data.remote.AniListNotification
 import com.zenx.yugen.play.data.remote.AnilistService
 import com.zenx.yugen.play.domain.AiringAnimeItem
 import com.zenx.yugen.play.domain.AnimeCardItem
@@ -14,18 +21,35 @@ import com.zenx.yugen.play.domain.AnilistListEntry
 import com.zenx.yugen.play.domain.Resource
 import com.zenx.yugen.play.domain.usecase.GetAiringScheduleUseCase
 import com.zenx.yugen.play.domain.usecase.GetPopularAnimeUseCase
+import com.zenx.yugen.play.util.StringUtils
+import com.zenx.yugen.play.util.SystemNotificationHelper
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class HeroUiModel(val id: String, val title: String, val posterUrl: String, val episodeText: String, val releaseDate: String, val description: String)
 data class TrendingUiModel(val id: String, val title: String, val subtitle: String, val posterUrl: String, val score: String)
-data class ContinueWatchingUiModel(val episodeId: String, val animeTitle: String, val subtitle: String, val posterUrl: String, val progress: Float, val timeLeft: String, val isCloudSync: Boolean)
+data class ContinueWatchingUiModel(
+    val episodeId: String,
+    val animeTitle: String,
+    val subtitle: String,
+    val posterUrl: String,
+    val progress: Float,
+    val timeLeft: String,
+    val isCloudSync: Boolean,
+    val mediaId: String? = null
+)
 data class AiringUiModel(val id: String, val title: String, val subtitle: String, val posterUrl: String, val timeStatus: String)
 
 sealed interface HomeUiState {
@@ -47,7 +71,8 @@ class HomeViewModel @Inject constructor(
     private val watchHistoryDao: WatchHistoryDao,
     private val favoriteDao: FavoriteDao,
     private val authPreferences: AuthPreferences,
-    private val anilistService: AnilistService
+    private val anilistService: AnilistService,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -57,32 +82,124 @@ class HomeViewModel @Inject constructor(
     private val airingFlow = MutableStateFlow<List<AiringAnimeItem>>(emptyList())
     private val anilistWatchingFlow = MutableStateFlow<List<AnilistListEntry>>(emptyList())
 
+    private val _notifications = MutableStateFlow<List<AniListNotification>>(emptyList())
+    val notifications: StateFlow<List<AniListNotification>> = _notifications.asStateFlow()
+
+    private val _unreadCount = MutableStateFlow(0)
+    val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
+
+    private val shownNotificationIds = mutableSetOf<Int>()
+
+    // 4.3: Explicit job handles to prevent implicit cancellation leaks
+    private var anilistWatchingFetchJob: Job? = null
+    private var notificationsFetchJob: Job? = null
+
+    private val dismissalReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, intent: Intent?) {
+            val dismissedId = intent?.getIntExtra("notif_id", -1) ?: -1
+            if (dismissedId != -1) {
+                deleteNotification(dismissedId)
+            }
+        }
+    }
+
     init {
         observeData()
         fetchRemoteData()
         fetchAnilistWatching()
+        fetchNotifications()
+
+        val filter = IntentFilter("com.zenx.yugen.play.NOTIFICATION_DISMISSED")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.registerReceiver(context, dismissalReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        } else {
+            context.registerReceiver(dismissalReceiver, filter)
+        }
     }
 
-    private fun normalizeTitleForComparison(title: String): String {
-        return title.lowercase()
-            .replace(Regex("""\b(season|part|cour) \d+\b""", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("""[^a-z0-9]"""), "")
-            .trim()
-    }
-
+    // 4.3: Explicit job cancellation and launch on auth change
     private fun fetchAnilistWatching() {
         viewModelScope.launch {
-            authPreferences.authState.collectLatest { authState ->
-                if (authState.isAuthenticated && authState.userId != null && authState.token != null) {
-                    try {
-                        val data = anilistService.getUserAnimeList(authState.userId, authState.token)
-                        anilistWatchingFlow.value = data["Watching"]?.distinctBy { it.mediaId } ?: emptyList()
-                    } catch (e: Exception) {
+            authPreferences.authState
+                .map { Triple(it.isAuthenticated, it.userId, it.token) }
+                .distinctUntilChanged()
+                .collect { (isAuthenticated, userId, token) ->
+                    anilistWatchingFetchJob?.cancel()
+                    if (isAuthenticated && userId != null && !token.isNullOrBlank()) {
+                        anilistWatchingFetchJob = viewModelScope.launch(Dispatchers.IO) {
+                            try {
+                                val data = anilistService.getUserAnimeList(userId, token)
+                                anilistWatchingFlow.value = data["Watching"]?.distinctBy { it.mediaId } ?: emptyList()
+                            } catch (_: Exception) {
+                                anilistWatchingFlow.value = emptyList()
+                            }
+                        }
+                    } else {
                         anilistWatchingFlow.value = emptyList()
                     }
-                } else {
-                    anilistWatchingFlow.value = emptyList()
                 }
+        }
+    }
+
+    // 4.3: Explicit job cancellation for notifications
+    private fun fetchNotifications(reset: Boolean = false) {
+        viewModelScope.launch {
+            authPreferences.authState
+                .map { it.token }
+                .distinctUntilChanged()
+                .collect { token ->
+                    notificationsFetchJob?.cancel()
+                    if (!token.isNullOrBlank()) {
+                        notificationsFetchJob = viewModelScope.launch(Dispatchers.IO) {
+                            try {
+                                val (unread, notifs) = anilistService.getUserNotifications(token, reset)
+                                _unreadCount.value = if (reset) 0 else unread
+                                if (notifs.isNotEmpty()) {
+                                    _notifications.value = notifs
+
+                                    if (unread > 0 && !reset) {
+                                        notifs.take(unread).forEach { alert ->
+                                            if (alert.id !in shownNotificationIds) {
+                                                shownNotificationIds.add(alert.id)
+                                                SystemNotificationHelper.showAiringNotification(
+                                                    context = context,
+                                                    notificationId = alert.id,
+                                                    title = alert.title,
+                                                    message = alert.message,
+                                                    imageUrl = alert.imageUrl,
+                                                    mediaId = alert.mediaId
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (_: Exception) {
+                                _unreadCount.value = 0
+                                _notifications.value = emptyList()
+                            }
+                        }
+                    } else {
+                        _unreadCount.value = 0
+                        _notifications.value = emptyList()
+                    }
+                }
+        }
+    }
+
+    fun deleteNotification(id: Int) {
+        _notifications.value = _notifications.value.filter { it.id != id }
+        _unreadCount.value = (_unreadCount.value - 1).coerceAtLeast(0)
+    }
+
+    fun markNotificationsAsRead() {
+        val token = authPreferences.authState.value.token ?: return
+        viewModelScope.launch {
+            val (_, notifs) = withContext(Dispatchers.IO) {
+                anilistService.getUserNotifications(token, resetCount = true)
+            }
+            _unreadCount.value = 0
+            if (notifs.isNotEmpty()) {
+                _notifications.value = notifs
             }
         }
     }
@@ -98,24 +215,6 @@ class HomeViewModel @Inject constructor(
             ) { popular, airing, history, favorites, anilistWatching ->
 
                 val baseTime = System.currentTimeMillis()
-                val mergedHistory = history.toMutableList()
-                val localNormalizedTitles = history.map { normalizeTitleForComparison(it.animeTitle) }.toSet()
-
-                anilistWatching.forEachIndexed { index, cloudEntry ->
-                    if (normalizeTitleForComparison(cloudEntry.title) !in localNormalizedTitles) {
-                        val nextEpNum = cloudEntry.progress + 1
-                        mergedHistory.add(
-                            WatchHistoryEntity(
-                                episodeId = "CLOUD_SYNC_${cloudEntry.mediaId}_$nextEpNum",
-                                animeTitle = cloudEntry.title,
-                                posterUrl = cloudEntry.posterUrl,
-                                progressMs = 0L,
-                                durationMs = 0L,
-                                lastWatchedAt = baseTime - (index * 1000L)
-                            )
-                        )
-                    }
-                }
 
                 val heroList = popular.take(5).map {
                     HeroUiModel(
@@ -124,7 +223,7 @@ class HomeViewModel @Inject constructor(
                         posterUrl = it.posterUrl,
                         episodeText = "Top Rated",
                         releaseDate = "Trending Now",
-                        description = "Join the community and experience one of the most highly anticipated series trending right now."
+                        description = "Experience ${it.title}, one of the most highly anticipated series trending right now."
                     )
                 }
 
@@ -139,7 +238,7 @@ class HomeViewModel @Inject constructor(
                     )
                 }
 
-                val airingList = airing.map {
+                val airingList = airing.take(20).map {
                     val daysDiff = ((it.airingAt * 1000L) - baseTime) / 86400000L
 
                     val timeStatus = when {
@@ -158,41 +257,62 @@ class HomeViewModel @Inject constructor(
                     )
                 }
 
-                val continueList = mergedHistory.sortedByDescending { it.lastWatchedAt }.map {
-                    val isCloudSync = it.episodeId.startsWith("CLOUD_SYNC")
-                    val cleanEpNum = formatEpisodeNumber(it.episodeId)
-                    val progress = if (isCloudSync) 0f else if (it.durationMs > 0) (it.progressMs.toFloat() / it.durationMs.toFloat()).coerceIn(0f, 1f) else 0f
+                val localNormalizedTitles = history.map { StringUtils.normalizeTitleForComparison(it.animeTitle) }.toSet()
 
-                    val timeLeftStr = if (!isCloudSync && it.durationMs > 0) {
-                        val minsLeft = ((it.durationMs - it.progressMs) / 60000L).coerceAtLeast(1)
-                        "${minsLeft}m left"
-                    } else {
-                        ""
+                val localContinueList = history
+                    .filter { it.durationMs > 0L || it.progressMs > 0L }
+                    .sortedByDescending { it.lastWatchedAt }
+                    .map { entity ->
+                        val cleanEpNum = formatEpisodeNumber(entity.episodeId)
+                        val progress = if (entity.durationMs > 0) {
+                            (entity.progressMs.toFloat() / entity.durationMs.toFloat()).coerceIn(0f, 1f)
+                        } else 0f
+
+                        val timeLeftStr = if (entity.durationMs > 0) {
+                            val minsLeft = ((entity.durationMs - entity.progressMs) / 60000L).coerceAtLeast(1)
+                            "${minsLeft}m left"
+                        } else ""
+
+                        ContinueWatchingUiModel(
+                            episodeId = entity.episodeId,
+                            animeTitle = entity.animeTitle,
+                            subtitle = "S1 • E$cleanEpNum",
+                            posterUrl = entity.posterUrl,
+                            progress = progress,
+                            timeLeft = timeLeftStr,
+                            isCloudSync = false,
+                            mediaId = null
+                        )
                     }
 
-                    val subtitle = if (isCloudSync) "Cloud Sync • E$cleanEpNum" else "S1 • E$cleanEpNum"
-
-                    ContinueWatchingUiModel(
-                        episodeId = it.episodeId,
-                        animeTitle = it.animeTitle,
-                        subtitle = subtitle,
-                        posterUrl = it.posterUrl,
-                        progress = progress,
-                        timeLeft = timeLeftStr,
-                        isCloudSync = isCloudSync
-                    )
-                }
+                val cloudContinueList = anilistWatching
+                    .filter { StringUtils.normalizeTitleForComparison(it.title) !in localNormalizedTitles }
+                    .map { cloudEntry ->
+                        val nextEpNum = cloudEntry.progress + 1
+                        ContinueWatchingUiModel(
+                            episodeId = "CLOUD_SYNC_${cloudEntry.mediaId}_$nextEpNum",
+                            animeTitle = cloudEntry.title,
+                            subtitle = "Cloud Sync • E$nextEpNum",
+                            posterUrl = cloudEntry.posterUrl,
+                            progress = 0f,
+                            timeLeft = "",
+                            isCloudSync = true,
+                            mediaId = cloudEntry.mediaId.toString()
+                        )
+                    }
 
                 HomeUiState.Success(
                     heroAnime = heroList,
                     trendingAnime = trendingList,
                     airingThisWeek = airingList,
-                    watchHistory = continueList,
+                    watchHistory = localContinueList + cloudContinueList,
                     favorites = favorites
                 )
-            }.collect { state ->
-                _uiState.value = state
             }
+                .flowOn(Dispatchers.Default)
+                .collect { state ->
+                    _uiState.value = state
+                }
         }
     }
 
@@ -211,7 +331,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun extractSeason(title: String): String {
-        val match = Regex("(?i)(Season \\d+|Part \\d+)").find(title)
+        val match = StringUtils.SEASON_REGEX.find(title)
         return match?.value ?: "TV Series"
     }
 
@@ -221,5 +341,14 @@ class HomeViewModel @Inject constructor(
         if (parts.size >= 3 && parts[2].isNotBlank()) return parts[2]
         val match = Regex("""(?i)(?:ep|episode)[-_=/]?(\d+)""").find(parts[0])
         return match?.groupValues?.get(1)?.takeIf { it.length <= 4 } ?: "1"
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        anilistWatchingFetchJob?.cancel()
+        notificationsFetchJob?.cancel()
+        try {
+            context.unregisterReceiver(dismissalReceiver)
+        } catch (_: Exception) {}
     }
 }

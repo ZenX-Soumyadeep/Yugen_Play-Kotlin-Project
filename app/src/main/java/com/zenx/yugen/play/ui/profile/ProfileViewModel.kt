@@ -7,10 +7,12 @@ import com.zenx.yugen.play.data.remote.AnilistService
 import com.zenx.yugen.play.domain.AnilistListEntry
 import com.zenx.yugen.play.domain.AnilistUser
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 sealed interface ProfileUiState {
@@ -32,40 +34,73 @@ class ProfileViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<ProfileUiState>(ProfileUiState.Loading)
     val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
 
+    companion object {
+        private var cachedUser: AnilistUser? = null
+        private var cachedLists: Map<String, List<AnilistListEntry>>? = null
+        private var lastFetchTime = 0L
+        private const val CACHE_TTL_MS = 5 * 60 * 1000L // 5 minutes
+    }
+
     init {
         loadProfileData()
     }
 
-    fun loadProfileData() {
-        viewModelScope.launch {
+    fun loadProfileData(forceRefresh: Boolean = false) {
+        val authState = authPreferences.authState.value
+        val token = authState.token
+        var userId = authState.userId
+
+        if (token == null) {
+            _uiState.value = ProfileUiState.Unauthenticated
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val hasValidCache = cachedUser != null && cachedLists != null
+        val isCacheFresh = (now - lastFetchTime) < CACHE_TTL_MS
+
+        // Instant render from session cache when navigating back and forth
+        if (hasValidCache) {
+            _uiState.value = ProfileUiState.Success(cachedUser!!, cachedLists!!)
+            if (!forceRefresh && isCacheFresh) return
+        } else {
             _uiState.value = ProfileUiState.Loading
+        }
 
-            val token = authPreferences.authState.value.token
-            var userId = authPreferences.authState.value.userId
+        viewModelScope.launch {
+            try {
+                val freshUser = withContext(Dispatchers.IO) { anilistService.getAuthenticatedUser(token) }
+                if (freshUser == null) {
+                    if (!hasValidCache) {
+                        _uiState.value = ProfileUiState.Error("Failed to fetch user data. Check connection.")
+                    }
+                    return@launch
+                }
 
-            if (token == null) {
-                _uiState.value = ProfileUiState.Unauthenticated
-                return@launch
+                if (userId == null) {
+                    userId = freshUser.id
+                    authPreferences.saveAuth(token, freshUser.id, freshUser.name, freshUser.avatar)
+                }
+
+                val lists = withContext(Dispatchers.IO) { anilistService.getUserAnimeList(userId, token) }
+
+                cachedUser = freshUser
+                cachedLists = lists
+                lastFetchTime = System.currentTimeMillis()
+
+                _uiState.value = ProfileUiState.Success(freshUser, lists)
+            } catch (e: Exception) {
+                if (!hasValidCache) {
+                    _uiState.value = ProfileUiState.Error(e.localizedMessage ?: "Failed to load profile data.")
+                }
             }
-
-            val user = anilistService.getAuthenticatedUser(token)
-            if (user == null) {
-                _uiState.value = ProfileUiState.Error("Failed to fetch user data. Check connection.")
-                return@launch
-            }
-
-            if (userId == null) {
-                userId = user.id
-                authPreferences.saveAuth(token, user.id, user.name, user.avatar)
-            }
-
-            val lists = anilistService.getUserAnimeList(userId, token)
-
-            _uiState.value = ProfileUiState.Success(user, lists)
         }
     }
 
     fun logout() {
+        cachedUser = null
+        cachedLists = null
+        lastFetchTime = 0L
         authPreferences.clearAuth()
         _uiState.value = ProfileUiState.Unauthenticated
     }

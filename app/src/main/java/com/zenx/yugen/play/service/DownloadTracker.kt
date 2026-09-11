@@ -33,6 +33,7 @@ class DownloadTracker @Inject constructor(
     private val byteSamples = ConcurrentHashMap<String, Pair<Long, Long>>() // ID -> (Timestamp, Bytes)
     private val speedMap = ConcurrentHashMap<String, Long>() // ID -> Bytes/sec
 
+    private val stateLock = Any()
     private var downloadManager: DownloadManager? = null
     private var progressJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -51,13 +52,17 @@ class DownloadTracker @Inject constructor(
     private fun loadInitialDownloads(manager: DownloadManager) {
         scope.launch {
             try {
+                val initial = mutableMapOf<String, Download>()
                 manager.downloadIndex.getDownloads().use { cursor ->
                     while (cursor.moveToNext()) {
                         val dl = cursor.download
-                        currentMap[dl.request.id] = dl
+                        initial[dl.request.id] = dl
                     }
                 }
-                _downloads.tryEmit(currentMap.toMap())
+                synchronized(stateLock) {
+                    currentMap.putAll(initial)
+                    _downloads.tryEmit(HashMap(currentMap))
+                }
                 checkProgressLoop()
             } catch (_: Exception) {
             }
@@ -69,20 +74,24 @@ class DownloadTracker @Inject constructor(
         download: Download,
         finalException: Exception?
     ) {
-        currentMap[download.request.id] = download
-        _downloads.tryEmit(currentMap.toMap())
+        synchronized(stateLock) {
+            currentMap[download.request.id] = download
+            _downloads.tryEmit(HashMap(currentMap))
+        }
         checkProgressLoop()
     }
 
     override fun onDownloadRemoved(downloadManager: DownloadManager, download: Download) {
-        currentMap.remove(download.request.id)
-        byteSamples.remove(download.request.id)
-        speedMap.remove(download.request.id)
-        _downloads.tryEmit(currentMap.toMap())
+        synchronized(stateLock) {
+            currentMap.remove(download.request.id)
+            byteSamples.remove(download.request.id)
+            speedMap.remove(download.request.id)
+            _downloads.tryEmit(HashMap(currentMap))
+        }
         checkProgressLoop()
     }
 
-    private fun checkProgressLoop() {
+    private fun checkProgressLoop() = synchronized(stateLock) {
         val hasActiveDownloads = currentMap.values.any {
             it.state == Download.STATE_DOWNLOADING || it.state == Download.STATE_QUEUED
         }
@@ -91,31 +100,39 @@ class DownloadTracker @Inject constructor(
             progressJob = scope.launch {
                 while (isActive) {
                     val now = System.currentTimeMillis()
+                    val manager = downloadManager ?: break
 
-                    downloadManager?.let { manager ->
-                        manager.currentDownloads.forEach { dl ->
+                    var stillActive = false
+                    synchronized(stateLock) {
+                        val currentActiveDownloads = manager.currentDownloads
+                        for (dl in currentActiveDownloads) {
                             val id = dl.request.id
-                            currentMap[id] = dl
 
-                            val previousSample = byteSamples[id]
-                            if (previousSample != null) {
-                                val timeDelta = now - previousSample.first
-                                val bytesDelta = dl.bytesDownloaded - previousSample.second
-                                if (timeDelta >= 500 && bytesDelta >= 0) {
-                                    val speed = (bytesDelta * 1000L) / timeDelta
-                                    speedMap[id] = speed
+                            // Guard: Do not re-insert or recalculate items deleted from currentMap
+                            if (currentMap.containsKey(id) && dl.state != Download.STATE_REMOVING) {
+                                currentMap[id] = dl
+
+                                val previousSample = byteSamples[id]
+                                if (previousSample != null) {
+                                    val timeDelta = now - previousSample.first
+                                    val bytesDelta = dl.bytesDownloaded - previousSample.second
+                                    if (timeDelta >= 500 && bytesDelta >= 0) {
+                                        val speed = (bytesDelta * 1000L) / timeDelta
+                                        speedMap[id] = speed
+                                        byteSamples[id] = Pair(now, dl.bytesDownloaded)
+                                    }
+                                } else {
                                     byteSamples[id] = Pair(now, dl.bytesDownloaded)
+                                    speedMap[id] = 0L
                                 }
-                            } else {
-                                byteSamples[id] = Pair(now, dl.bytesDownloaded)
-                                speedMap[id] = 0L
                             }
                         }
-                        _downloads.tryEmit(currentMap.toMap())
-                    }
 
-                    val stillActive = currentMap.values.any {
-                        it.state == Download.STATE_DOWNLOADING || it.state == Download.STATE_QUEUED
+                        _downloads.tryEmit(HashMap(currentMap))
+
+                        stillActive = currentMap.values.any {
+                            it.state == Download.STATE_DOWNLOADING || it.state == Download.STATE_QUEUED
+                        }
                     }
 
                     if (!stillActive) {
@@ -129,8 +146,15 @@ class DownloadTracker @Inject constructor(
     }
 
     override fun close() {
-        progressJob?.cancel()
+        synchronized(stateLock) {
+            progressJob?.cancel()
+            progressJob = null
+            currentMap.clear()
+            byteSamples.clear()
+            speedMap.clear()
+        }
         scope.cancel()
         downloadManager?.removeListener(this)
+        downloadManager = null
     }
 }

@@ -2,69 +2,135 @@ package com.zenx.yugen.play.util
 
 import android.util.Log
 import java.io.BufferedReader
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketException
 import java.net.URL
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 object CastProxy {
     private const val TAG = "CastProxy"
+    private const val MAX_PAYLOAD_SIZE = 4 * 1024 * 1024 // 4 MB safety limit
+
     private var serverSocket: ServerSocket? = null
+    private var executor: ExecutorService? = null
+
     @Volatile
     private var isRunning = false
+
+    @Volatile
     private var port = 0
+
+    @Volatile
     private var globalReferer = "https://megaplay.buzz/"
 
-    private val executor = Executors.newCachedThreadPool()
+    private val lock = Any()
 
     @Synchronized
     fun start(referer: String) {
-        if (isRunning) return
-        globalReferer = referer
+        synchronized(lock) {
+            globalReferer = referer
+            if (isRunning && port > 0) return
 
-        try {
-            serverSocket = ServerSocket(0)
-            port = serverSocket!!.localPort
-            isRunning = true
+            stopInternal()
 
-            executor.execute {
-                while (isRunning) {
-                    try {
-                        val client = serverSocket?.accept() ?: break
-                        client.soTimeout = 10000
-                        executor.execute { handleClient(client) }
-                    } catch (_: Exception) {
-                        break
+            try {
+                val pool = Executors.newCachedThreadPool()
+                executor = pool
+
+                val socket = ServerSocket(0)
+                serverSocket = socket
+                port = socket.localPort
+                isRunning = true
+
+                pool.execute {
+                    while (isRunning && !socket.isClosed) {
+                        try {
+                            val client = socket.accept()
+                            client.soTimeout = 10000
+                            pool.execute { handleClient(client) }
+                        } catch (_: SocketException) {
+                            break
+                        } catch (e: Exception) {
+                            if (isRunning) {
+                                Log.e(TAG, "Error accepting client connection", e)
+                            }
+                            break
+                        }
                     }
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to initialize relay server", e)
+                stopInternal()
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start local relay", e)
-            isRunning = false
         }
     }
 
     @Synchronized
     fun stop() {
+        synchronized(lock) {
+            stopInternal()
+        }
+    }
+
+    private fun stopInternal() {
         isRunning = false
-        try { serverSocket?.close() } catch (_: Exception) {}
+        port = 0
+
+        try {
+            serverSocket?.close()
+        } catch (_: Exception) {}
         serverSocket = null
+
+        try {
+            executor?.shutdownNow()
+        } catch (_: Exception) {}
+        executor = null
     }
 
     fun getProxyUrl(originalUrl: String): String {
+        val currentPort = port
+        if (!isRunning || currentPort <= 0) return originalUrl
+
         val ip = getLocalIp() ?: return originalUrl
         val encoded = URLEncoder.encode(originalUrl, "UTF-8")
-        return "http://$ip:$port/proxy?url=$encoded"
+        return "http://$ip:$currentPort/proxy?url=$encoded"
+    }
+
+    private fun readBoundedStream(input: InputStream, limit: Int): ByteArray? {
+        val buffer = ByteArray(8192)
+        val out = ByteArrayOutputStream()
+        var totalRead = 0
+
+        while (true) {
+            val read = input.read(buffer)
+            if (read == -1) break
+            totalRead += read
+            if (totalRead > limit) return null
+            out.write(buffer, 0, read)
+        }
+        return out.toByteArray()
     }
 
     private fun handleClient(client: Socket) {
+        val currentPort = port
+        val activeReferer = globalReferer
+
+        if (!isRunning || currentPort <= 0) {
+            try { client.close() } catch (_: Exception) {}
+            return
+        }
+
         try {
             val reader = BufferedReader(InputStreamReader(client.getInputStream()))
             val requestLine = reader.readLine() ?: return
@@ -100,7 +166,7 @@ object CastProxy {
             if (targetUrl.startsWith("file://") || targetUrl.startsWith("file:")) {
                 val filePath = targetUrl.removePrefix("file://").removePrefix("file:")
                 val file = File(filePath)
-                if (file.exists()) {
+                if (file.exists() && file.length() <= MAX_PAYLOAD_SIZE) {
                     val bytes = file.readBytes()
                     out.write("HTTP/1.1 200 OK\r\n".toByteArray())
                     out.write("Content-Type: text/vtt; charset=utf-8\r\n".toByteArray())
@@ -117,16 +183,33 @@ object CastProxy {
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
 
-            connection.setRequestProperty("Referer", globalReferer)
-            connection.setRequestProperty("Origin", globalReferer)
+            connection.setRequestProperty("Referer", activeReferer)
+            connection.setRequestProperty("Origin", activeReferer)
             connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             if (rangeHeader != null) connection.setRequestProperty("Range", rangeHeader)
 
             val status = connection.responseCode
+            val statusText = when (status) {
+                200 -> "OK"
+                206 -> "Partial Content"
+                403 -> "Forbidden"
+                404 -> "Not Found"
+                413 -> "Payload Too Large"
+                500 -> "Internal Server Error"
+                503 -> "Service Unavailable"
+                else -> "Error"
+            }
 
             if (targetUrl.contains(".m3u8")) {
+                val rawBytes = readBoundedStream(connection.inputStream, MAX_PAYLOAD_SIZE)
+                if (rawBytes == null) {
+                    out.write("HTTP/1.1 413 Payload Too Large\r\n\r\n".toByteArray())
+                    out.flush()
+                    return
+                }
+
                 val hostIp = getLocalIp() ?: "127.0.0.1"
-                val manifest = connection.inputStream.bufferedReader().readText()
+                val manifest = rawBytes.toString(Charsets.UTF_8)
                 val uriAttrRegex = Regex("""URI="([^"]+)"""")
 
                 val rewritten = manifest.lines().joinToString("\n") { line ->
@@ -137,32 +220,37 @@ object CastProxy {
                             line.replace(uriAttrRegex) { matchResult ->
                                 val subUri = matchResult.groupValues[1]
                                 val absoluteUrl = if (subUri.startsWith("http")) subUri else URL(URL(targetUrl), subUri).toString()
-                                "URI=\"http://$hostIp:$port/proxy?url=${URLEncoder.encode(absoluteUrl, "UTF-8")}\""
+                                "URI=\"http://$hostIp:$currentPort/proxy?url=${URLEncoder.encode(absoluteUrl, "UTF-8")}\""
                             }
                         } else {
                             line
                         }
                     } else {
                         val absoluteUrl = if (line.startsWith("http")) line else URL(URL(targetUrl), line).toString()
-                        "http://$hostIp:$port/proxy?url=${URLEncoder.encode(absoluteUrl, "UTF-8")}"
+                        "http://$hostIp:$currentPort/proxy?url=${URLEncoder.encode(absoluteUrl, "UTF-8")}"
                     }
                 }
                 val bytes = rewritten.toByteArray()
-                out.write("HTTP/1.1 200 OK\r\n".toByteArray())
+                out.write("HTTP/1.1 $status $statusText\r\n".toByteArray())
                 out.write("Content-Type: application/vnd.apple.mpegurl\r\n".toByteArray())
                 out.write("Access-Control-Allow-Origin: *\r\n".toByteArray())
                 out.write("Content-Length: ${bytes.size}\r\n\r\n".toByteArray())
                 out.write(bytes)
             } else if (targetUrl.contains(".vtt", ignoreCase = true)) {
-                val bytes = connection.inputStream.readBytes()
-                out.write("HTTP/1.1 200 OK\r\n".toByteArray())
+                val bytes = readBoundedStream(connection.inputStream, MAX_PAYLOAD_SIZE)
+                if (bytes == null) {
+                    out.write("HTTP/1.1 413 Payload Too Large\r\n\r\n".toByteArray())
+                    out.flush()
+                    return
+                }
+                out.write("HTTP/1.1 $status $statusText\r\n".toByteArray())
                 out.write("Content-Type: text/vtt; charset=utf-8\r\n".toByteArray())
                 out.write("Access-Control-Allow-Origin: *\r\n".toByteArray())
                 out.write("Access-Control-Allow-Headers: *\r\n".toByteArray())
                 out.write("Content-Length: ${bytes.size}\r\n\r\n".toByteArray())
                 out.write(bytes)
             } else {
-                out.write("HTTP/1.1 $status OK\r\n".toByteArray())
+                out.write("HTTP/1.1 $status $statusText\r\n".toByteArray())
                 val contentType = connection.contentType
                 if (contentType != null) out.write("Content-Type: $contentType\r\n".toByteArray())
 
@@ -187,14 +275,33 @@ object CastProxy {
 
     fun getLocalIp(): String? {
         try {
-            val interfaces = NetworkInterface.getNetworkInterfaces()
-            while (interfaces.hasMoreElements()) {
-                val iface = interfaces.nextElement()
-                if (iface.isLoopback || !iface.isUp) continue
-                val addresses = iface.inetAddresses
-                while (addresses.hasMoreElements()) {
-                    val addr = addresses.nextElement()
-                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
+            val interfaces = NetworkInterface.getNetworkInterfaces().toList()
+
+            // L-15: Prioritize Wi-Fi and Ethernet interfaces, ignoring P2P, hotspot AP, and VPNs
+            val preferredInterfaces = interfaces.filter { iface ->
+                iface.isUp && !iface.isLoopback && !iface.isPointToPoint &&
+                        !iface.name.contains("p2p", ignoreCase = true) &&
+                        !iface.name.contains("tun", ignoreCase = true) &&
+                        !iface.name.contains("tap", ignoreCase = true) &&
+                        !iface.name.contains("ap", ignoreCase = true) &&
+                        !iface.name.contains("dummy", ignoreCase = true) &&
+                        (iface.name.startsWith("wlan", ignoreCase = true) ||
+                                iface.name.startsWith("eth", ignoreCase = true) ||
+                                iface.name.startsWith("en", ignoreCase = true))
+            }
+
+            for (iface in preferredInterfaces) {
+                for (addr in iface.inetAddresses) {
+                    if (!addr.isLoopbackAddress && addr is Inet4Address && !addr.isLinkLocalAddress) {
+                        return addr.hostAddress
+                    }
+                }
+            }
+
+            // Fallback: Any non-loopback, non-point-to-point IPv4
+            for (iface in interfaces.filter { it.isUp && !it.isLoopback && !it.isPointToPoint }) {
+                for (addr in iface.inetAddresses) {
+                    if (!addr.isLoopbackAddress && addr is Inet4Address && !addr.isLinkLocalAddress) {
                         return addr.hostAddress
                     }
                 }

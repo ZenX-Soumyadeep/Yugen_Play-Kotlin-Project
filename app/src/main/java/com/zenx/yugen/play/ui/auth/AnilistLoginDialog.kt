@@ -2,6 +2,10 @@ package com.zenx.yugen.play.ui.auth
 
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,9 +13,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.VpnKey
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,8 +30,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import coil.compose.AsyncImage
 import androidx.core.net.toUri
+import coil.compose.AsyncImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,6 +40,8 @@ fun AnilistLoginDialog(
     onTokenReceived: (String) -> Unit,
     avatarUrl: String? = null,
     username: String? = null,
+    errorMessage: String? = null,
+    isLoading: Boolean = false,
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
@@ -43,7 +51,13 @@ fun AnilistLoginDialog(
     var showPinField by remember { mutableStateOf(false) }
     var pinText by remember { mutableStateOf("") }
 
-    Dialog(onDismissRequest = onDismiss) {
+    LaunchedEffect(errorMessage) {
+        if (!errorMessage.isNullOrBlank()) {
+            showPinField = true
+        }
+    }
+
+    Dialog(onDismissRequest = { if (!isLoading) onDismiss() }) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -52,6 +66,21 @@ fun AnilistLoginDialog(
                 .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
                 .padding(24.dp)
         ) {
+            IconButton(
+                onClick = onDismiss,
+                enabled = !isLoading,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(28.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = Color.Gray,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
             if (avatarUrl != null && username != null) {
                 // Logged In State
                 Column(
@@ -85,7 +114,10 @@ fun AnilistLoginDialog(
                 }
             } else {
                 // Login Options State
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text("AniList Sync", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -95,6 +127,38 @@ fun AnilistLoginDialog(
                         textAlign = TextAlign.Center
                     )
 
+                    AnimatedVisibility(
+                        visible = !errorMessage.isNullOrBlank(),
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 16.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFFEF4444).copy(alpha = 0.15f))
+                                .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Error",
+                                tint = Color(0xFFEF4444),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = errorMessage ?: "",
+                                color = Color(0xFFFCA5A5),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                lineHeight = 18.sp
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(24.dp))
 
                     // Option 1: Auto Login (Deep Link)
@@ -103,7 +167,7 @@ fun AnilistLoginDialog(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
                             .background(accentBlue.copy(alpha = 0.15f))
-                            .clickable {
+                            .clickable(enabled = !isLoading) {
                                 val intent = Intent(
                                     Intent.ACTION_VIEW,
                                     "https://anilist.co/api/v2/oauth/authorize?client_id=48068&response_type=token".toUri()
@@ -131,7 +195,7 @@ fun AnilistLoginDialog(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
                             .background(Color.White.copy(alpha = 0.05f))
-                            .clickable {
+                            .clickable(enabled = !isLoading) {
                                 showPinField = true
                                 val intent = Intent(
                                     Intent.ACTION_VIEW,
@@ -156,6 +220,7 @@ fun AnilistLoginDialog(
                             OutlinedTextField(
                                 value = pinText,
                                 onValueChange = { pinText = it },
+                                enabled = !isLoading,
                                 placeholder = { Text("Paste PIN here", color = Color.Gray) },
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedTextColor = Color.White,
@@ -164,13 +229,27 @@ fun AnilistLoginDialog(
                                     unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
                                 ),
                                 trailingIcon = {
-                                    IconButton(onClick = {
-                                        if (pinText.isNotBlank()) {
-                                            onTokenReceived(pinText.trim())
-                                            onDismiss()
+                                    IconButton(
+                                        onClick = {
+                                            if (pinText.isNotBlank() && !isLoading) {
+                                                onTokenReceived(pinText.trim())
+                                            }
+                                        },
+                                        enabled = !isLoading && pinText.isNotBlank()
+                                    ) {
+                                        if (isLoading) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(18.dp),
+                                                color = accentBlue,
+                                                strokeWidth = 2.dp
+                                            )
+                                        } else {
+                                            Icon(
+                                                Icons.Default.ContentPaste,
+                                                contentDescription = "Submit",
+                                                tint = if (pinText.isNotBlank()) accentBlue else Color.Gray
+                                            )
                                         }
-                                    }) {
-                                        Icon(Icons.Default.ContentPaste, contentDescription = "Submit", tint = accentBlue)
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth(),

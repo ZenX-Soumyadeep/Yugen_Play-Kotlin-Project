@@ -12,8 +12,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.zenx.yugen.play.data.local.AuthState
 import com.zenx.yugen.play.ui.auth.AnilistLoginDialog
 import com.zenx.yugen.play.ui.auth.AuthViewModel
+import com.zenx.yugen.play.ui.components.NotificationsSheet
+import com.zenx.yugen.play.ui.updater.AppUpdateInfo
 import com.zenx.yugen.play.ui.updater.UpdateDialog
 import com.zenx.yugen.play.ui.updater.UpdateViewModel
 
@@ -32,25 +35,34 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val authState by authViewModel.authState.collectAsStateWithLifecycle()
+    val isAuthenticating by authViewModel.isAuthenticating.collectAsStateWithLifecycle()
+    val loginError by authViewModel.loginError.collectAsStateWithLifecycle()
     val updateInfo by updateViewModel.updateInfo.collectAsStateWithLifecycle()
+
+    val notifications by viewModel.notifications.collectAsStateWithLifecycle()
+    val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
 
     var showAuthDialog by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf(false) }
+    var showNotificationsSheet by remember { mutableStateOf(false) }
 
     val bgColor = Color(0xFF09090B)
 
-    // AniList Login Dialog
     if (showAuthDialog) {
         AnilistLoginDialog(
-            onDismiss = { showAuthDialog = false },
+            onDismiss = {
+                authViewModel.clearError()
+                showAuthDialog = false
+            },
             onTokenReceived = { token -> authViewModel.handleLoginToken(token) },
             avatarUrl = authState.avatarUrl,
             username = authState.username,
+            errorMessage = loginError,
+            isLoading = isAuthenticating,
             onLogout = { authViewModel.logout() }
         )
     }
 
-    // GitHub Release Update Dialog
     if (showUpdateDialog && updateInfo != null) {
         UpdateDialog(
             updateInfo = updateInfo!!,
@@ -59,9 +71,26 @@ fun HomeScreen(
         )
     }
 
+    if (showNotificationsSheet) {
+        NotificationsSheet(
+            isAuthenticated = authState.isAuthenticated,
+            notifications = notifications,
+            onDismiss = { showNotificationsSheet = false },
+            onConnectAniListClick = {
+                showNotificationsSheet = false
+                showAuthDialog = true
+            },
+            onDeleteNotification = { notifId ->
+                viewModel.deleteNotification(notifId)
+            },
+            onAnimeClick = { animeId, title, poster ->
+                onAnimeClick(animeId, title, poster)
+            }
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(bgColor)) {
 
-        // Main Scrollable Content
         when (val state = uiState) {
             is HomeUiState.Loading -> HomeSkeleton()
             is HomeUiState.Error -> Text(
@@ -72,7 +101,6 @@ fun HomeScreen(
             is HomeUiState.Success -> {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    // CHANGED: Increased bottom padding to 120.dp to clear the floating bottom bar
                     contentPadding = PaddingValues(top = 120.dp, bottom = 120.dp)
                 ) {
                     if (state.heroAnime.isNotEmpty()) {
@@ -91,22 +119,54 @@ fun HomeScreen(
             }
         }
 
-        // Floating Top Bar Overlay
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(bgColor.copy(alpha = 0.9f), Color.Transparent)))
-        ) {
-            HomeFloatingTopBar(
-                avatarUrl = authState.avatarUrl,
-                isAuthenticated = authState.isAuthenticated,
-                isUpdateAvailable = updateInfo != null,
-                onUpdateClick = { showUpdateDialog = true },
-                onSearchClick = onSearchClick,
-                onProfileClick = { if (authState.isAuthenticated) onProfileClick() else showAuthDialog = true },
-                onSettingsClick = onSettingsClick
-            )
-        }
+        IsolatedTopBar(
+            authState = authState,
+            updateInfo = updateInfo,
+            unreadCount = unreadCount,
+            onUpdateClick = { showUpdateDialog = true },
+            onSearchClick = onSearchClick,
+            onProfileClick = onProfileClick,
+            onAuthClick = { showAuthDialog = true },
+            onSettingsClick = onSettingsClick,
+            onNotificationsClick = {
+                showNotificationsSheet = true
+                if (unreadCount > 0) {
+                    viewModel.markNotificationsAsRead()
+                }
+            },
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
+    }
+}
+
+@Composable
+private fun IsolatedTopBar(
+    authState: AuthState,
+    updateInfo: AppUpdateInfo?,
+    unreadCount: Int,
+    onUpdateClick: () -> Unit,
+    onSearchClick: () -> Unit,
+    onProfileClick: () -> Unit,
+    onAuthClick: () -> Unit,
+    onSettingsClick: () -> Unit,
+    onNotificationsClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color(0xFF09090B).copy(alpha = 0.9f), Color.Transparent)))
+    ) {
+        HomeFloatingTopBar(
+            avatarUrl = authState.avatarUrl,
+            isAuthenticated = authState.isAuthenticated,
+            isUpdateAvailable = updateInfo != null,
+            unreadNotificationCount = unreadCount,
+            onUpdateClick = onUpdateClick,
+            onSearchClick = onSearchClick,
+            onProfileClick = { if (authState.isAuthenticated) onProfileClick() else onAuthClick() },
+            onSettingsClick = onSettingsClick,
+            onNotificationsClick = onNotificationsClick
+        )
     }
 }

@@ -19,6 +19,7 @@ import com.zenx.yugen.play.MainActivity
 import com.zenx.yugen.play.R
 import dagger.hilt.android.AndroidEntryPoint
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 @OptIn(UnstableApi::class)
@@ -35,6 +36,11 @@ class VideoDownloadService : DownloadService(
         const val CHANNEL_ID = "yugen_download_channel"
         const val FOREGROUND_NOTIFICATION_ID = 1001
     }
+
+    private data class CachedDownloadMeta(val animeTitle: String, val episodeNumber: String)
+
+    // L-5: Cache parsed metadata per download ID to avoid parsing JSON on each notification tick
+    private val metadataCache = ConcurrentHashMap<String, CachedDownloadMeta>()
 
     @Inject
     lateinit var injectedDownloadManager: DownloadManager
@@ -53,6 +59,22 @@ class VideoDownloadService : DownloadService(
 
     override fun getScheduler(): Scheduler? {
         return null
+    }
+
+    private fun getOrParseMetadata(download: Download): CachedDownloadMeta {
+        val id = download.request.id
+        return metadataCache.getOrPut(id) {
+            try {
+                val raw = String(download.request.data, Charsets.UTF_8)
+                val json = JSONObject(raw)
+                CachedDownloadMeta(
+                    animeTitle = json.optString("animeTitle", "Anime"),
+                    episodeNumber = json.optString("episodeNumber", "?")
+                )
+            } catch (_: Exception) {
+                CachedDownloadMeta("Anime", "?")
+            }
+        }
     }
 
     override fun getForegroundNotification(
@@ -75,6 +97,10 @@ class VideoDownloadService : DownloadService(
             it.state == Download.STATE_DOWNLOADING || it.state == Download.STATE_QUEUED
         }
 
+        // Evict finished/removed downloads from the metadata cache
+        val currentIds = downloads.map { it.request.id }.toSet()
+        metadataCache.keys.retainAll(currentIds)
+
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentIntent(pendingIntent)
@@ -90,10 +116,9 @@ class VideoDownloadService : DownloadService(
             return builder.build()
         }
 
-        val firstMeta = String(activeDownloads.first().request.data, Charsets.UTF_8)
-        val firstJson = try { JSONObject(firstMeta) } catch (e: Exception) { JSONObject() }
-        val animeTitle = firstJson.optString("animeTitle", "Anime")
-        val epNum = firstJson.optString("episodeNumber", "?")
+        val firstMeta = getOrParseMetadata(activeDownloads.first())
+        val animeTitle = firstMeta.animeTitle
+        val epNum = firstMeta.episodeNumber
 
         if (activeDownloads.size == 1) {
             val dl = activeDownloads.first()
@@ -108,9 +133,8 @@ class VideoDownloadService : DownloadService(
             var count = 0
 
             activeDownloads.forEach { dl ->
-                val meta = String(dl.request.data, Charsets.UTF_8)
-                val json = try { JSONObject(meta) } catch (e: Exception) { JSONObject() }
-                val ep = json.optString("episodeNumber", "?")
+                val meta = getOrParseMetadata(dl)
+                val ep = meta.episodeNumber
                 val p = dl.percentDownloaded.toInt().coerceIn(0, 100)
 
                 val statusText = if (dl.state == Download.STATE_QUEUED) "Queued" else "$p%"

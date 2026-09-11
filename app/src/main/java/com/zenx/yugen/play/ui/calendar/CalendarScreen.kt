@@ -1,6 +1,7 @@
 package com.zenx.yugen.play.ui.calendar
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,7 +22,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import com.zenx.yugen.play.ui.components.shimmerEffect
+import com.zenx.yugen.play.domain.AiringAnimeItem
+import com.zenx.yugen.play.ui.components.premiumShimmerEffect
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -39,11 +41,11 @@ fun CalendarScreen(
     val accentPurple = Color(0xFF8B5CF6)
 
     val daysOfWeek = remember {
+        val dayFormat = SimpleDateFormat("EEE", Locale.getDefault())
+        val dateFormat = SimpleDateFormat("dd", Locale.getDefault())
         (-1..6).map { offset ->
             val calendar = Calendar.getInstance()
             calendar.add(Calendar.DAY_OF_YEAR, offset)
-            val dayFormat = SimpleDateFormat("EEE", Locale.getDefault())
-            val dateFormat = SimpleDateFormat("dd", Locale.getDefault())
             val title = when (offset) {
                 -1 -> "Yest"
                 0 -> "Today"
@@ -114,9 +116,7 @@ fun CalendarScreen(
         }
 
         when (val state = uiState) {
-            is CalendarUiState.Loading -> {
-                CalendarSkeleton()
-            }
+            is CalendarUiState.Loading -> CalendarSkeleton()
             is CalendarUiState.Error -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(state.message, color = Color.Red)
@@ -124,39 +124,66 @@ fun CalendarScreen(
             }
             is CalendarUiState.Success -> {
                 val selectedTab = daysOfWeek[selectedTabIndex]
-                val targetCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, selectedTab.offset) }
-                val targetDayOfYear = targetCal.get(Calendar.DAY_OF_YEAR)
-                val targetYear = targetCal.get(Calendar.YEAR)
 
-                val filteredAnime = state.data
-                    .filter { item ->
-                        val itemCal = Calendar.getInstance().apply { time = Date(item.airingAt * 1000L) }
-                        itemCal.get(Calendar.DAY_OF_YEAR) == targetDayOfYear && itemCal.get(Calendar.YEAR) == targetYear
-                    }
-                    .sortedBy { it.airingAt }
+                val filteredAnime = remember(state.data, selectedTab, state.bookmarkedMediaIds, state.bookmarkedTitles) {
+                    val targetCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, selectedTab.offset) }
+                    targetCal.set(Calendar.HOUR_OF_DAY, 0)
+                    targetCal.set(Calendar.MINUTE, 0)
+                    targetCal.set(Calendar.SECOND, 0)
+                    val startOfDayUnix = targetCal.timeInMillis / 1000L
+                    val endOfDayUnix = startOfDayUnix + 86399L
+
+                    state.data
+                        .filter { it.airingAt in startOfDayUnix..endOfDayUnix }
+                        .sortedWith(
+                            compareByDescending<AiringAnimeItem> { anime ->
+                                state.bookmarkedMediaIds.contains(anime.id) ||
+                                        state.bookmarkedTitles.contains(viewModel.normalizeTitleForComparison(anime.title))
+                            }
+                                .thenByDescending { it.popularity }
+                                .thenBy { it.airingAt }
+                        )
+                }
 
                 if (filteredAnime.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("No major releases scheduled for this day.", color = Color.Gray, fontSize = 14.sp)
                     }
                 } else {
+                    val timeFormat = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }
+                    val currentTime = remember { System.currentTimeMillis() }
+
                     LazyColumn(
-                        contentPadding = PaddingValues(16.dp),
+                        contentPadding = PaddingValues(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 120.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(filteredAnime) { anime ->
-                            val timeFormat = SimpleDateFormat("hh:mm a", androidx.compose.ui.text.intl.Locale.current.platformLocale)
-                            val airingTime = timeFormat.format(Date(anime.airingAt * 1000L))
-                            val isAired = (anime.airingAt * 1000L) <= System.currentTimeMillis()
+                        items(filteredAnime, key = { it.id }) { anime ->
+                            val airingTime = remember(anime.airingAt) { timeFormat.format(Date(anime.airingAt * 1000L)) }
+                            val isAired = (anime.airingAt * 1000L) <= currentTime
 
-                            Row(
-                                modifier = Modifier
+                            val isBookmarked = state.bookmarkedMediaIds.contains(anime.id) ||
+                                    state.bookmarkedTitles.contains(viewModel.normalizeTitleForComparison(anime.title))
+
+                            val cardModifier = if (isBookmarked) {
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(cardBg)
+                                    .border(1.5.dp, accentPurple.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                                    .clickable { onAnimeClick(anime.id, anime.title, anime.posterUrl) }
+                                    .padding(10.dp)
+                            } else {
+                                Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(cardBg)
                                     .clickable { onAnimeClick(anime.id, anime.title, anime.posterUrl) }
-                                    .padding(10.dp),
+                                    .padding(10.dp)
+                            }
+
+                            Row(
+                                modifier = cardModifier,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 AsyncImage(
@@ -175,9 +202,9 @@ fun CalendarScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = anime.title,
-                                        color = Color.White,
+                                        color = if (isBookmarked) accentPurple.copy(alpha = 0.9f) else Color.White,
                                         fontSize = 14.sp,
-                                        fontWeight = FontWeight.SemiBold,
+                                        fontWeight = if (isBookmarked) FontWeight.Bold else FontWeight.SemiBold,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -238,15 +265,15 @@ fun CalendarSkeleton() {
                         .width(72.dp)
                         .aspectRatio(0.7f)
                         .clip(RoundedCornerShape(8.dp))
-                        .shimmerEffect()
+                        .premiumShimmerEffect()
                 )
 
                 Spacer(modifier = Modifier.width(14.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Box(modifier = Modifier.fillMaxWidth(0.85f).height(16.dp).clip(RoundedCornerShape(4.dp)).shimmerEffect())
+                    Box(modifier = Modifier.fillMaxWidth(0.85f).height(16.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
                     Spacer(modifier = Modifier.height(8.dp))
-                    Box(modifier = Modifier.fillMaxWidth(0.5f).height(14.dp).clip(RoundedCornerShape(4.dp)).shimmerEffect())
+                    Box(modifier = Modifier.fillMaxWidth(0.5f).height(14.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
                 }
             }
         }
