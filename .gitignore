@@ -23,5 +23,5 @@ secrets.properties
 
 # Custom Redactions (Protecting Provider/Scraper Logic)
 # Adjust the path below to match exactly where your sensitive files live
-**/data/remote/providers/Anikoto*.kt
-**/data/remote/providers/SecretScraper*.kt
+**/data/provider/Anikoto*.kt
+**/data/provider/SecretScraper*.kt
