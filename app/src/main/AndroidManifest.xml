@@ -35,6 +35,19 @@
         android:supportsRtl="true"
         tools:ignore="PictureInPicture"
         android:theme="@style/Theme.App.Starting">
+
+        <!-- Disable the default WorkManager initializer so Hilt can handle it -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
         <receiver android:name=".util.NotificationDismissedReceiver" android:exported="false" />
 
         <meta-data
