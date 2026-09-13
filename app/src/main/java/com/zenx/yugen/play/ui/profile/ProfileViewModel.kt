@@ -34,14 +34,27 @@ class ProfileViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<ProfileUiState>(ProfileUiState.Loading)
     val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
 
-    companion object {
-        private var cachedUser: AnilistUser? = null
-        private var cachedLists: Map<String, List<AnilistListEntry>>? = null
-        private var lastFetchTime = 0L
-        private const val CACHE_TTL_MS = 5 * 60 * 1000L // 5 minutes
-    }
+    private var cachedUser: AnilistUser? = null
+    private var cachedLists: Map<String, List<AnilistListEntry>>? = null
+    private var lastFetchTime = 0L
+    private val cacheTtlMs = 5 * 60 * 1000L // 5 minutes
 
     init {
+        viewModelScope.launch {
+            authPreferences.authState.collect { authState ->
+                if (!authState.isAuthenticated || authState.token.isNullOrBlank()) {
+                    cachedUser = null
+                    cachedLists = null
+                    lastFetchTime = 0L
+                    _uiState.value = ProfileUiState.Unauthenticated
+                } else if (cachedUser != null && cachedUser?.id != authState.userId) {
+                    cachedUser = null
+                    cachedLists = null
+                    lastFetchTime = 0L
+                    loadProfileData(forceRefresh = true)
+                }
+            }
+        }
         loadProfileData()
     }
 
@@ -57,7 +70,7 @@ class ProfileViewModel @Inject constructor(
 
         val now = System.currentTimeMillis()
         val hasValidCache = cachedUser != null && cachedLists != null
-        val isCacheFresh = (now - lastFetchTime) < CACHE_TTL_MS
+        val isCacheFresh = (now - lastFetchTime) < cacheTtlMs
 
         // Instant render from session cache when navigating back and forth
         if (hasValidCache) {

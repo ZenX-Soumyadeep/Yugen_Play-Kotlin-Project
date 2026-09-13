@@ -37,7 +37,7 @@ class AnilistSyncWorker @AssistedInject constructor(
             return@withContext Result.failure()
         }
 
-        var allSuccessful = true
+        var hasFailures = false
 
         // Drain loop: continue draining newly enqueued tasks inserted during execution
         while (true) {
@@ -51,17 +51,20 @@ class AnilistSyncWorker @AssistedInject constructor(
                         offlineSyncDao.deleteTask(task.id)
                     } else {
                         Log.e(TAG, "Failed to sync progress for mediaId: ${task.mediaId}")
-                        allSuccessful = false
+                        hasFailures = true
+                        // Do not break here. Continue processing the remaining queue items.
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Exception during progress sync for mediaId: ${task.mediaId}", e)
-                    allSuccessful = false
+                    hasFailures = true
                 }
             }
 
-            if (!allSuccessful) break
+            // If we successfully processed everything this loop, check for newly inserted tasks.
+            // If we hit failures, break the drain loop and schedule a retry.
+            if (hasFailures) break
         }
 
-        if (allSuccessful) Result.success() else Result.retry()
+        if (!hasFailures) Result.success() else Result.retry()
     }
 }

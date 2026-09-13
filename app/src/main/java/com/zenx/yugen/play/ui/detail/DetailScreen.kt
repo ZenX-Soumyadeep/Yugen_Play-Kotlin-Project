@@ -10,7 +10,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -50,18 +52,6 @@ fun DetailScreen(
     val glassBorder = Color.White.copy(alpha = 0.12f)
     val accentPurple = Color(0xFF8B5CF6)
 
-    // Auto-play the stream once the island successfully fetches the servers
-    LaunchedEffect(islandState) {
-        if (islandState is IslandState.ServerSelection) {
-            val s = islandState as IslandState.ServerSelection
-            val state = uiState as? DetailsUiState.Success ?: return@LaunchedEffect
-            if (s.streams.isNotEmpty() && !viewModel.isDownloadMode) {
-                onEpisodeClick(s.episode.id, viewModel.animeUrl, viewModel.animeTitle, state.posterUrl, s.streams.first().url)
-                viewModel.dismissIsland()
-            }
-        }
-    }
-
     Box(modifier = Modifier.fillMaxSize().background(baseBackground)) {
 
         if (uiState is DetailsUiState.Success) {
@@ -100,28 +90,59 @@ fun DetailScreen(
                     item { AnimeInfoHeader(state) }
 
                     item {
-                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .padding(bottom = 16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Source Provider Selector Pill
                             Row(
-                                modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(glassBg).border(1.dp, glassBorder, RoundedCornerShape(8.dp)).bounceClick { viewModel.showSourceSheet() }.padding(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(glassBg)
+                                    .border(1.dp, glassBorder, RoundedCornerShape(12.dp))
+                                    .bounceClick { viewModel.showSourceSheet() }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.Settings, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Rounded.Layers, contentDescription = null, tint = accentPurple, modifier = Modifier.size(15.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(state.activeProvider.uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(14.dp))
+                                Text(state.activeProvider.uppercase(), color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(16.dp))
                             }
 
-                            val mapBtnColor = if (state.isMapped) Color(0xFFEAB308) else Color.White
-                            val mapBgColor = if (state.isMapped) Color(0xFFEAB308).copy(alpha = 0.15f) else glassBg
-                            val mapBorderColor = if (state.isMapped) Color(0xFFEAB308).copy(alpha = 0.5f) else glassBorder
+                            // Title Match Status Pill
+                            val mapBtnColor = if (state.isMapped) Color(0xFFFBBF24) else Color.White
+                            val mapBgColor = if (state.isMapped) Color(0xFFFBBF24).copy(alpha = 0.15f) else glassBg
+                            val mapBorderColor = if (state.isMapped) Color(0xFFFBBF24).copy(alpha = 0.45f) else glassBorder
                             Row(
-                                modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(mapBgColor).border(1.dp, mapBorderColor, RoundedCornerShape(8.dp)).bounceClick { if (state.isMapped) viewModel.clearTitleMapping() else viewModel.showMappingSheet() }.padding(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(mapBgColor)
+                                    .border(1.dp, mapBorderColor, RoundedCornerShape(12.dp))
+                                    .bounceClick {
+                                        if (state.isMapped) viewModel.clearTitleMapping() else viewModel.showMappingSheet()
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(if (state.isMapped) Icons.Default.Close else Icons.Default.SwapHoriz, contentDescription = null, tint = mapBtnColor, modifier = Modifier.size(14.dp))
+                                Icon(
+                                    if (state.isMapped) Icons.Rounded.Close else Icons.Rounded.AutoFixHigh,
+                                    contentDescription = null,
+                                    tint = mapBtnColor,
+                                    modifier = Modifier.size(15.dp)
+                                )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(if (state.isMapped) "Remove Map" else "Fix Title Match", color = mapBtnColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    if (state.isMapped) "Remove Map" else "Fix Title Match",
+                                    color = mapBtnColor,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
@@ -135,24 +156,49 @@ fun DetailScreen(
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text("Episodes", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                                 Row(
-                                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(glassBg).border(1.dp, glassBorder, RoundedCornerShape(8.dp)).bounceClick { onDownloadsClick() }.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(glassBg)
+                                        .border(1.dp, glassBorder, RoundedCornerShape(10.dp))
+                                        .bounceClick { onDownloadsClick() }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text("Downloads", color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    Icon(Icons.Default.Download, contentDescription = "Download Page", tint = accentPurple, modifier = Modifier.size(14.dp))
+                                    Icon(Icons.Rounded.Download, contentDescription = "Download Page", tint = accentPurple, modifier = Modifier.size(15.dp))
                                 }
                             }
 
                             if (episodeChunks.size > 1) {
                                 Spacer(modifier = Modifier.height(12.dp))
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 2.dp)
+                                ) {
                                     items(episodeChunks.size) { index ->
                                         val chunkEps = episodeChunks[index]
                                         val start = chunkEps.first().number
                                         val end = chunkEps.last().number
                                         val isSelected = selectedChunkIndex == index
-                                        Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (isSelected) accentPurple.copy(alpha = 0.2f) else glassBg).bounceClick { selectedChunkIndex = index }.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                                            Text("$start-$end", color = if (isSelected) accentPurple else Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(if (isSelected) accentPurple.copy(alpha = 0.22f) else glassBg)
+                                                .border(
+                                                    1.dp,
+                                                    if (isSelected) accentPurple.copy(alpha = 0.5f) else glassBorder,
+                                                    RoundedCornerShape(10.dp)
+                                                )
+                                                .bounceClick { selectedChunkIndex = index }
+                                                .padding(horizontal = 14.dp, vertical = 7.dp)
+                                        ) {
+                                            Text(
+                                                "$start - $end",
+                                                color = if (isSelected) accentPurple else Color.LightGray,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
+                                            )
                                         }
                                     }
                                 }
@@ -163,7 +209,33 @@ fun DetailScreen(
                     if (state.isEpisodesLoading) {
                         items(6) { EpisodeSkeletonRow() }
                     } else if (state.episodeError != null) {
-                        item { Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { Text(state.episodeError, color = Color.Red) } }
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(36.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(state.episodeError, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(accentPurple.copy(alpha = 0.2f))
+                                        .border(1.dp, accentPurple.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                                        .bounceClick { viewModel.retryEpisodes() }
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Rounded.Refresh, contentDescription = null, tint = accentPurple, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Retry", color = accentPurple, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         val activeEpisodes = episodeChunks.getOrNull(selectedChunkIndex) ?: emptyList()
 
@@ -200,12 +272,60 @@ fun DetailScreen(
             val state = uiState as DetailsUiState.Success
             val isBookmarked = state.isFavorite || state.anilistStatus != null
 
-            Row(modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBackClick, modifier = Modifier.clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)).border(1.dp, glassBorder, CircleShape)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                }
-                IconButton(onClick = { if (state.isUserLoggedIn) viewModel.showAnilistSheet() else viewModel.toggleFavorite() }, modifier = Modifier.clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)).border(1.dp, glassBorder, CircleShape)) {
-                    Icon(if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder, contentDescription = "Bookmark", tint = if (isBookmarked) accentPurple else Color.White)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent)
+                        )
+                    )
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.5f))
+                            .border(1.dp, glassBorder, CircleShape)
+                            .bounceClick(onClick = onBackClick),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.5f))
+                            .border(1.dp, if (isBookmarked) accentPurple.copy(alpha = 0.5f) else glassBorder, CircleShape)
+                            .bounceClick {
+                                if (state.isUserLoggedIn) viewModel.showAnilistSheet() else viewModel.toggleFavorite()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AnimatedContent(targetState = isBookmarked, label = "BookmarkAnim") { bookmarked ->
+                            Icon(
+                                if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                                contentDescription = "Bookmark",
+                                tint = if (bookmarked) accentPurple else Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                 }
             }
         }

@@ -6,9 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,7 +19,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.*
@@ -30,6 +27,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -59,42 +57,119 @@ fun AnimeInfoHeader(state: DetailsUiState.Success) {
     val glassBorder = Color.White.copy(alpha = 0.12f)
 
     Column(modifier = Modifier.padding(horizontal = 16.dp).offset(y = (-20).dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-            Text(text = state.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 28.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(end = 12.dp))
-            Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(accentPurple.copy(alpha = 0.2f)).border(1.dp, accentPurple.copy(alpha = 0.4f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            Text(
+                text = state.title,
+                color = Color.White,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.ExtraBold,
+                lineHeight = 28.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(end = 12.dp)
+            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Brush.linearGradient(listOf(accentPurple.copy(alpha = 0.25f), Color(0xFF6366F1).copy(alpha = 0.2f))))
+                    .border(1.dp, accentPurple.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Star, contentDescription = null, tint = accentPurple, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Rounded.Star, contentDescription = null, tint = Color(0xFFFBBF24), modifier = Modifier.size(15.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(state.score, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(state.score, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
                 }
             }
         }
+
         Spacer(modifier = Modifier.height(12.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             state.genres.forEach { genre ->
-                Box(modifier = Modifier.border(1.dp, glassBorder, RoundedCornerShape(12.dp)).background(glassBg).padding(horizontal = 12.dp, vertical = 4.dp)) {
-                    Text(genre, color = Color.LightGray, fontSize = 12.sp)
+                Box(
+                    modifier = Modifier
+                        .border(1.dp, glassBorder, RoundedCornerShape(14.dp))
+                        .background(glassBg)
+                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                ) {
+                    Text(genre, color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
+
         Spacer(modifier = Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.CalendarToday, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(12.dp))
-            Text(" ${state.year}  •  ▶ ${state.episodeCount} Episodes  •  🕒 24 min  •  ${state.format}", color = Color.Gray, fontSize = 12.sp)
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (state.year.isNotBlank() && state.year != "N/A") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.CalendarToday, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(12.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(state.year, color = Color.LightGray, fontSize = 12.sp)
+                }
+                Text("•", color = Color.DarkGray, fontSize = 12.sp)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.SlowMotionVideo, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("${state.episodeCount} Ep", color = Color.LightGray, fontSize = 12.sp)
+            }
+            Text("•", color = Color.DarkGray, fontSize = 12.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Schedule, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(13.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("24m", color = Color.LightGray, fontSize = 12.sp)
+            }
+            if (state.format.isNotBlank()) {
+                Text("•", color = Color.DarkGray, fontSize = 12.sp)
+                Text(state.format, color = accentPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
         }
-        Spacer(modifier = Modifier.height(12.dp))
+
+        Spacer(modifier = Modifier.height(14.dp))
 
         var isSynopsisExpanded by remember { mutableStateOf(false) }
         Column(
             modifier = Modifier
                 .animateContentSize()
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { isSynopsisExpanded = !isSynopsisExpanded }
+                .bounceClick { isSynopsisExpanded = !isSynopsisExpanded }
         ) {
             Text(
-                text = state.synopsis, color = Color.LightGray.copy(alpha = 0.9f), fontSize = 13.sp, lineHeight = 18.sp,
-                maxLines = if (isSynopsisExpanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis
+                text = state.synopsis,
+                color = Color.LightGray.copy(alpha = 0.85f),
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+                maxLines = if (isSynopsisExpanded) Int.MAX_VALUE else 3,
+                overflow = TextOverflow.Ellipsis
             )
-            Text(text = if (isSynopsisExpanded) "Show Less" else "Read More", color = accentPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
+                Text(
+                    text = if (isSynopsisExpanded) "Show Less" else "Read More",
+                    color = accentPurple,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    if (isSynopsisExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = accentPurple,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
     }
 }
@@ -111,6 +186,17 @@ fun NextAiringTimer(nextAiringAt: Long, nextAiringEpisode: Int) {
         }
     }
 
+    val infiniteTransition = rememberInfiniteTransition(label = "AiringPulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "AiringPulseAlpha"
+    )
+
     if (timeLeft > 0) {
         val days = timeLeft / 86400
         val hours = (timeLeft % 86400) / 3600
@@ -118,10 +204,44 @@ fun NextAiringTimer(nextAiringAt: Long, nextAiringEpisode: Int) {
         val seconds = timeLeft % 60
         val timeString = String.format(Locale.US, "%dD %02dH %02dM %02dS", days, hours, minutes, seconds)
 
-        Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp).clip(RoundedCornerShape(12.dp)).background(accentPurple.copy(alpha = 0.15f)).border(1.dp, accentPurple.copy(alpha = 0.3f), RoundedCornerShape(12.dp)).padding(16.dp), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(accentPurple.copy(alpha = 0.12f))
+                .border(1.dp, accentPurple.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                .padding(16.dp),
+            contentAlignment = Alignment.Center
+        ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("EPISODE $nextAiringEpisode RELEASES IN", color = Color.LightGray, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                Text(timeString, color = accentPurple, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF10B981).copy(alpha = pulseAlpha))
+                    )
+                    Text(
+                        "EPISODE $nextAiringEpisode RELEASES IN",
+                        color = Color.LightGray,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 1.2.sp
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    timeString,
+                    color = accentPurple,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.sp
+                )
             }
         }
     }
@@ -129,44 +249,182 @@ fun NextAiringTimer(nextAiringAt: Long, nextAiringEpisode: Int) {
 
 @Composable
 fun EpisodeItemRow(
-    ep: EpisodeUiModel, isResumeTarget: Boolean, defaultPoster: String,
-    onPlayClicked: () -> Unit, onDownloadClicked: () -> Unit
+    ep: EpisodeUiModel,
+    isResumeTarget: Boolean,
+    defaultPoster: String,
+    onPlayClicked: () -> Unit,
+    onDownloadClicked: () -> Unit
 ) {
     val context = LocalContext.current
     val accentPurple = Color(0xFF8B5CF6)
     val glassBorder = Color.White.copy(alpha = 0.12f)
+    val cardBg = if (isResumeTarget) Color(0xFF1B1824) else Color(0xFF141418)
     val activeBorder = if (isResumeTarget) BorderStroke(1.5.dp, accentPurple) else BorderStroke(1.dp, glassBorder)
     val titleColor = if (isResumeTarget) accentPurple else Color.White
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
+    val animatedDownloadProgress by animateFloatAsState(
+        targetValue = (ep.downloadPercent / 100f).coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 350, easing = LinearOutSlowInEasing),
+        label = "EpDownloadProgress"
+    )
+
+    val animatedWatchProgress by animateFloatAsState(
+        targetValue = ep.watchProgress.coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+        label = "EpWatchProgress"
+    )
+
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF16161A)).border(activeBorder, RoundedCornerShape(16.dp)).bounceClick(onClick = onPlayClicked).padding(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .border(activeBorder, RoundedCornerShape(16.dp))
+            .bounceClick(onClick = onPlayClicked)
+            .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(modifier = Modifier.width(130.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp))) {
-            AsyncImage(model = ImageRequest.Builder(context).data(ep.thumbnailUrl ?: defaultPoster).crossfade(300).build(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
+        Box(
+            modifier = Modifier
+                .width(128.dp)
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(10.dp))
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(ep.thumbnailUrl ?: defaultPoster)
+                    .crossfade(300)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            // Vignette gradient
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0.0f to Color.Transparent,
+                            0.5f to Color.Black.copy(alpha = 0.2f),
+                            1.0f to Color.Black.copy(alpha = 0.7f)
+                        )
+                    )
+            )
+            // Play icon
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Rounded.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
-            Box(modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).clip(RoundedCornerShape(4.dp)).background(Color.Black.copy(alpha = 0.8f)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                Text("EP ${ep.number}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            // Episode Number Badge
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(6.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    "EP ${ep.number}",
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
+            // Resume Target Tag
+            if (isResumeTarget) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(5.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(accentPurple)
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        "RESUME",
+                        color = Color.White,
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+            }
+            // Watch Progress Bar
             if (ep.watchProgress > 0) {
-                Box(modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color.DarkGray)) {
-                    Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(ep.watchProgress).background(accentPurple))
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(3.5.dp)
+                        .background(Color.Black.copy(alpha = 0.6f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(animatedWatchProgress)
+                            .clip(RoundedCornerShape(topEnd = 2.dp, bottomEnd = 2.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(Color(0xFF8B5CF6), Color(0xFFA78BFA))
+                                )
+                            )
+                    )
                 }
             }
         }
+
         Spacer(modifier = Modifier.width(14.dp))
+
         Column(modifier = Modifier.weight(1f)) {
-            Text("${ep.number}. ${ep.title}", color = titleColor, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                text = "${ep.number}. ${ep.title}",
+                color = titleColor,
+                fontSize = 14.5.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             Spacer(modifier = Modifier.height(4.dp))
-            Text(ep.description, color = Color.Gray, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
+            Text(
+                text = ep.description,
+                color = Color.LightGray.copy(alpha = 0.7f),
+                fontSize = 12.5.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 17.sp
+            )
         }
-        Spacer(modifier = Modifier.width(12.dp))
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        // Download Action Button with tactile feedback
         Box(
-            modifier = Modifier.size(40.dp).clip(CircleShape).border(1.dp, Color.DarkGray, CircleShape)
-                .clickable {
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.05f))
+                .border(
+                    1.dp,
+                    if (ep.downloadState == DownloadState.DOWNLOADING) accentPurple.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.12f),
+                    CircleShape
+                )
+                .bounceClick {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && (ep.downloadState == DownloadState.NONE || ep.downloadState == DownloadState.FAILED)) {
                         permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
@@ -175,12 +433,49 @@ fun EpisodeItemRow(
             contentAlignment = Alignment.Center
         ) {
             when {
-                ep.isPreparing -> CircularProgressIndicator(modifier = Modifier.size(20.dp), color = accentPurple, strokeWidth = 2.dp)
-                ep.downloadState == DownloadState.NONE -> Icon(Icons.Default.Download, contentDescription = "Download", tint = Color.LightGray, modifier = Modifier.size(20.dp))
-                ep.downloadState == DownloadState.DOWNLOADING -> CircularProgressIndicator(progress = { ep.downloadPercent / 100f }, modifier = Modifier.size(20.dp), color = accentPurple, strokeWidth = 2.dp)
-                ep.downloadState == DownloadState.PAUSED -> Icon(Icons.Default.Pause, contentDescription = "Paused", tint = Color.Yellow, modifier = Modifier.size(20.dp))
-                ep.downloadState == DownloadState.COMPLETED -> Icon(Icons.Default.CheckCircle, contentDescription = "Downloaded", tint = Color(0xFF4CAF50), modifier = Modifier.size(20.dp))
-                ep.downloadState == DownloadState.FAILED -> Icon(Icons.Default.ErrorOutline, contentDescription = "Error", tint = Color.Red, modifier = Modifier.size(20.dp))
+                ep.isPreparing -> CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = accentPurple,
+                    strokeWidth = 2.dp
+                )
+                ep.downloadState == DownloadState.NONE -> Icon(
+                    Icons.Rounded.Download,
+                    contentDescription = "Download",
+                    tint = Color.LightGray,
+                    modifier = Modifier.size(20.dp)
+                )
+                ep.downloadState == DownloadState.DOWNLOADING -> {
+                    CircularProgressIndicator(
+                        progress = { 1f },
+                        modifier = Modifier.size(20.dp),
+                        color = accentPurple.copy(alpha = 0.2f),
+                        strokeWidth = 2.5.dp
+                    )
+                    CircularProgressIndicator(
+                        progress = { animatedDownloadProgress },
+                        modifier = Modifier.size(20.dp),
+                        color = accentPurple,
+                        strokeWidth = 2.5.dp
+                    )
+                }
+                ep.downloadState == DownloadState.PAUSED -> Icon(
+                    Icons.Rounded.PauseCircle,
+                    contentDescription = "Paused",
+                    tint = Color(0xFFFBBF24),
+                    modifier = Modifier.size(20.dp)
+                )
+                ep.downloadState == DownloadState.COMPLETED -> Icon(
+                    Icons.Rounded.CheckCircle,
+                    contentDescription = "Downloaded",
+                    tint = Color(0xFF10B981),
+                    modifier = Modifier.size(20.dp)
+                )
+                ep.downloadState == DownloadState.FAILED -> Icon(
+                    Icons.Rounded.ErrorOutline,
+                    contentDescription = "Error",
+                    tint = Color(0xFFEF4444),
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }

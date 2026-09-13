@@ -76,6 +76,10 @@ class DownloadTracker @Inject constructor(
     ) {
         synchronized(stateLock) {
             currentMap[download.request.id] = download
+            if (download.state != Download.STATE_DOWNLOADING) {
+                speedMap[download.request.id] = 0L
+            }
+            byteSamples[download.request.id] = Pair(System.currentTimeMillis(), download.bytesDownloaded)
             _downloads.tryEmit(HashMap(currentMap))
         }
         checkProgressLoop()
@@ -108,22 +112,33 @@ class DownloadTracker @Inject constructor(
                         for (dl in currentActiveDownloads) {
                             val id = dl.request.id
 
-                            // Guard: Do not re-insert or recalculate items deleted from currentMap
                             if (currentMap.containsKey(id) && dl.state != Download.STATE_REMOVING) {
                                 currentMap[id] = dl
 
-                                val previousSample = byteSamples[id]
-                                if (previousSample != null) {
-                                    val timeDelta = now - previousSample.first
-                                    val bytesDelta = dl.bytesDownloaded - previousSample.second
-                                    if (timeDelta >= 500 && bytesDelta >= 0) {
-                                        val speed = (bytesDelta * 1000L) / timeDelta
-                                        speedMap[id] = speed
+                                if (dl.state == Download.STATE_DOWNLOADING) {
+                                    val previousSample = byteSamples[id]
+                                    if (previousSample != null) {
+                                        val timeDelta = now - previousSample.first
+                                        val bytesDelta = dl.bytesDownloaded - previousSample.second
+                                        if (timeDelta >= 300 && bytesDelta >= 0) {
+                                            val instantSpeed = (bytesDelta * 1000L) / timeDelta
+                                            val prevSpeed = speedMap[id] ?: 0L
+                                            // Smooth network jitter with exponential moving average (EMA)
+                                            val smoothedSpeed = if (prevSpeed > 0L) {
+                                                (0.4f * instantSpeed + 0.6f * prevSpeed).toLong()
+                                            } else {
+                                                instantSpeed
+                                            }
+                                            speedMap[id] = smoothedSpeed
+                                            byteSamples[id] = Pair(now, dl.bytesDownloaded)
+                                        }
+                                    } else {
                                         byteSamples[id] = Pair(now, dl.bytesDownloaded)
+                                        speedMap[id] = 0L
                                     }
                                 } else {
-                                    byteSamples[id] = Pair(now, dl.bytesDownloaded)
                                     speedMap[id] = 0L
+                                    byteSamples[id] = Pair(now, dl.bytesDownloaded)
                                 }
                             }
                         }
@@ -137,9 +152,10 @@ class DownloadTracker @Inject constructor(
 
                     if (!stillActive) {
                         speedMap.clear()
+                        _downloads.tryEmit(HashMap(currentMap))
                         break
                     }
-                    delay(500L.milliseconds)
+                    delay(350L.milliseconds)
                 }
             }
         }

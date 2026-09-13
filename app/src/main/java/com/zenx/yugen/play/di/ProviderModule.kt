@@ -7,7 +7,6 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import okhttp3.OkHttpClient
 import javax.inject.Singleton
 
 @Module
@@ -16,9 +15,10 @@ object ProviderModule {
 
     @Provides
     @Singleton
-    fun provideProviderRegistry(client: OkHttpClient): ProviderRegistry {
-        val anikoto = AnikotoProvider(client)
-        return ProviderRegistry(listOf(anikoto))
+    fun provideProviderRegistry(
+        anikotoProvider: AnikotoProvider
+    ): ProviderRegistry {
+        return ProviderRegistry(listOf(anikotoProvider))
     }
 
     @Provides

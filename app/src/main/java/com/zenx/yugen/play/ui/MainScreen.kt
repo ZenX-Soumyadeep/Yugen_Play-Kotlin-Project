@@ -55,10 +55,22 @@ private fun buildPlayerRoute(
 }
 
 @Composable
-fun MainScreen() {
+fun MainScreen(
+    pendingNavRoute: String? = null,
+    onRouteHandled: () -> Unit = {}
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+
+    LaunchedEffect(pendingNavRoute) {
+        if (!pendingNavRoute.isNullOrBlank()) {
+            try {
+                navController.navigate(pendingNavRoute)
+                onRouteHandled()
+            } catch (_: Exception) {}
+        }
+    }
 
     val bottomNavItems = listOf(
         BottomNavItem.Home,
@@ -86,42 +98,66 @@ fun MainScreen() {
             startDestination = BottomNavItem.Home.route,
             modifier = Modifier.fillMaxSize(),
             enterTransition = {
-                if (initialState.destination.route in bottomNavRoutes && targetState.destination.route in bottomNavRoutes) {
-                    EnterTransition.None
+                val fromIndex = bottomNavRoutes.indexOf(initialState.destination.route)
+                val toIndex = bottomNavRoutes.indexOf(targetState.destination.route)
+                if (fromIndex != -1 && toIndex != -1) {
+                    val towards = if (toIndex > fromIndex) AnimatedContentTransitionScope.SlideDirection.Start else AnimatedContentTransitionScope.SlideDirection.End
+                    slideIntoContainer(
+                        towards = towards,
+                        animationSpec = tween(300, easing = FastOutSlowInEasing)
+                    ) + fadeIn(animationSpec = tween(250, easing = FastOutSlowInEasing))
                 } else {
                     slideIntoContainer(
                         towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                        animationSpec = tween(250, easing = FastOutSlowInEasing)
+                        animationSpec = tween(280, easing = FastOutSlowInEasing)
                     ) + fadeIn(tween(200))
                 }
             },
             exitTransition = {
-                if (initialState.destination.route in bottomNavRoutes && targetState.destination.route in bottomNavRoutes) {
-                    ExitTransition.None
+                val fromIndex = bottomNavRoutes.indexOf(initialState.destination.route)
+                val toIndex = bottomNavRoutes.indexOf(targetState.destination.route)
+                if (fromIndex != -1 && toIndex != -1) {
+                    val towards = if (toIndex > fromIndex) AnimatedContentTransitionScope.SlideDirection.Start else AnimatedContentTransitionScope.SlideDirection.End
+                    slideOutOfContainer(
+                        towards = towards,
+                        animationSpec = tween(300, easing = FastOutSlowInEasing)
+                    ) + fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing))
                 } else {
                     slideOutOfContainer(
                         towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                        animationSpec = tween(250, easing = FastOutSlowInEasing)
+                        animationSpec = tween(280, easing = FastOutSlowInEasing)
                     ) + fadeOut(tween(200))
                 }
             },
             popEnterTransition = {
-                if (initialState.destination.route in bottomNavRoutes && targetState.destination.route in bottomNavRoutes) {
-                    EnterTransition.None
+                val fromIndex = bottomNavRoutes.indexOf(initialState.destination.route)
+                val toIndex = bottomNavRoutes.indexOf(targetState.destination.route)
+                if (fromIndex != -1 && toIndex != -1) {
+                    val towards = if (toIndex > fromIndex) AnimatedContentTransitionScope.SlideDirection.Start else AnimatedContentTransitionScope.SlideDirection.End
+                    slideIntoContainer(
+                        towards = towards,
+                        animationSpec = tween(300, easing = FastOutSlowInEasing)
+                    ) + fadeIn(animationSpec = tween(250, easing = FastOutSlowInEasing))
                 } else {
                     slideIntoContainer(
                         towards = AnimatedContentTransitionScope.SlideDirection.End,
-                        animationSpec = tween(250, easing = FastOutSlowInEasing)
+                        animationSpec = tween(280, easing = FastOutSlowInEasing)
                     ) + fadeIn(tween(200))
                 }
             },
             popExitTransition = {
-                if (initialState.destination.route in bottomNavRoutes && targetState.destination.route in bottomNavRoutes) {
-                    ExitTransition.None
+                val fromIndex = bottomNavRoutes.indexOf(initialState.destination.route)
+                val toIndex = bottomNavRoutes.indexOf(targetState.destination.route)
+                if (fromIndex != -1 && toIndex != -1) {
+                    val towards = if (toIndex > fromIndex) AnimatedContentTransitionScope.SlideDirection.Start else AnimatedContentTransitionScope.SlideDirection.End
+                    slideOutOfContainer(
+                        towards = towards,
+                        animationSpec = tween(300, easing = FastOutSlowInEasing)
+                    ) + fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing))
                 } else {
                     slideOutOfContainer(
                         towards = AnimatedContentTransitionScope.SlideDirection.End,
-                        animationSpec = tween(250, easing = FastOutSlowInEasing)
+                        animationSpec = tween(280, easing = FastOutSlowInEasing)
                     ) + fadeOut(tween(200))
                 }
             }
@@ -192,7 +228,9 @@ fun MainScreen() {
                 )
             }
 
-            composable("settings") { SettingsScreen() }
+            composable("settings") {
+                SettingsScreen(onBackClick = { navController.popBackStack() })
+            }
 
             composable("profile") {
                 ProfileScreen(
@@ -215,7 +253,13 @@ fun MainScreen() {
                         navController.navigate(buildPlayerRoute(episodeId = episodeId, animeUrl = animeUrl, title = title, poster = poster, streamUrl = streamUrl))
                     },
                     onBackClick = { navController.popBackStack() },
-                    onDownloadsClick = { navController.navigate(BottomNavItem.Downloads.route) }
+                    onDownloadsClick = {
+                        navController.navigate(BottomNavItem.Downloads.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
                 )
             }
 

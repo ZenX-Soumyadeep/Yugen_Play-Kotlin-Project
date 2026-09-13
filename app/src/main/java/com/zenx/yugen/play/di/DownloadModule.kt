@@ -17,6 +17,7 @@ import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.DownloadManager
 import com.zenx.yugen.play.service.DownloadTracker
+import com.zenx.yugen.play.util.CdnHostRewriter
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -134,8 +135,11 @@ object DownloadModule {
             .setUserAgent(userAgent)
 
         val resolvingDataSourceFactory = ResolvingDataSource.Factory(baseDataSourceFactory) { dataSpec ->
-            val uriStr = dataSpec.uri.toString()
-            val host = dataSpec.uri.host.orEmpty()
+            // CDN fix: MegaPlay playlists advertise segments on stale `*.akirax.buzz` hosts that
+            // answer 404/403. Re-point them at the live segment CDN so downloads succeed too.
+            val resolvedUri = CdnHostRewriter.rewriteSegmentHost(dataSpec.uri)
+            val uriStr = resolvedUri.toString()
+            val host = resolvedUri.host.orEmpty()
             val dynamicHeaders = mutableMapOf<String, String>().apply {
                 putAll(dataSpec.httpRequestHeaders)
             }

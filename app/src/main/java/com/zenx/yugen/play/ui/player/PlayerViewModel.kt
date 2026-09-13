@@ -18,10 +18,11 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.Cache
+import androidx.media3.datasource.cache.CacheDataSink
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -36,6 +37,7 @@ import com.zenx.yugen.play.data.local.OfflineSyncDao
 import com.zenx.yugen.play.data.local.OfflineSyncEntity
 import com.zenx.yugen.play.data.local.WatchHistoryDao
 import com.zenx.yugen.play.data.local.WatchHistoryEntity
+import com.zenx.yugen.play.di.ProviderClient
 import com.zenx.yugen.play.domain.Episode
 import com.zenx.yugen.play.domain.EpisodeId
 import com.zenx.yugen.play.domain.ProviderRegistry
@@ -51,6 +53,7 @@ import com.zenx.yugen.play.ui.detail.StreamDataCache
 import com.zenx.yugen.play.ui.player.managers.CastSessionManager
 import com.zenx.yugen.play.ui.player.managers.PlayerEngine
 import com.zenx.yugen.play.util.CastProxy
+import com.zenx.yugen.play.util.CdnHostRewriter
 import com.zenx.yugen.play.worker.AnilistSyncWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -68,6 +71,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
@@ -114,7 +118,6 @@ sealed interface PlayerUiState {
         val isEpisodeSheetVisible: Boolean = false,
         val isSubtitleSheetVisible: Boolean = false,
         val isQualitySheetVisible: Boolean = false,
-        val isSpeedSheetVisible: Boolean = false,
         val skipIntervals: List<SkipInterval> = emptyList(),
         val activeSkipInterval: SkipInterval? = null,
         val nextEpisode: Episode? = null,
@@ -131,6 +134,7 @@ sealed interface PlayerUiState {
 class PlayerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     savedStateHandle: SavedStateHandle,
+    @ProviderClient private val okHttpClient: OkHttpClient,
     private val getVideoStreamsUseCase: GetVideoStreamsUseCase,
     private val getEpisodesUseCase: GetEpisodesUseCase,
     private val getAnimeDetailsUseCase: GetAnimeDetailsUseCase,
@@ -324,22 +328,14 @@ class PlayerViewModel @Inject constructor(
             }
 
             val lastValidPos = _playbackProgress.value.currentPosition.takeIf { it > 0L }
-                ?: getActivePlayer().currentPosition.takeIf { it > 0L && it != C.TIME_UNSET }
+                ?: getActivePlayer().currentPosition.takeIf { it > 0L }
                 ?: 0L
-
-            if (streamRetryCount < 2) {
-                streamRetryCount++
-                updateReadyState { it.copy(isBuffering = true, isPlaying = false) }
-                showTransientWarning("Reconnecting stream (Attempt $streamRetryCount/2)...")
-                state.activeStream?.let { playStream(it, startPositionMs = lastValidPos) }
-                return
-            }
 
             if (state.streams.size > 1 && currentStreamIndex < state.streams.size - 1) {
                 currentStreamIndex++
                 streamRetryCount = 0
                 val nextStream = state.streams[currentStreamIndex]
-                showTransientWarning("Switching to backup server...")
+                showTransientWarning("Server died. Switching to backup...")
 
                 updateReadyState {
                     it.copy(
@@ -427,15 +423,6 @@ class PlayerViewModel @Inject constructor(
         try {
             castSessionManager.stopCastProxyService()
         } catch (_: Throwable) {}
-        try {
-            val stopIntent = Intent(context, CastProxyService::class.java).apply {
-                action = CastProxyService.ACTION_STOP
-            }
-            context.startService(stopIntent)
-        } catch (_: Throwable) {}
-        try {
-            CastProxy.stop()
-        } catch (_: Throwable) {}
     }
 
     private fun extractQualitiesFromTracks(tracks: Tracks, isOffline: Boolean = false): List<VideoQualityUiModel> {
@@ -462,6 +449,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun getActivePlayer(): Player =
+        @Suppress("DEPRECATION")
         castSessionManager.castPlayer?.takeIf { it.isCastSessionAvailable } ?: playerEngine.exoPlayer
 
     private fun showTransientWarning(msg: String) {
@@ -525,16 +513,19 @@ class PlayerViewModel @Inject constructor(
         val hasDefault = validSubtitles.any { it.isDefault }
 
         if (targetPlayer === playerEngine.exoPlayer) {
-            val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            // Uses OkHttp to enforce JunkBytesInterceptor stripping CDN garbage bytes
+            val httpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
                 .setUserAgent(stream.headers["User-Agent"] ?: "Mozilla/5.0")
                 .setDefaultRequestProperties(stream.headers)
-                .setConnectTimeoutMs(15000)
-                .setReadTimeoutMs(15000)
-                .setAllowCrossProtocolRedirects(true)
 
             val resolvingDataSourceFactory = ResolvingDataSource.Factory(httpDataSourceFactory) { dataSpec ->
-                val uriStr = dataSpec.uri.toString()
-                var cleanUriStr = uriStr.replace(Regex("""&?y_ref=[^&]*"""), "")
+                // CDN fix: MegaPlay's `ncdn.imgnex.top` playlist advertises every media segment on
+                // a `*.akirax.buzz` host that now answers 404/403, which made playback loop through
+                // servers and finally fail. Re-point those segment requests at the live CDN. The
+                // required `Referer` header is already applied by `setDefaultRequestProperties`.
+                val resolvedUri = CdnHostRewriter.rewriteSegmentHost(dataSpec.uri)
+
+                var cleanUriStr = resolvedUri.toString().replace(Regex("""&?y_ref=[^&]*"""), "")
                 cleanUriStr = cleanUriStr.replace(Regex("""&?y_ori=[^&]*"""), "")
                 cleanUriStr = cleanUriStr.replace("?&", "?").removeSuffix("?")
 
@@ -546,7 +537,7 @@ class PlayerViewModel @Inject constructor(
             val cacheDataSourceFactory = CacheDataSource.Factory()
                 .setCache(downloadCache)
                 .setUpstreamDataSourceFactory(resolvingDataSourceFactory)
-                .setCacheWriteDataSinkFactory(null)
+                .setCacheWriteDataSinkFactory(CacheDataSink.Factory().setCache(downloadCache))
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
             val dataSourceFactory = DefaultDataSource.Factory(context, cacheDataSourceFactory)
@@ -665,6 +656,13 @@ class PlayerViewModel @Inject constructor(
         _uiState.value = PlayerUiState.Loading
 
         viewModelScope.launch {
+            // Check if this target episode is already downloaded locally before firing network requests
+            val initialDownload = withContext(Dispatchers.IO) { downloadManager.downloadIndex.getDownload(episodeId) }
+            val isInitiallyDownloaded = initialDownload != null && initialDownload.state == Download.STATE_COMPLETED
+            val initialMeta = if (isInitiallyDownloaded) {
+                try { JSONObject(String(initialDownload.request.data)) } catch (_: Exception) { JSONObject() }
+            } else null
+
             val episodesDeferred = async(Dispatchers.IO) {
                 if (anilistMediaId == null) {
                     var details = getAnimeDetailsUseCase(animeTitle)
@@ -697,6 +695,21 @@ class PlayerViewModel @Inject constructor(
                 }
             }
 
+            if (isInitiallyDownloaded && initialMeta != null) {
+                currentEpisodeId = episodeId
+                playOfflineEpisode(initialDownload, initialMeta, episodeId)
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        val resolved = episodesDeferred.await()
+                        if (resolved.isNotEmpty()) {
+                            allEpisodes = resolved
+                            updateReadyState { it.copy(episodes = resolved) }
+                        }
+                    } catch (_: Exception) {}
+                }
+                return@launch
+            }
+
             val resolvedEpisodes = episodesDeferred.await()
             allEpisodes = resolvedEpisodes
 
@@ -718,102 +731,14 @@ class PlayerViewModel @Inject constructor(
 
             val download = withContext(Dispatchers.IO) { downloadManager.downloadIndex.getDownload(targetEpId) }
             val isDownloaded = download != null && download.state == Download.STATE_COMPLETED
-            val meta = if (isDownloaded && download != null) {
+            val meta = if (isDownloaded) {
                 try { JSONObject(String(download.request.data)) } catch (_: Exception) { JSONObject() }
             } else null
 
             val savedPosition = getSavedPosition(targetEpId)
 
             if (isDownloaded && meta != null) {
-                val parsedSubtitles = mutableListOf<Subtitle>()
-                meta.optJSONArray("subtitles")?.let { arr ->
-                    for (i in 0 until arr.length()) {
-                        val obj = arr.getJSONObject(i)
-                        var rawUrl = obj.optString("url", "")
-                        var rawLabel = obj.optString("label", "English")
-
-                        if ((rawLabel.startsWith("file://") || rawLabel.startsWith("http://") || rawLabel.startsWith("https://")) &&
-                            (!rawUrl.startsWith("file://") && !rawUrl.startsWith("http://") && !rawUrl.startsWith("https://"))
-                        ) {
-                            val temp = rawUrl
-                            rawUrl = rawLabel
-                            rawLabel = if (temp.isNotBlank() && temp != "null") temp else "English"
-                        }
-
-                        if (rawLabel.startsWith("file://") || rawLabel.contains(".vtt")) {
-                            rawLabel = rawLabel.substringAfterLast("_")
-                                .substringBeforeLast(".")
-                                .ifBlank { "English" }
-                        }
-
-                        if (rawUrl.isNotBlank()) {
-                            parsedSubtitles.add(
-                                Subtitle(
-                                    label = rawLabel.ifBlank { "English" },
-                                    url = rawUrl,
-                                    isDefault = obj.optBoolean("isDefault", false)
-                                )
-                            )
-                        }
-                    }
-                }
-
-                val parsedHeaders = mutableMapOf<String, String>()
-                meta.optJSONObject("headers")?.let { obj ->
-                    val keys = obj.keys()
-                    while (keys.hasNext()) { val key = keys.next(); parsedHeaders[key] = obj.getString(key) }
-                }
-
-                val parsedSkipIntervals = mutableListOf<SkipInterval>()
-                meta.optJSONArray("skipIntervals")?.let { arr ->
-                    for (i in 0 until arr.length()) {
-                        val obj = arr.getJSONObject(i)
-                        parsedSkipIntervals.add(SkipInterval(obj.optDouble("startTime", 0.0), obj.optDouble("endTime", 0.0), obj.optString("type", "op")))
-                    }
-                }
-
-                val offlineStream = VideoStream("Offline (Local)", download.request.uri.toString(), parsedHeaders, true, parsedSubtitles, parsedSkipIntervals)
-                skipIntervals = parsedSkipIntervals
-
-                playStream(offlineStream, startPositionMs = savedPosition)
-
-                val epTitle = allEpisodes.find { it.id == targetEpId }?.title ?: meta.optString("episodeTitle", "Offline Episode")
-                val safeUiSubtitles = withContext(Dispatchers.Default) {
-                    buildSafeSubtitleUiModels(offlineStream.subtitles)
-                }
-
-                val defaultIndex = offlineStream.subtitles.indexOfFirst { it.isDefault }.takeIf { it != -1 }
-                    ?: if (offlineStream.subtitles.isNotEmpty()) 0 else -1
-
-                val activePlayer = getActivePlayer()
-                val liveTracks = activePlayer.currentTracks.takeIf { !it.isEmpty } ?: cachedTracks
-                val liveQualities = extractQualitiesFromTracks(liveTracks, isOffline = true)
-                val liveIsPlaying = activePlayer.isPlaying || cachedIsPlaying
-                val liveBuffering = activePlayer.playbackState == Player.STATE_BUFFERING || cachedIsBuffering
-                val liveDuration = activePlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
-
-                val nextProgress = PlayerPlaybackProgress(
-                    currentPosition = activePlayer.currentPosition.coerceAtLeast(0L),
-                    bufferedPosition = activePlayer.bufferedPosition.coerceAtLeast(0L),
-                    duration = liveDuration,
-                    activeSkipInterval = null
-                )
-                if (_playbackProgress.value != nextProgress) {
-                    _playbackProgress.value = nextProgress
-                }
-
-                _uiState.value = PlayerUiState.Ready(
-                    animeTitle = animeTitle, episodeTitle = epTitle, currentEpisodeId = targetEpId,
-                    streams = listOf(offlineStream), activeStream = offlineStream, episodes = allEpisodes,
-                    subtitles = safeUiSubtitles,
-                    selectedSubtitleIndex = defaultIndex,
-                    qualities = liveQualities, selectedQualityHeight = -1,
-                    playbackSpeed = 1.0f, isPlaying = liveIsPlaying, isBuffering = liveBuffering,
-                    currentPosition = _playbackProgress.value.currentPosition,
-                    bufferedPosition = _playbackProgress.value.bufferedPosition,
-                    duration = liveDuration, skipIntervals = skipIntervals
-                )
-                if (liveIsPlaying) startProgressTracker()
+                playOfflineEpisode(download, meta, targetEpId)
             } else {
                 val cachedStreams = StreamDataCache.get(targetEpId)
                 val streamResult = if (cachedStreams != null) {
@@ -907,7 +832,7 @@ class PlayerViewModel @Inject constructor(
                 val bufferedPos = player.bufferedPosition.coerceAtLeast(0L)
                 val rawDuration = player.duration
 
-                val dur = if (rawDuration <= 0L || rawDuration == C.TIME_UNSET) {
+                val dur = if (rawDuration <= 0L) {
                     _playbackProgress.value.duration.takeIf { it > 0 }
                         ?: (_uiState.value as? PlayerUiState.Ready)?.duration ?: 0L
                 } else {
@@ -950,6 +875,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun triggerOutroCountdown() {
+        @Suppress("DEPRECATION")
         if (castSessionManager.castPlayer?.isCastSessionAvailable == true) return
         if (hasTriggeredOutroAutoPlay) return
 
@@ -1080,6 +1006,99 @@ class PlayerViewModel @Inject constructor(
     fun setQualitySheetVisibility(visible: Boolean) = updateReadyState { it.copy(isQualitySheetVisible = visible) }
     fun retryPlayback() { loadEpisodesAndPlay(currentEpisodeId) }
 
+    private suspend fun playOfflineEpisode(download: Download, meta: JSONObject, targetEpId: String) {
+        val parsedSubtitles = mutableListOf<Subtitle>()
+        meta.optJSONArray("subtitles")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                var rawUrl = obj.optString("url", "")
+                var rawLabel = obj.optString("label", "English")
+
+                if ((rawLabel.startsWith("file://") || rawLabel.startsWith("http://") || rawLabel.startsWith("https://")) &&
+                    (!rawUrl.startsWith("file://") && !rawUrl.startsWith("http://") && !rawUrl.startsWith("https://"))
+                ) {
+                    val temp = rawUrl
+                    rawUrl = rawLabel
+                    rawLabel = if (temp.isNotBlank() && temp != "null") temp else "English"
+                }
+
+                if (rawLabel.startsWith("file://") || rawLabel.contains(".vtt")) {
+                    rawLabel = rawLabel.substringAfterLast("_")
+                        .substringBeforeLast(".")
+                        .ifBlank { "English" }
+                }
+
+                if (rawUrl.isNotBlank()) {
+                    parsedSubtitles.add(
+                        Subtitle(
+                            label = rawLabel.ifBlank { "English" },
+                            url = rawUrl,
+                            isDefault = obj.optBoolean("isDefault", false)
+                        )
+                    )
+                }
+            }
+        }
+
+        val parsedHeaders = mutableMapOf<String, String>()
+        meta.optJSONObject("headers")?.let { obj ->
+            val keys = obj.keys()
+            while (keys.hasNext()) { val key = keys.next(); parsedHeaders[key] = obj.getString(key) }
+        }
+
+        val parsedSkipIntervals = mutableListOf<SkipInterval>()
+        meta.optJSONArray("skipIntervals")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                parsedSkipIntervals.add(SkipInterval(obj.optDouble("startTime", 0.0), obj.optDouble("endTime", 0.0), obj.optString("type", "op")))
+            }
+        }
+
+        val offlineStream = VideoStream("Offline (Local)", download.request.uri.toString(), parsedHeaders, true, parsedSubtitles, parsedSkipIntervals)
+        skipIntervals = parsedSkipIntervals
+        val savedPosition = getSavedPosition(targetEpId)
+
+        playStream(offlineStream, startPositionMs = savedPosition)
+
+        val epTitle = allEpisodes.find { it.id == targetEpId }?.title ?: meta.optString("episodeTitle", "Offline Episode")
+        val safeUiSubtitles = withContext(Dispatchers.Default) {
+            buildSafeSubtitleUiModels(offlineStream.subtitles)
+        }
+
+        val defaultIndex = offlineStream.subtitles.indexOfFirst { it.isDefault }.takeIf { it != -1 }
+            ?: if (offlineStream.subtitles.isNotEmpty()) 0 else -1
+
+        val activePlayer = getActivePlayer()
+        val liveTracks = activePlayer.currentTracks.takeIf { !it.isEmpty } ?: cachedTracks
+        val liveQualities = extractQualitiesFromTracks(liveTracks, isOffline = true)
+        val liveIsPlaying = activePlayer.isPlaying || cachedIsPlaying
+        val liveBuffering = activePlayer.playbackState == Player.STATE_BUFFERING || cachedIsBuffering
+        val liveDuration = activePlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
+
+        val nextProgress = PlayerPlaybackProgress(
+            currentPosition = activePlayer.currentPosition.coerceAtLeast(0L),
+            bufferedPosition = activePlayer.bufferedPosition.coerceAtLeast(0L),
+            duration = liveDuration,
+            activeSkipInterval = null
+        )
+        if (_playbackProgress.value != nextProgress) {
+            _playbackProgress.value = nextProgress
+        }
+
+        _uiState.value = PlayerUiState.Ready(
+            animeTitle = animeTitle, episodeTitle = epTitle, currentEpisodeId = targetEpId,
+            streams = listOf(offlineStream), activeStream = offlineStream, episodes = allEpisodes,
+            subtitles = safeUiSubtitles,
+            selectedSubtitleIndex = defaultIndex,
+            qualities = liveQualities, selectedQualityHeight = -1,
+            playbackSpeed = 1.0f, isPlaying = liveIsPlaying, isBuffering = liveBuffering,
+            currentPosition = _playbackProgress.value.currentPosition,
+            bufferedPosition = _playbackProgress.value.bufferedPosition,
+            duration = liveDuration, skipIntervals = skipIntervals
+        )
+        if (liveIsPlaying) startProgressTracker()
+    }
+
     fun saveCurrentProgress() {
         val player = getActivePlayer()
         val position = player.currentPosition
@@ -1095,19 +1114,29 @@ class PlayerViewModel @Inject constructor(
                         val isNearEnd = (position.toDouble() / duration.toDouble()) >= 0.85
                         if (isNearEnd && hasSyncedThisEpisodeToCloud.compareAndSet(false, true)) {
                             if (authPreferences.authState.value.token != null && mediaId != null) {
-                                offlineSyncDao.insertSyncTask(
-                                    OfflineSyncEntity(
-                                        mediaId = mediaId,
-                                        progress = epNum
+                                val historyForAnime = watchHistoryDao.getHistoryForAnime(animeTitle)
+                                val maxWatchedLocally = historyForAnime.maxOfOrNull {
+                                    EpisodeId.parse(it.episodeId).episodeNumberInt
+                                } ?: 0
+                                val pendingTasks = offlineSyncDao.getAllTasks().filter { it.mediaId == mediaId }
+                                val maxPending = pendingTasks.maxOfOrNull { it.progress } ?: 0
+                                val maxKnown = maxOf(maxWatchedLocally, maxPending)
+
+                                if (epNum >= maxKnown) {
+                                    offlineSyncDao.insertSyncTask(
+                                        OfflineSyncEntity(
+                                            mediaId = mediaId,
+                                            progress = epNum
+                                        )
                                     )
-                                )
-                                WorkManager.getInstance(context).enqueueUniqueWork(
-                                    "AnilistOfflineSync",
-                                    ExistingWorkPolicy.KEEP,
-                                    OneTimeWorkRequestBuilder<AnilistSyncWorker>()
-                                        .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                                        .build()
-                                )
+                                    WorkManager.getInstance(context).enqueueUniqueWork(
+                                        "AnilistOfflineSync",
+                                        ExistingWorkPolicy.REPLACE,
+                                        OneTimeWorkRequestBuilder<AnilistSyncWorker>()
+                                            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                                            .build()
+                                    )
+                                }
                             }
                         }
                         watchHistoryDao.saveProgress(
@@ -1126,7 +1155,6 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    // Issue 9 Fix: Avoid redundant StateFlow emissions when the updated state is structurally equal
     private fun updateReadyState(update: (PlayerUiState.Ready) -> PlayerUiState.Ready) {
         _uiState.update { current ->
             if (current is PlayerUiState.Ready) {
@@ -1139,6 +1167,8 @@ class PlayerViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        saveCurrentProgress()
+
         autoPlayJob?.cancel()
         warningClearJob?.cancel()
         stopProgressTracker()
@@ -1154,5 +1184,6 @@ class PlayerViewModel @Inject constructor(
 
         playerEngine.release()
         castSessionManager.release()
+        super.onCleared()
     }
 }

@@ -20,8 +20,3 @@ local.properties
 *.keystore
 google-services.json
 secrets.properties
-
-# Custom Redactions (Protecting Provider/Scraper Logic)
-# Adjust the path below to match exactly where your sensitive files live
-**/data/provider/Anikoto*.kt
-**/data/provider/SecretScraper*.kt

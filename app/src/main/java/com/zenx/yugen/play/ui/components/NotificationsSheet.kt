@@ -17,8 +17,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -38,10 +40,12 @@ fun NotificationsSheet(
     onAnimeClick: (id: String, title: String, posterUrl: String) -> Unit
 ) {
     val context = LocalContext.current
-    val sheetBg = Color(0xFF121214)
-    val cardBg = Color(0xFF1A1A1E)
+    val haptic = LocalHapticFeedback.current
+
+    val sheetBg = Color(0xFF101013)
+    val cardBg = Color(0xFF16161A)
     val glassBorder = Color.White.copy(alpha = 0.08f)
-    val accentBlue = Color(0xFF3DB4F2)
+    val accentBlue = Color(0xFF38BDF8)
     val accentPurple = Color(0xFF8B5CF6)
 
     ModalBottomSheet(
@@ -63,12 +67,30 @@ fun NotificationsSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Notifications",
-                    color = Color.White,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(accentPurple.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = null,
+                            tint = accentPurple,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Notifications",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+
                 if (notifications.isNotEmpty()) {
                     Text(
                         text = "Swipe to delete",
@@ -90,10 +112,13 @@ fun NotificationsSheet(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(accentPurple.copy(alpha = 0.15f))
-                                .border(1.dp, accentPurple.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
-                                .bounceClick { onConnectAniListClick() }
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(accentPurple.copy(alpha = 0.12f))
+                                .border(1.dp, accentPurple.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                                .bounceClick {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onConnectAniListClick()
+                                }
                                 .padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -103,15 +128,15 @@ fun NotificationsSheet(
                                 tint = accentPurple,
                                 modifier = Modifier.size(28.dp)
                             )
-                            Spacer(modifier = Modifier.width(16.dp))
+                            Spacer(modifier = Modifier.width(14.dp))
                             Column {
-                                Text("Connect AniList", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                Spacer(modifier = Modifier.height(2.dp))
+                                Text("Connect AniList Account", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(3.dp))
                                 Text(
-                                    text = "Sign in to get real-time alerts when new episodes of your anime drop.",
+                                    text = "Sign in to receive instant alerts when new episodes of your anime air.",
                                     color = Color.LightGray,
-                                    fontSize = 13.sp,
-                                    lineHeight = 18.sp
+                                    fontSize = 12.5.sp,
+                                    lineHeight = 17.sp
                                 )
                             }
                         }
@@ -124,16 +149,24 @@ fun NotificationsSheet(
                                 .padding(top = 48.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.NotificationsActive,
-                                contentDescription = null,
-                                tint = glassBorder,
-                                modifier = Modifier.size(64.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.05f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.NotificationsActive,
+                                    contentDescription = null,
+                                    tint = accentPurple,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
                             Spacer(modifier = Modifier.height(16.dp))
-                            Text("You're all caught up.", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text("You're all caught up", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text("No new notifications from AniList.", color = Color.Gray, fontSize = 14.sp, textAlign = TextAlign.Center)
+                            Text("No unread alerts from your AniList subscriptions.", color = Color.Gray, fontSize = 13.sp, textAlign = TextAlign.Center)
                         }
                     }
                 }
@@ -142,6 +175,7 @@ fun NotificationsSheet(
                     val dismissState = rememberSwipeToDismissBoxState(
                         confirmValueChange = { value ->
                             if (value == SwipeToDismissBoxValue.EndToStart) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 onDeleteNotification(alert.id)
                                 true
                             } else false
@@ -157,7 +191,7 @@ fun NotificationsSheet(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .clip(RoundedCornerShape(14.dp))
-                                    .background(if (isSwiping) Color(0xFFDC2626) else Color.Transparent)
+                                    .background(if (isSwiping) Color(0xFFEF4444) else Color.Transparent)
                                     .padding(horizontal = 20.dp),
                                 contentAlignment = Alignment.CenterEnd
                             ) {
@@ -175,7 +209,7 @@ fun NotificationsSheet(
                     ) {
                         val tintColor = if (alert.type == "AIRING") accentPurple else accentBlue
                         val iconVector = when (alert.type) {
-                            "AIRING" -> Icons.Default.PlayCircleFilled
+                            "AIRING" -> Icons.Default.PlayCircle
                             "USER" -> Icons.Default.Person
                             else -> Icons.Default.Info
                         }
@@ -201,19 +235,19 @@ fun NotificationsSheet(
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .size(46.dp)
+                                        .clip(RoundedCornerShape(10.dp))
                                         .background(Color(0xFF24242A))
                                 )
                             } else {
                                 Box(
                                     modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .size(46.dp)
+                                        .clip(RoundedCornerShape(10.dp))
                                         .background(tintColor.copy(alpha = 0.15f)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(iconVector, contentDescription = null, tint = tintColor, modifier = Modifier.size(22.dp))
+                                    Icon(iconVector, contentDescription = null, tint = tintColor, modifier = Modifier.size(24.dp))
                                 }
                             }
 
@@ -238,14 +272,17 @@ fun NotificationsSheet(
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = formatRelativeTime(alert.createdAt),
-                                    color = Color(0xFF71717A),
+                                    color = Color(0xFF9CA3AF),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium
                                 )
                             }
 
                             IconButton(
-                                onClick = { onDeleteNotification(alert.id) },
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onDeleteNotification(alert.id)
+                                },
                                 modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(

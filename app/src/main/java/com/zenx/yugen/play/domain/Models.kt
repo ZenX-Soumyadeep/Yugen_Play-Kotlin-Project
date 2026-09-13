@@ -60,6 +60,7 @@ data class SearchResult(val title: String, val url: String, val poster: String)
 data class EpisodeId(
     val raw: String,
     val sourceUrl: String = "",
+    val providerPayload: String = "",
     val animeTitle: String = "",
     val episodeNumber: Float = 1f,
     val isCloudSync: Boolean = false,
@@ -98,12 +99,26 @@ data class EpisodeId(
             }
 
             val parts = rawId.split(DELIMITER)
-            if (parts.size >= 3) {
+            if (parts.size >= 4) {
+                // Compound format: url~~~providerPayload(ids)~~~epNum~~~title
                 val epNum = parts[2].toFloatOrNull() ?: 1f
                 return EpisodeId(
                     raw = rawId,
                     sourceUrl = parts[0],
-                    animeTitle = parts[1],
+                    providerPayload = parts[1],
+                    animeTitle = parts[3],
+                    episodeNumber = epNum
+                )
+            } else if (parts.size == 3) {
+                // Standard format: url~~~titleOrPayload~~~epNum
+                val epNum = parts[2].toFloatOrNull() ?: 1f
+                val secondPart = parts[1]
+                val isNumericPayload = secondPart.isNotEmpty() && secondPart.all { it.isDigit() || it == ',' || it == '-' }
+                return EpisodeId(
+                    raw = rawId,
+                    sourceUrl = parts[0],
+                    providerPayload = if (isNumericPayload) secondPart else "",
+                    animeTitle = if (!isNumericPayload) secondPart else "",
                     episodeNumber = epNum
                 )
             }

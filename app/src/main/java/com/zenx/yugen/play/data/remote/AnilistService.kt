@@ -3,6 +3,7 @@ package com.zenx.yugen.play.data.remote
 import android.net.Uri
 import android.util.Log
 import android.util.LruCache
+import com.zenx.yugen.play.di.ApiClient
 import com.zenx.yugen.play.domain.AiringAnimeItem
 import com.zenx.yugen.play.domain.AniListEpisode
 import com.zenx.yugen.play.domain.AnimeCardItem
@@ -33,22 +34,14 @@ import kotlin.math.roundToInt
 
 internal suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
     continuation.invokeOnCancellation {
-        try {
-            cancel()
-        } catch (_: Throwable) {}
+        try { cancel() } catch (_: Throwable) {}
     }
     enqueue(object : Callback {
         override fun onResponse(call: Call, response: Response) {
-            continuation.resume(response) {
-                try {
-                    response.close()
-                } catch (_: Throwable) {}
-            }
+            continuation.resumeWith(Result.success(response))
         }
         override fun onFailure(call: Call, e: IOException) {
-            if (!continuation.isCancelled) {
-                continuation.resumeWithException(e)
-            }
+            if (!continuation.isCancelled) continuation.resumeWithException(e)
         }
     })
 }
@@ -63,6 +56,8 @@ data class AniListNotification(
     val mediaId: String? = null
 )
 
+class GraphQLException(message: String) : Exception(message)
+
 private const val TAG = "AnilistService"
 private const val GRAPHQL_URL = "https://graphql.anilist.co"
 private const val JIKAN_BASE_URL = "https://api.jikan.moe/v4"
@@ -70,11 +65,10 @@ private const val KITSU_BASE_URL = "https://kitsu.io/api/edge"
 
 @Singleton
 class AnilistService @Inject constructor(
-    private val okHttpClient: OkHttpClient
+    @ApiClient private val okHttpClient: OkHttpClient
 ) {
     private data class CacheEntry<T>(val data: T, val timestamp: Long)
 
-    // Issue 7 Fix: Replace unbounded ConcurrentHashMap with LruCache to cap memory growth at 50 items
     private val detailsCache = object : LruCache<String, CacheEntry<AnimeDetails>>(50) {}
     private val cacheTtlMs = 15 * 60 * 1000L
 
@@ -101,6 +95,17 @@ class AnilistService @Inject constructor(
         throw IOException("AniList request failed")
     }
 
+    // Issue 7.3 Fix: Validate GraphQL 200 Responses for internal "errors" payloads
+    private fun validateGraphQLResponse(jsonStr: String): JSONObject {
+        val json = JSONObject(jsonStr)
+        if (json.has("errors")) {
+            val errorsArray = json.optJSONArray("errors")
+            val firstErrorMessage = errorsArray?.optJSONObject(0)?.optString("message") ?: "Unknown GraphQL Error"
+            throw GraphQLException("GraphQL returned errors: $firstErrorMessage")
+        }
+        return json
+    }
+
     private suspend fun executeGetRequest(url: String, headers: Map<String, String> = emptyMap()): String? {
         return try {
             val builder = Request.Builder()
@@ -119,7 +124,7 @@ class AnilistService @Inject constructor(
     }
 
     // ==========================================
-    // POPULAR / TRENDING (AniList -> Jikan -> Kitsu)
+    // POPULAR / TRENDING
     // ==========================================
 
     suspend fun getPopularAnime(): List<AnimeCardItem> = withContext(Dispatchers.IO) {
@@ -157,15 +162,11 @@ class AnilistService @Inject constructor(
 
         if (bodyString.isBlank()) return emptyList()
 
-        // Issue 1 Fix: Catch JSONException if bodyString is Cloudflare HTML or malformed
         val jsonResponse = try {
-            JSONObject(bodyString)
-        } catch (e: JSONException) {
-            Log.e(TAG, "Malformed JSON from AniList", e)
+            validateGraphQLResponse(bodyString)
+        } catch (e: Exception) {
             return emptyList()
         }
-
-        if (jsonResponse.has("errors")) return emptyList()
 
         val mediaArray = jsonResponse.optJSONObject("data")
             ?.optJSONObject("Page")
@@ -201,7 +202,6 @@ class AnilistService @Inject constructor(
         val root = try {
             JSONObject(jsonStr)
         } catch (e: JSONException) {
-            Log.e(TAG, "Malformed JSON from Jikan", e)
             return emptyList()
         }
 
@@ -262,7 +262,7 @@ class AnilistService @Inject constructor(
     }
 
     // ==========================================
-    // SEARCH (AniList -> Jikan -> Kitsu)
+    // SEARCH
     // ==========================================
 
     suspend fun searchAnime(
@@ -343,8 +343,11 @@ class AnilistService @Inject constructor(
 
         if (bodyString.isBlank()) return emptyList()
 
-        val json = try { JSONObject(bodyString) } catch (e: JSONException) { return emptyList() }
-        if (json.has("errors")) return emptyList()
+        val json = try {
+            validateGraphQLResponse(bodyString)
+        } catch (e: Exception) {
+            return emptyList()
+        }
 
         val mediaArray = json.optJSONObject("data")?.optJSONObject("Page")?.optJSONArray("media") ?: return emptyList()
         val list = mutableListOf<AnimeCardItem>()
@@ -430,7 +433,7 @@ class AnilistService @Inject constructor(
     }
 
     // ==========================================
-    // AIRING SCHEDULE (AniList -> Jikan -> Kitsu)
+    // AIRING SCHEDULE
     // ==========================================
 
     suspend fun getAiringSchedule(startTime: Long, endTime: Long): List<AiringAnimeItem> = withContext(Dispatchers.IO) {
@@ -478,8 +481,11 @@ class AnilistService @Inject constructor(
         }
 
         if (bodyString.isBlank()) return emptyList()
-        val json = try { JSONObject(bodyString) } catch (e: JSONException) { return emptyList() }
-        if (json.has("errors")) return emptyList()
+        val json = try {
+            validateGraphQLResponse(bodyString)
+        } catch (e: Exception) {
+            return emptyList()
+        }
 
         val scheduleArray = json.optJSONObject("data")?.optJSONObject("Page")?.optJSONArray("airingSchedules") ?: return emptyList()
         val list = mutableListOf<AiringAnimeItem>()
@@ -577,7 +583,7 @@ class AnilistService @Inject constructor(
     }
 
     // ==========================================
-    // ANIME DETAILS (AniList -> Jikan -> Kitsu)
+    // ANIME DETAILS
     // ==========================================
 
     suspend fun getAnimeDetailsById(id: Int): AnimeDetails? = withContext(Dispatchers.IO) {
@@ -596,14 +602,24 @@ class AnilistService @Inject constructor(
             details = fetchAnilistDetailsById(id)
         } catch (_: Exception) {}
 
-        if (details == null) {
-            try {
-                details = fetchJikanDetailsById(id)
-            } catch (_: Exception) {}
+        // Issue 7.1 Fix: Only fallback to MAL if Anilist provided the explicit idMal cross-reference
+        if (details == null || details.idMal == null) {
+            // Cannot fallback by ID without explicit mapping
+            return@withContext details
         }
 
-        if (details == null) {
-            details = fetchKitsuDetailsById(id.toString())
+        val idMal = details.idMal
+
+        if (details.description == "No description available." && idMal != null) {
+            try {
+                val jikanDetails = fetchJikanDetailsById(idMal)
+                if (jikanDetails != null) {
+                    details = details.copy(
+                        description = jikanDetails.description,
+                        bannerImage = details.bannerImage.ifBlank { jikanDetails.bannerImage }
+                    )
+                }
+            } catch (_: Exception) {}
         }
 
         if (details != null) {
@@ -671,8 +687,7 @@ class AnilistService @Inject constructor(
         }
 
         if (bodyString.isBlank()) return null
-        val json = try { JSONObject(bodyString) } catch (e: JSONException) { return null }
-        if (json.has("errors")) return null
+        val json = try { validateGraphQLResponse(bodyString) } catch (e: Exception) { return null }
 
         val media = json.optJSONObject("data")?.optJSONObject("Media") ?: return null
         return parseMediaNodeToAnimeDetails(media)
@@ -742,8 +757,7 @@ class AnilistService @Inject constructor(
         }
 
         if (bodyString.isBlank()) return null
-        val json = try { JSONObject(bodyString) } catch (e: JSONException) { return null }
-        if (json.has("errors")) return null
+        val json = try { validateGraphQLResponse(bodyString) } catch (e: Exception) { return null }
 
         val mediaArray = json.optJSONObject("data")?.optJSONObject("Page")?.optJSONArray("media") ?: return null
         if (mediaArray.length() == 0) return null
@@ -889,7 +903,7 @@ class AnilistService @Inject constructor(
     }
 
     // ==========================================
-    // ANILIST ACCOUNT / OAUTH CALLS (Unchanged)
+    // ANILIST ACCOUNT / OAUTH CALLS
     // ==========================================
 
     suspend fun getAuthenticatedUser(token: String): AnilistUser? = withContext(Dispatchers.IO) {
@@ -915,7 +929,7 @@ class AnilistService @Inject constructor(
                 res.body?.string()
             } ?: return@withContext null
 
-            val json = try { JSONObject(bodyString) } catch (e: JSONException) { return@withContext null }
+            val json = try { validateGraphQLResponse(bodyString) } catch (e: Exception) { return@withContext null }
             val viewer = json.optJSONObject("data")?.optJSONObject("Viewer") ?: return@withContext null
             val stats = viewer.optJSONObject("statistics")?.optJSONObject("anime")
             val minutes = stats?.optInt("minutesWatched", 0) ?: 0
@@ -924,7 +938,7 @@ class AnilistService @Inject constructor(
                 id = viewer.optInt("id"),
                 name = viewer.optString("name"),
                 avatar = viewer.optJSONObject("avatar")?.optString("large").orEmpty(),
-                banner = viewer.optString("bannerImage", null),
+                banner = viewer.optString("bannerImage", "").takeIf { it.isNotEmpty() },
                 animeCount = stats?.optInt("count", 0) ?: 0,
                 episodesWatched = stats?.optInt("episodesWatched", 0) ?: 0,
                 daysWatched = minutes / 60.0 / 24.0
@@ -966,7 +980,7 @@ class AnilistService @Inject constructor(
                 res.body?.string()
             } ?: return@withContext emptyMap()
 
-            val json = try { JSONObject(bodyString) } catch (e: JSONException) { return@withContext emptyMap() }
+            val json = try { validateGraphQLResponse(bodyString) } catch (e: Exception) { return@withContext emptyMap() }
             val listsArray = json.optJSONObject("data")?.optJSONObject("MediaListCollection")?.optJSONArray("lists") ?: return@withContext emptyMap()
 
             for (i in 0 until listsArray.length()) {
@@ -1030,7 +1044,17 @@ class AnilistService @Inject constructor(
 
         try {
             val response = executeWithRetry(request)
-            return@withContext response.use { it.isSuccessful }
+            return@withContext response.use {
+                if (it.isSuccessful) {
+                    try {
+                        validateGraphQLResponse(it.body?.string().orEmpty())
+                        true
+                    } catch (e: GraphQLException) {
+                        Log.e(TAG, "GraphQL Error during sync: ${e.message}")
+                        false
+                    }
+                } else false
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update progress", e)
             return@withContext false
@@ -1060,7 +1084,7 @@ class AnilistService @Inject constructor(
                 res.body?.string()
             } ?: return@withContext null
 
-            val json = try { JSONObject(bodyString) } catch (e: JSONException) { return@withContext null }
+            val json = try { validateGraphQLResponse(bodyString) } catch (e: Exception) { return@withContext null }
             val entry = json.optJSONObject("data")?.optJSONObject("Media")?.optJSONObject("mediaListEntry")
             if (entry != null) {
                 return@withContext UserListEntry(
@@ -1099,7 +1123,7 @@ class AnilistService @Inject constructor(
                 res.body?.string()
             } ?: return@withContext null
 
-            val json = try { JSONObject(bodyString) } catch (e: JSONException) { return@withContext null }
+            val json = try { validateGraphQLResponse(bodyString) } catch (e: Exception) { return@withContext null }
             val entry = json.optJSONObject("data")?.optJSONObject("SaveMediaListEntry")
             if (entry != null) {
                 return@withContext UserListEntry(
@@ -1133,7 +1157,16 @@ class AnilistService @Inject constructor(
 
         try {
             val response = executeWithRetry(request)
-            return@withContext response.use { it.isSuccessful }
+            return@withContext response.use {
+                if (it.isSuccessful) {
+                    try {
+                        validateGraphQLResponse(it.body?.string().orEmpty())
+                        true
+                    } catch (e: GraphQLException) {
+                        false
+                    }
+                } else false
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to delete media list entry", e)
             return@withContext false
@@ -1177,7 +1210,7 @@ class AnilistService @Inject constructor(
 
             if (bodyString.isBlank()) return@withContext Pair(0, emptyList())
 
-            val json = try { JSONObject(bodyString) } catch (e: JSONException) { return@withContext Pair(0, emptyList()) }
+            val json = try { validateGraphQLResponse(bodyString) } catch (e: Exception) { return@withContext Pair(0, emptyList()) }
             val dataNode = json.optJSONObject("data")
             val unreadCount = dataNode?.optJSONObject("Viewer")?.optInt("unreadNotificationCount", 0) ?: 0
             val notifsArray = dataNode?.optJSONObject("Page")?.optJSONArray("notifications") ?: JSONArray()

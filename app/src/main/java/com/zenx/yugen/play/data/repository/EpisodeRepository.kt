@@ -14,6 +14,10 @@ class EpisodeRepository @Inject constructor(
     private val providerRegistry: ProviderRegistry,
     private val titleMappingRepository: TitleMappingRepository
 ) {
+    companion object {
+        private val sessionUrlCache = android.util.LruCache<String, String>(250)
+    }
+
     suspend fun getEpisodes(
         anilistId: Int?,
         targetUrl: String?,
@@ -24,25 +28,31 @@ class EpisodeRepository @Inject constructor(
             val primaryProvider = providerRegistry.getProvider(providerName)
                 ?: providerRegistry.getDefaultProvider()
 
-            // 1. Attempt lookup with primary provider
-            val primaryResult = fetchEpisodesFromProvider(primaryProvider, anilistId, targetUrl, title)
-            if (primaryResult.isNotEmpty()) {
-                return@withContext Resource.Success(primaryResult)
+            try {
+                val primaryResult = fetchEpisodesFromProvider(primaryProvider, anilistId, targetUrl, title)
+                if (primaryResult.isNotEmpty()) {
+                    return@withContext Resource.Success(primaryResult)
+                }
+            } catch (e: Exception) {
+                // Primary failed (e.g. WAF block or Encryption outdated). Proceed to fallback.
             }
 
-            // 2. Fallback to remaining registered providers if primary produces no episodes
             val fallbackProviders = providerRegistry.getAllProviders().filter {
                 it.name != primaryProvider.name && it.name != "None"
             }
 
             for (fallback in fallbackProviders) {
-                val fallbackResult = fetchEpisodesFromProvider(fallback, anilistId, targetUrl = null, title = title)
-                if (fallbackResult.isNotEmpty()) {
-                    return@withContext Resource.Success(fallbackResult)
+                try {
+                    val fallbackResult = fetchEpisodesFromProvider(fallback, anilistId, targetUrl = null, title = title)
+                    if (fallbackResult.isNotEmpty()) {
+                        return@withContext Resource.Success(fallbackResult)
+                    }
+                } catch (e: Exception) {
+                    continue
                 }
             }
 
-            Resource.Error("Could not find episodes for '$title' on any registered provider.")
+            Resource.Error("Could not extract episodes for '$title' on any registered provider. Scrapers may be blocked or outdated.")
         }
     }
 
@@ -52,57 +62,77 @@ class EpisodeRepository @Inject constructor(
         targetUrl: String?,
         title: String
     ): List<Episode> {
-        try {
-            var resolvedUrl = if (targetUrl != null && targetUrl.startsWith("http")) {
-                val domainFragment = provider.baseUrl.removePrefix("https://").removePrefix("http://").substringBefore("/")
-                if (domainFragment.isNotBlank() && targetUrl.contains(domainFragment, ignoreCase = true)) {
-                    targetUrl
-                } else null
+        var resolvedUrl = if (targetUrl != null && targetUrl.startsWith("http")) {
+            val domainFragment = provider.baseUrl.removePrefix("https://").removePrefix("http://").substringBefore("/")
+            if (domainFragment.isNotBlank() && targetUrl.contains(domainFragment, ignoreCase = true)) {
+                targetUrl
             } else null
+        } else null
 
-            if (resolvedUrl == null && anilistId != null) {
-                resolvedUrl = titleMappingRepository.getMappedUrl(anilistId, provider.name)
+        // 1. Explicit user manual override
+        if (resolvedUrl == null && anilistId != null) {
+            resolvedUrl = titleMappingRepository.getMappedUrl(anilistId, provider.name)
+        }
+
+        // 2. In-memory session cache for automatic matches (does NOT pollute user manual mappings)
+        if (resolvedUrl == null) {
+            val cacheKey = if (anilistId != null) "${provider.name}:$anilistId" else "${provider.name}:$title"
+            resolvedUrl = sessionUrlCache.get(cacheKey)
+        }
+
+        // 3. Provider search
+        if (resolvedUrl == null) {
+            val searchResults = provider.search(title)
+            var bestMatch = findBestMatch(title, searchResults)
+
+            if (bestMatch == null) {
+                val shortTitle = title.substringBefore(":").substringBefore(" Season").substringBefore(" Part").trim()
+                if (shortTitle != title && shortTitle.isNotBlank()) {
+                    val fallbackResults = provider.search(shortTitle)
+                    bestMatch = findBestMatch(title, fallbackResults)
+                }
             }
 
-            if (resolvedUrl == null) {
-                val searchResults = provider.search(title)
-                var bestMatch = findBestMatch(title, searchResults)
-
-                if (bestMatch == null) {
-                    val shortTitle = title.substringBefore(":").substringBefore(" Season").substringBefore(" Part").trim()
-                    if (shortTitle != title && shortTitle.isNotBlank()) {
-                        val fallbackResults = provider.search(shortTitle)
-                        bestMatch = findBestMatch(title, fallbackResults)
-                    }
-                }
-
-                if (bestMatch != null) {
-                    resolvedUrl = bestMatch.url
-                }
+            if (bestMatch != null) {
+                resolvedUrl = bestMatch.url
+                val cacheKey = if (anilistId != null) "${provider.name}:$anilistId" else "${provider.name}:$title"
+                sessionUrlCache.put(cacheKey, resolvedUrl)
             }
+        }
 
-            if (resolvedUrl.isNullOrBlank()) return emptyList()
+        if (resolvedUrl.isNullOrBlank()) return emptyList()
 
-            val rawEpisodes = provider.getEpisodes(resolvedUrl)
-            if (rawEpisodes.isEmpty()) return emptyList()
+        var rawEpisodes = provider.getEpisodes(resolvedUrl)
+        if (rawEpisodes.isEmpty()) {
+            // Evict bad session cache and re-attempt search
+            if (anilistId != null) sessionUrlCache.remove("${provider.name}:$anilistId")
+            sessionUrlCache.remove("${provider.name}:$title")
 
-            return rawEpisodes.mapIndexed { index, ep ->
-                val fallbackNumber = (index + 1).toFloat()
-                val validNumber = if (ep.number > 0f) ep.number else fallbackNumber
-                val cleanTitle = sanitizeTitle(ep.title, validNumber)
-                val canonicalId = if (ep.id.contains(EpisodeId.DELIMITER)) {
-                    ep.id
-                } else {
-                    EpisodeId.build(ep.id.ifBlank { resolvedUrl }, title, validNumber)
-                }
-                ep.copy(
-                    id = canonicalId,
-                    title = cleanTitle,
-                    number = validNumber
-                )
+            val searchResults = provider.search(title)
+            val bestMatch = findBestMatch(title, searchResults)
+            if (bestMatch != null && bestMatch.url != resolvedUrl) {
+                resolvedUrl = bestMatch.url
+                val cacheKey = if (anilistId != null) "${provider.name}:$anilistId" else "${provider.name}:$title"
+                sessionUrlCache.put(cacheKey, resolvedUrl)
+                rawEpisodes = provider.getEpisodes(resolvedUrl)
             }
-        } catch (_: Exception) {
-            return emptyList()
+        }
+        if (rawEpisodes.isEmpty()) return emptyList()
+
+        return rawEpisodes.mapIndexed { index, ep ->
+            val fallbackNumber = (index + 1).toFloat()
+            val validNumber = if (ep.number > 0f) ep.number else fallbackNumber
+            val cleanTitle = sanitizeTitle(ep.title, validNumber)
+            val canonicalId = if (ep.id.contains(EpisodeId.DELIMITER)) {
+                ep.id
+            } else {
+                EpisodeId.build(ep.id.ifBlank { resolvedUrl }, title, validNumber)
+            }
+            ep.copy(
+                id = canonicalId,
+                title = cleanTitle,
+                number = validNumber
+            )
         }
     }
 
@@ -134,17 +164,19 @@ class EpisodeRepository @Inject constructor(
         for (result in results) {
             val candidateSeason = extractSeason(result.title)
             val candidatePart = extractPart(result.title)
-
-            if (targetSeason != candidateSeason || targetPart != candidatePart) {
-                continue
-            }
-
             val cleanCandidate = cleanBaseTitle(result.title)
 
+            // Issue 8.1 Fix: Allow exact base title match without forcing strict season inequality
+            // If the base titles match perfectly, and the explicitly stated seasons DO NOT conflict, it's a perfect match
             if (cleanTarget == cleanCandidate) {
-                return result
+                val seasonConflict = targetSeason != null && candidateSeason != null && targetSeason != candidateSeason
+                val partConflict = targetPart != null && candidatePart != null && targetPart != candidatePart
+                if (!seasonConflict && !partConflict) {
+                    return result
+                }
             }
 
+            // Fallback to fuzzy Levenshtein for weird scraper naming conventions (e.g. story arcs instead of seasons)
             val score = calculateSimilarity(cleanTarget, cleanCandidate)
             if (score > highestScore) {
                 highestScore = score
@@ -161,16 +193,15 @@ class EpisodeRepository @Inject constructor(
         return if (highestScore >= requiredThreshold) bestResult else null
     }
 
-    private fun extractSeason(title: String): Int {
+    // Issue 8.1 Fix: Return nullable integers. Do not assume '1' or hardcode 'final season'.
+    private fun extractSeason(title: String): Int? {
         val lower = title.lowercase()
         val numMatch = Regex("""\b(?:season\s*(\d+)|(\d+)(?:st|nd|rd|th)\s*season|s(\d+))\b""").find(lower)
         if (numMatch != null) {
             return numMatch.groupValues[1].toIntOrNull()
                 ?: numMatch.groupValues[2].toIntOrNull()
                 ?: numMatch.groupValues[3].toIntOrNull()
-                ?: 1
         }
-        if (lower.contains("final season")) return 4
 
         val romanMatch = Regex("""\b(iv|iii|ii)\b""").find(lower)
         if (romanMatch != null) {
@@ -178,17 +209,17 @@ class EpisodeRepository @Inject constructor(
                 "iv" -> 4
                 "iii" -> 3
                 "ii" -> 2
-                else -> 1
+                else -> null
             }
         }
-        return 1
+        return null
     }
 
-    private fun extractPart(title: String): Int {
+    private fun extractPart(title: String): Int? {
         val lower = title.lowercase()
         val numMatch = Regex("""\b(?:part|cour)[-.\s]*(\d+)\b""").find(lower)
         if (numMatch != null) {
-            return numMatch.groupValues[1].toIntOrNull() ?: 1
+            return numMatch.groupValues[1].toIntOrNull()
         }
         val romanPartMatch = Regex("""\b(?:part|cour)[-.\s]*(iv|iii|ii|i)\b""").find(lower)
         if (romanPartMatch != null) {
@@ -197,10 +228,10 @@ class EpisodeRepository @Inject constructor(
                 "iii" -> 3
                 "ii" -> 2
                 "i" -> 1
-                else -> 1
+                else -> null
             }
         }
-        return 1
+        return null
     }
 
     private fun cleanBaseTitle(title: String): String {

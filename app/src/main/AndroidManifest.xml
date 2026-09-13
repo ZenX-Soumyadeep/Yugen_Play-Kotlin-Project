@@ -80,13 +80,18 @@
         <service
             android:name=".service.VideoDownloadService"
             android:exported="false"
-            android:permission="android.permission.BIND_JOB_SERVICE"
             android:foregroundServiceType="dataSync">
             <intent-filter>
                 <action android:name="androidx.media3.exoplayer.downloadService.action.RESTART" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </service>
+
+        <!-- Android PlatformSchedulerService for Media3 background downloads -->
+        <service
+            android:name="androidx.media3.exoplayer.scheduler.PlatformScheduler$PlatformSchedulerService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="true" />
 
         <!-- Android 14+ Google Cast Proxy Anchor -->
         <service

@@ -183,7 +183,7 @@ fun PlayerScreen(
                                 android.graphics.Color.WHITE,
                                 bgColor,
                                 android.graphics.Color.TRANSPARENT,
-                                state.subtitleEdgeStyle,
+                                @Suppress("WrongConstant") state.subtitleEdgeStyle,
                                 edgeColor,
                                 null
                             )
@@ -265,7 +265,7 @@ fun PlayerScreen(
                         exit = fadeOut()
                     ) {
                         val cleanServerName = state.activeStream?.quality
-                            ?.replace(Regex("\\[?(sub|dub)\\]?", RegexOption.IGNORE_CASE), "")
+                            ?.replace(Regex("\\[?(sub|dub)]?", RegexOption.IGNORE_CASE), "")
                             ?.trim() ?: "Unknown Server"
 
                         val currentQuality = if (state.selectedQualityHeight == -1) "Auto" else "${state.selectedQualityHeight}p"

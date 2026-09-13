@@ -1,6 +1,6 @@
 package com.zenx.yugen.play.ui.search
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,26 +18,31 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.zenx.yugen.play.ui.components.bounceClick
+import com.zenx.yugen.play.ui.components.premiumShimmerEffect
 import com.zenx.yugen.play.ui.components.subtleMarquee
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
@@ -60,6 +65,7 @@ fun SearchScreen(
 
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
 
     var showFilterSheet by remember { mutableStateOf(false) }
 
@@ -68,19 +74,51 @@ fun SearchScreen(
     val glassBg = Color.White.copy(alpha = 0.06f)
     val glassBorder = Color.White.copy(alpha = 0.12f)
     val accentPurple = Color(0xFF8B5CF6)
+    val accentYellow = Color(0xFFFBBF24)
 
-    Column(modifier = Modifier.fillMaxSize().background(baseBackground).statusBarsPadding()) {
+    val popularSuggestions = remember {
+        listOf(
+            "Solo Leveling",
+            "Jujutsu Kaisen",
+            "One Piece",
+            "Demon Slayer",
+            "Attack on Titan",
+            "Chainsaw Man",
+            "Bleach",
+            "Frieren"
+        )
+    }
 
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(baseBackground)
+            .statusBarsPadding()
+    ) {
         // 1. Search Header
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
-                onClick = { focusManager.clearFocus(); onBackClick() },
-                modifier = Modifier.size(48.dp).clip(CircleShape).background(glassBg).border(1.dp, glassBorder, CircleShape)
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    focusManager.clearFocus()
+                    onBackClick()
+                },
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(glassBg)
+                    .border(1.dp, glassBorder, CircleShape)
             ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White
+                )
             }
 
             Spacer(modifier = Modifier.width(10.dp))
@@ -88,25 +126,40 @@ fun SearchScreen(
             OutlinedTextField(
                 value = query,
                 onValueChange = viewModel::onQueryChange,
-                modifier = Modifier.weight(1f).defaultMinSize(minHeight = 52.dp),
-                placeholder = { Text("Search anime...", color = Color.Gray, fontSize = 14.sp) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color.Gray) },
+                modifier = Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = 52.dp),
+                placeholder = { Text("Search anime, movies, OVAs...", color = Color.Gray, fontSize = 13.5.sp) },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        tint = if (query.isNotBlank()) accentPurple else Color.Gray
+                    )
+                },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
                         IconButton(onClick = { viewModel.onQueryChange("") }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear", tint = Color.Gray)
+                            Icon(Icons.Default.Clear, contentDescription = "Clear", tint = Color.LightGray)
                         }
                     }
                 },
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = glassBg, unfocusedContainerColor = glassBg,
-                    focusedBorderColor = accentPurple, unfocusedBorderColor = glassBorder,
-                    cursorColor = accentPurple, focusedTextColor = Color.White, unfocusedTextColor = Color.White
+                    focusedContainerColor = glassBg,
+                    unfocusedContainerColor = glassBg,
+                    focusedBorderColor = accentPurple,
+                    unfocusedBorderColor = glassBorder,
+                    cursorColor = accentPurple,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
                 ),
                 shape = RoundedCornerShape(14.dp),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus(); viewModel.executeSearch() })
+                keyboardActions = KeyboardActions(onSearch = {
+                    focusManager.clearFocus()
+                    viewModel.executeSearch()
+                })
             )
 
             Spacer(modifier = Modifier.width(10.dp))
@@ -120,119 +173,422 @@ fun SearchScreen(
                     .clip(RoundedCornerShape(14.dp))
                     .background(if (hasFilters) accentPurple else glassBg)
                     .border(1.dp, if (hasFilters) accentPurple else glassBorder, RoundedCornerShape(14.dp))
-                    .bounceClick { focusManager.clearFocus(); showFilterSheet = true },
+                    .bounceClick {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        focusManager.clearFocus()
+                        showFilterSheet = true
+                    },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Tune, contentDescription = "Filters", tint = if (hasFilters) Color.White else accentPurple, modifier = Modifier.size(22.dp))
+                Icon(
+                    imageVector = Icons.Default.Tune,
+                    contentDescription = "Filters",
+                    tint = if (hasFilters) Color.White else accentPurple,
+                    modifier = Modifier.size(22.dp)
+                )
                 if (filterCount > 0) {
                     Box(
-                        modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(14.dp).clip(CircleShape).background(Color.White),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(4.dp)
+                            .size(15.dp)
+                            .clip(CircleShape)
+                            .background(Color.White),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(filterCount.toString(), color = accentPurple, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            text = filterCount.toString(),
+                            color = accentPurple,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
                     }
                 }
             }
         }
 
         // 2. Active Filters Horizontal Strip
-        AnimatedVisibility(visible = viewModel.hasActiveFilters()) {
+        AnimatedVisibility(
+            visible = viewModel.hasActiveFilters(),
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
             LazyRow(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Now safely handles the nullable state
                 selectedSort?.let { sortKey ->
-                    item { FilterPill("Sort: ${viewModel.sortOptions[sortKey]}") { viewModel.clearFilter("SORT") } }
+                    item {
+                        FilterPill("Sort: ${viewModel.sortOptions[sortKey]}") {
+                            viewModel.clearFilter("SORT")
+                        }
+                    }
                 }
 
-                selectedFormat?.let { item { FilterPill(it) { viewModel.clearFilter("FORMAT") } } }
-                selectedSeason?.let { item { FilterPill(it) { viewModel.clearFilter("SEASON") } } }
-                selectedYear?.let { item { FilterPill(it.toString()) { viewModel.clearFilter("YEAR") } } }
+                selectedFormat?.let {
+                    item { FilterPill("Format: $it") { viewModel.clearFilter("FORMAT") } }
+                }
+                selectedSeason?.let {
+                    item { FilterPill("Season: $it") { viewModel.clearFilter("SEASON") } }
+                }
+                selectedYear?.let {
+                    item { FilterPill("Year: $it") { viewModel.clearFilter("YEAR") } }
+                }
                 items(selectedGenres.toList()) { genre ->
                     FilterPill(genre) { viewModel.clearFilter("GENRE", genre) }
                 }
                 item {
                     Text(
-                        text = "Clear All",
-                        color = Color.Red.copy(alpha = 0.8f),
+                        text = "Reset Filters",
+                        color = Color(0xFFEF4444),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 8.dp).bounceClick { viewModel.clearAllFilters() }.padding(vertical = 6.dp)
+                        modifier = Modifier
+                            .padding(start = 6.dp)
+                            .bounceClick { viewModel.clearAllFilters() }
+                            .padding(vertical = 6.dp)
                     )
                 }
             }
         }
 
-        // 3. Main Content Area (Idle, Loading, Success, Error)
+        // 3. Main Content Area
         Box(modifier = Modifier.fillMaxSize()) {
             when (val state = uiState) {
                 is SearchUiState.Idle -> {
                     Column(
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(20.dp)
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(22.dp)
                     ) {
+                        // Recent Searches
                         if (recentSearches.isNotEmpty()) {
                             Column {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 10.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.History, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(18.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Recent Searches", color = Color.LightGray, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                        Icon(
+                                            Icons.Default.History,
+                                            contentDescription = null,
+                                            tint = accentPurple,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Recent Searches",
+                                            color = Color.White,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
-                                    Text("Clear All", color = accentPurple, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.bounceClick { viewModel.clearAllRecentSearches() })
+                                    Text(
+                                        text = "Clear All",
+                                        color = accentPurple,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.bounceClick { viewModel.clearAllRecentSearches() }
+                                    )
                                 }
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
                                     recentSearches.forEach { searchItem ->
                                         Row(
-                                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(glassBg).border(1.dp, glassBorder, RoundedCornerShape(8.dp))
-                                                .bounceClick { focusManager.clearFocus(); viewModel.executeSearch(searchItem) }.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(glassBg)
+                                                .border(1.dp, glassBorder, RoundedCornerShape(10.dp))
+                                                .bounceClick {
+                                                    focusManager.clearFocus()
+                                                    viewModel.executeSearch(searchItem)
+                                                }
+                                                .padding(horizontal = 12.dp, vertical = 8.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(searchItem, color = Color.White, fontSize = 13.sp)
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.Gray, modifier = Modifier.size(14.dp).clickable { viewModel.deleteRecentSearch(searchItem) })
+                                            Icon(
+                                                Icons.Default.Close,
+                                                contentDescription = "Remove",
+                                                tint = Color.Gray,
+                                                modifier = Modifier
+                                                    .size(14.dp)
+                                                    .clickable { viewModel.deleteRecentSearch(searchItem) }
+                                            )
                                         }
                                     }
                                 }
                             }
-                        } else {
-                            Column(modifier = Modifier.fillMaxWidth().padding(top = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.Search, contentDescription = null, tint = glassBorder, modifier = Modifier.size(64.dp))
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text("Find your next favorite series.\nUse the filter menu for advanced discovery.", color = Color.Gray, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 20.sp)
+                        }
+
+                        // Trending Suggestions
+                        Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(bottom = 10.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.TrendingUp,
+                                    contentDescription = null,
+                                    tint = accentYellow,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Trending Searches",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                popularSuggestions.forEach { suggestion ->
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(accentPurple.copy(alpha = 0.12f))
+                                            .border(1.dp, accentPurple.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
+                                            .bounceClick {
+                                                focusManager.clearFocus()
+                                                viewModel.executeSearch(suggestion)
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = suggestion,
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Explore Genres
+                        Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(bottom = 10.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Category,
+                                    contentDescription = null,
+                                    tint = accentPurple,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Popular Genres",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                viewModel.anilistGenres.take(12).forEach { genre ->
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(glassBg)
+                                            .border(1.dp, glassBorder, RoundedCornerShape(10.dp))
+                                            .bounceClick {
+                                                viewModel.toggleGenre(genre)
+                                                viewModel.executeSearch()
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = genre,
+                                            color = Color.LightGray,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
+
                 is SearchUiState.Loading -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = accentPurple) }
+                    SearchShimmerGrid()
                 }
-                is SearchUiState.Error -> Text(state.message, color = Color.Red, textAlign = TextAlign.Center, modifier = Modifier.align(Alignment.Center).padding(16.dp))
+
+                is SearchUiState.Error -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.ErrorOutline,
+                            contentDescription = null,
+                            tint = Color(0xFFEF4444),
+                            modifier = Modifier.size(54.dp)
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = state.message,
+                            color = Color.White,
+                            textAlign = TextAlign.Center,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = { viewModel.executeSearch() },
+                            colors = ButtonDefaults.buttonColors(containerColor = accentPurple),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Retry Search", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
                 is SearchUiState.Success -> {
                     if (state.results.isEmpty()) {
-                        Text("No results found.", color = Color.Gray, textAlign = TextAlign.Center, modifier = Modifier.align(Alignment.Center))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                Icons.Default.SearchOff,
+                                contentDescription = null,
+                                tint = Color.Gray,
+                                modifier = Modifier.size(64.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "No matching anime found",
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Try adjusting your spelling or removing active filters.",
+                                color = Color.Gray,
+                                fontSize = 13.5.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     } else {
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(3),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 90.dp, top = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
                             items(state.results, key = { it.id }) { result ->
-                                Column(modifier = Modifier.clip(RoundedCornerShape(12.dp)).bounceClick { focusManager.clearFocus(); onAnimeClick(result.id, result.title, result.posterUrl) }) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context).data(result.posterUrl).crossfade(300).build(),
-                                        contentDescription = result.title, contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxWidth().aspectRatio(0.7f).clip(RoundedCornerShape(12.dp)).border(1.dp, glassBorder, RoundedCornerShape(12.dp)).background(glassBg)
+                                Column(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .bounceClick {
+                                            focusManager.clearFocus()
+                                            onAnimeClick(result.id, result.title, result.posterUrl)
+                                        }
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(0.7f)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .border(1.dp, glassBorder, RoundedCornerShape(14.dp))
+                                            .background(glassBg)
+                                    ) {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(context)
+                                                .data(result.posterUrl)
+                                                .crossfade(300)
+                                                .build(),
+                                            contentDescription = result.title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+
+                                        // Subtle gradient scrim at bottom
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(40.dp)
+                                                .align(Alignment.BottomCenter)
+                                                .background(
+                                                    Brush.verticalGradient(
+                                                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
+                                                    )
+                                                )
+                                        )
+
+                                        // Rating Pill Badge
+                                        if (result.averageScore != null && result.averageScore > 0) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(6.dp)
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(Color.Black.copy(alpha = 0.75f))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        Icons.Default.Star,
+                                                        contentDescription = null,
+                                                        tint = accentYellow,
+                                                        modifier = Modifier.size(11.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(3.dp))
+                                                    Text(
+                                                        text = "${result.averageScore}%",
+                                                        color = Color.White,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Text(
+                                        text = result.title,
+                                        color = Color.White,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        modifier = Modifier
+                                            .padding(top = 7.dp, start = 2.dp, end = 2.dp)
+                                            .fillMaxWidth()
+                                            .subtleMarquee()
                                     )
-                                    Text(result.title, color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, modifier = Modifier.padding(top = 8.dp, start = 2.dp).fillMaxWidth().subtleMarquee())
                                 }
                             }
                         }
@@ -248,27 +604,45 @@ fun SearchScreen(
             onDismissRequest = { showFilterSheet = false },
             containerColor = cardBg,
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            dragHandle = { BottomSheetDefaults.DragHandle(color = Color.Gray.copy(alpha = 0.5f)) }
+            dragHandle = { BottomSheetDefaults.DragHandle(color = Color.Gray.copy(alpha = 0.4f)) }
         ) {
-            Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.85f)
+            ) {
                 // Sheet Header
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Advanced Filters", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Advanced Filters",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                     TextButton(onClick = { viewModel.clearAllFilters() }) {
-                        Text("Reset", color = Color.Red.copy(alpha = 0.8f))
+                        Text("Reset", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
                     }
                 }
                 HorizontalDivider(color = glassBorder)
 
                 // Scrollable Criteria
-                Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp)) {
-
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 16.dp)
+                ) {
                     FilterSectionTitle("Sort By")
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         viewModel.sortOptions.forEach { (key, label) ->
                             SelectableChip(label, selectedSort == key) { viewModel.setSort(key) }
                         }
@@ -276,7 +650,10 @@ fun SearchScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
                     FilterSectionTitle("Format")
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         viewModel.formats.forEach { format ->
                             SelectableChip(format, selectedFormat == format) { viewModel.setFormat(format) }
                         }
@@ -284,7 +661,10 @@ fun SearchScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
                     FilterSectionTitle("Season & Year")
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         viewModel.seasons.forEach { season ->
                             SelectableChip(season, selectedSeason == season) { viewModel.setSeason(season) }
                         }
@@ -298,7 +678,10 @@ fun SearchScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
                     FilterSectionTitle("Genres (Multiple)")
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         viewModel.anilistGenres.forEach { genre ->
                             SelectableChip(genre, selectedGenres.contains(genre)) { viewModel.toggleGenre(genre) }
                         }
@@ -307,19 +690,57 @@ fun SearchScreen(
                 }
 
                 // Apply Button
-                Box(modifier = Modifier.fillMaxWidth().background(cardBg).padding(20.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(cardBg)
+                        .padding(20.dp)
+                ) {
                     Button(
                         onClick = {
                             showFilterSheet = false
                             viewModel.executeSearch()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = accentPurple),
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
                         shape = RoundedCornerShape(14.dp)
                     ) {
                         Text("Apply Filters", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchShimmerGrid() {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(3),
+        contentPadding = PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(9) {
+            Column {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(0.7f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .premiumShimmerEffect()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.8f)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .premiumShimmerEffect()
+                )
             }
         }
     }
@@ -345,7 +766,12 @@ private fun SelectableChip(label: String, isSelected: Boolean, onClick: () -> Un
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
-        Text(text = label, color = Color.White, fontSize = 13.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium)
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+        )
     }
 }
 

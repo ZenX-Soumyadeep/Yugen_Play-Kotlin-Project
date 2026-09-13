@@ -67,6 +67,8 @@ class SearchViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<SearchUiState>(SearchUiState.Idle)
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
+    private var searchJob: kotlinx.coroutines.Job? = null
+
     val anilistGenres = listOf(
         "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy",
         "Horror", "Mahou Shoujo", "Mecha", "Music", "Mystery",
@@ -212,7 +214,8 @@ class SearchViewModel @Inject constructor(
             saveRecentQuery(targetQuery)
         }
 
-        viewModelScope.launch {
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
             _uiState.value = SearchUiState.Loading
             try {
                 val results = anilistService.searchAnime(
@@ -225,6 +228,7 @@ class SearchViewModel @Inject constructor(
                 )
                 _uiState.value = SearchUiState.Success(results)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _uiState.value = SearchUiState.Error(e.localizedMessage ?: "Failed to find anime from AniList.")
             }
         }
@@ -232,6 +236,8 @@ class SearchViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        searchJob?.cancel()
+        searchJob = null
         networkCallback?.let { callback ->
             try {
                 connectivityManager?.unregisterNetworkCallback(callback)

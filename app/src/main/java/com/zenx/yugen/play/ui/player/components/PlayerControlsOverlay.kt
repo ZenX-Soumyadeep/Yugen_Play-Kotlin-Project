@@ -380,6 +380,7 @@ private fun PlayerBottomBar(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 GlassyLabel(text = formatDuration(safePos))
                 Spacer(modifier = Modifier.width(16.dp))
+                @Suppress("DEPRECATION")
                 GlassyIconButton(icon = Icons.Rounded.PlaylistPlay, size = 42.dp, iconSize = 22.dp, onClick = onPlaylistToggle)
             }
 

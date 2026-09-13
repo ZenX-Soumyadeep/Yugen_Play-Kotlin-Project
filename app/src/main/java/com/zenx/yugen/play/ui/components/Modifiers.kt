@@ -42,7 +42,7 @@ fun Modifier.bounceClick(
     onClick: () -> Unit
 ): Modifier = composed {
     val animatable = remember { Animatable(1f) }
-    val scope = rememberCoroutineScope() // FIX: Grab the coroutine scope for the animations
+    val scope = rememberCoroutineScope()
 
     this
         .graphicsLayer {
@@ -53,7 +53,7 @@ fun Modifier.bounceClick(
         .pointerInput(Unit) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false)
-                scope.launch { // FIX: Use the explicit scope here
+                scope.launch {
                     animatable.animateTo(
                         targetValue = scaleDown,
                         animationSpec = spring(
@@ -63,7 +63,7 @@ fun Modifier.bounceClick(
                     )
                 }
                 waitForUpOrCancellation()
-                scope.launch { // FIX: Use the explicit scope here
+                scope.launch {
                     animatable.animateTo(
                         targetValue = 1f,
                         animationSpec = spring(

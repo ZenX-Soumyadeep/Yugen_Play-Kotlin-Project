@@ -17,10 +17,11 @@ class SearchAnimeUseCase @Inject constructor(
                 if (results.isNotEmpty()) {
                     Resource.Success(results)
                 } else {
-                    Resource.Error("No results found for '$query'. The scraper might be acting up.")
+                    Resource.Error("No results found for '$query'.")
                 }
             } catch (e: Exception) {
-                Resource.Error("Search failed miserably: ${e.localizedMessage}")
+                // Now accurately traps ProviderEncryptionException and ProviderNetworkException
+                Resource.Error("Scraper failed: ${e.localizedMessage ?: e.message}")
             }
         }
     }

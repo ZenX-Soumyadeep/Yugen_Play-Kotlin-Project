@@ -27,10 +27,11 @@ class CastProxyService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createNotificationChannel()
 
+        // Issue 10.2 Fix: If the OS restarts the service after process death, gracefully exit.
+        // We cannot cast anything without the UI's active ExoPlayer instance.
         if (intent == null) {
-            startForegroundServiceNotification("Reconnecting Cast relay...")
-            CastProxy.start("https://megaplay.buzz/")
-            return START_STICKY
+            stopSelf()
+            return START_NOT_STICKY
         }
 
         when (intent.action) {
@@ -48,7 +49,7 @@ class CastProxyService : Service() {
                 startForegroundServiceNotification("Cast Proxy is active")
             }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun startForegroundServiceNotification(contentText: String) {

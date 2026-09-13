@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -78,9 +79,13 @@ class HomeViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     private val popularAnimeFlow = MutableStateFlow<List<AnimeCardItem>>(emptyList())
     private val airingFlow = MutableStateFlow<List<AiringAnimeItem>>(emptyList())
     private val anilistWatchingFlow = MutableStateFlow<List<AnilistListEntry>>(emptyList())
+    private val dismissedCloudSyncIds = MutableStateFlow<Set<String>>(emptySet())
 
     private val _notifications = MutableStateFlow<List<AniListNotification>>(emptyList())
     val notifications: StateFlow<List<AniListNotification>> = _notifications.asStateFlow()
@@ -90,7 +95,6 @@ class HomeViewModel @Inject constructor(
 
     private val shownNotificationIds = mutableSetOf<Int>()
 
-    // 4.3: Explicit job handles to prevent implicit cancellation leaks
     private var anilistWatchingFetchJob: Job? = null
     private var notificationsFetchJob: Job? = null
 
@@ -117,7 +121,6 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    // 4.3: Explicit job cancellation and launch on auth change
     private fun fetchAnilistWatching() {
         viewModelScope.launch {
             authPreferences.authState
@@ -141,7 +144,6 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    // 4.3: Explicit job cancellation for notifications
     private fun fetchNotifications(reset: Boolean = false) {
         viewModelScope.launch {
             authPreferences.authState
@@ -204,18 +206,28 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun deleteHistoryItem(episodeId: String) {
+        if (episodeId.startsWith("CLOUD_SYNC_")) {
+            dismissedCloudSyncIds.update { it + episodeId }
+        } else {
+            viewModelScope.launch(Dispatchers.IO) {
+                watchHistoryDao.deleteHistoryItem(episodeId)
+            }
+        }
+    }
+
+    fun clearAllHistory() {
+        viewModelScope.launch(Dispatchers.IO) {
+            watchHistoryDao.clearAllHistory()
+        }
+        val cloudIds = anilistWatchingFlow.value.map { "CLOUD_SYNC_${it.mediaId}_${it.progress + 1}" }.toSet()
+        dismissedCloudSyncIds.update { it + cloudIds }
+    }
+
     private fun observeData() {
         viewModelScope.launch {
-            combine(
-                popularAnimeFlow,
-                airingFlow,
-                watchHistoryDao.getAllHistory(),
-                favoriteDao.getAllFavorites(),
-                anilistWatchingFlow
-            ) { popular, airing, history, favorites, anilistWatching ->
-
-                val baseTime = System.currentTimeMillis()
-
+            // Issue 9.2 Fix: Pre-map heavy UI models synchronously to avoid CPU thrashing when history ticks
+            val preMappedPopularFlow = popularAnimeFlow.map { popular ->
                 val heroList = popular.take(5).map {
                     HeroUiModel(
                         id = it.id,
@@ -226,7 +238,6 @@ class HomeViewModel @Inject constructor(
                         description = "Experience ${it.title}, one of the most highly anticipated series trending right now."
                     )
                 }
-
                 val trendingList = popular.drop(5).map {
                     val realScore = it.averageScore?.let { s -> String.format("%.1f", s / 10.0) } ?: "N/A"
                     TrendingUiModel(
@@ -237,17 +248,19 @@ class HomeViewModel @Inject constructor(
                         score = realScore
                     )
                 }
+                Pair(heroList, trendingList)
+            }.distinctUntilChanged().flowOn(Dispatchers.Default)
 
-                val airingList = airing.take(20).map {
+            val preMappedAiringFlow = airingFlow.map { airing ->
+                val baseTime = System.currentTimeMillis()
+                airing.take(20).map {
                     val daysDiff = ((it.airingAt * 1000L) - baseTime) / 86400000L
-
                     val timeStatus = when {
                         daysDiff < 0L -> "Recently Aired"
                         daysDiff == 0L -> "Today"
                         daysDiff == 1L -> "Tomorrow"
                         else -> "$daysDiff Days Left"
                     }
-
                     AiringUiModel(
                         id = it.id,
                         title = it.title,
@@ -256,7 +269,24 @@ class HomeViewModel @Inject constructor(
                         timeStatus = timeStatus
                     )
                 }
+            }.distinctUntilChanged().flowOn(Dispatchers.Default)
 
+            val activeAnilistWatchingFlow = combine(anilistWatchingFlow, dismissedCloudSyncIds) { watching, dismissed ->
+                watching.filter {
+                    val nextEpNum = it.progress + 1
+                    "CLOUD_SYNC_${it.mediaId}_$nextEpNum" !in dismissed
+                }
+            }.distinctUntilChanged()
+
+            combine(
+                preMappedPopularFlow,
+                preMappedAiringFlow,
+                watchHistoryDao.getAllHistory(),
+                favoriteDao.getAllFavorites(),
+                activeAnilistWatchingFlow
+            ) { mappedPopular, airingList, history, favorites, anilistWatching ->
+
+                val (heroList, trendingList) = mappedPopular
                 val localNormalizedTitles = history.map { StringUtils.normalizeTitleForComparison(it.animeTitle) }.toSet()
 
                 val localContinueList = history
@@ -328,6 +358,48 @@ class HomeViewModel @Inject constructor(
                 if (_uiState.value is HomeUiState.Loading) _uiState.value = HomeUiState.Error(e.localizedMessage ?: "Connection failed")
             }
         }
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                val popularResult = getPopularAnimeUseCase()
+                if (popularResult is Resource.Success) {
+                    popularAnimeFlow.value = popularResult.data ?: emptyList()
+                }
+
+                val airingResult = getAiringScheduleUseCase()
+                if (airingResult is Resource.Success) {
+                    airingFlow.value = airingResult.data?.sortedByDescending { it.popularity } ?: emptyList()
+                }
+
+                val auth = authPreferences.authState.value
+                if (auth.isAuthenticated && auth.userId != null && !auth.token.isNullOrBlank()) {
+                    try {
+                        val data = anilistService.getUserAnimeList(auth.userId, auth.token)
+                        anilistWatchingFlow.value = data["Watching"]?.distinctBy { it.mediaId } ?: emptyList()
+                    } catch (_: Exception) {}
+
+                    try {
+                        val (unread, notifs) = anilistService.getUserNotifications(auth.token, false)
+                        _unreadCount.value = unread
+                        if (notifs.isNotEmpty()) _notifications.value = notifs
+                    } catch (_: Exception) {}
+                }
+            } catch (e: Exception) {
+                if (_uiState.value is HomeUiState.Loading) {
+                    _uiState.value = HomeUiState.Error(e.localizedMessage ?: "Connection failed")
+                }
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    fun retry() {
+        _uiState.value = HomeUiState.Loading
+        fetchRemoteData()
     }
 
     private fun extractSeason(title: String): String {

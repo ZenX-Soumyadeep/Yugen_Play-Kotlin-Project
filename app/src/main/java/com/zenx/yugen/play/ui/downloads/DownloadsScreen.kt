@@ -3,7 +3,7 @@ package com.zenx.yugen.play.ui.downloads
 import android.text.format.Formatter
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -32,7 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.zenx.yugen.play.ui.components.bounceClick
@@ -56,6 +56,7 @@ fun DownloadsScreen(
 ) {
     val downloads by viewModel.downloadsFlow.collectAsStateWithLifecycle()
     val totalStorage by viewModel.totalStorageUsedFlow.collectAsStateWithLifecycle()
+    val totalSpeed by viewModel.totalSpeedFlow.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var showClearDialog by remember { mutableStateOf(false) }
@@ -156,13 +157,43 @@ fun DownloadsScreen(
                         }
 
                         if (activeCount > 0) {
+                            val infiniteTransition = rememberInfiniteTransition(label = "pulse_active")
+                            val dotAlpha by infiniteTransition.animateFloat(
+                                initialValue = 0.35f,
+                                targetValue = 1f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(800, easing = FastOutSlowInEasing),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "dot_alpha"
+                            )
+
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(AccentPurple.copy(alpha = 0.25f))
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(AccentPurple.copy(alpha = 0.2f))
+                                    .border(1.dp, AccentPurple.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
-                                Text("$activeCount Active", color = AccentPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(AccentCyan.copy(alpha = dotAlpha))
+                                    )
+                                    Spacer(modifier = Modifier.width(7.dp))
+                                    Text(
+                                        text = if (totalSpeed > 0L) {
+                                            "$activeCount Active • ↓ ${Formatter.formatFileSize(context, totalSpeed)}/s"
+                                        } else {
+                                            "$activeCount Active"
+                                        },
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
@@ -229,15 +260,51 @@ private fun DownloadCard(
     val context = LocalContext.current
     val progressAnimated by animateFloatAsState(
         targetValue = (item.percentDownloaded / 100f).coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 350, easing = LinearEasing),
         label = "DownloadProgress"
     )
+
+    val infiniteTransition = rememberInfiniteTransition(label = "download_pulse")
+    val borderPulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 0.65f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "border_pulse"
+    )
+
+    val borderModifier = when {
+        item.state == DownloadState.DOWNLOADING -> {
+            Modifier.border(
+                width = 1.dp,
+                brush = Brush.horizontalGradient(
+                    listOf(
+                        AccentPurple.copy(alpha = borderPulseAlpha),
+                        AccentCyan.copy(alpha = borderPulseAlpha)
+                    )
+                ),
+                shape = RoundedCornerShape(16.dp)
+            )
+        }
+        item.state == DownloadState.PAUSED -> {
+            Modifier.border(1.dp, WarningAmber.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+        }
+        item.state == DownloadState.FAILED -> {
+            Modifier.border(1.dp, DangerRed.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+        }
+        else -> {
+            Modifier.border(1.dp, GlassBorder, RoundedCornerShape(16.dp))
+        }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(CardSurface)
-            .border(1.dp, GlassBorder, RoundedCornerShape(16.dp))
+            .then(borderModifier)
             .clickable(enabled = isCompleted, onClick = onPlayClick)
     ) {
         // Ambient Artwork Blur Background
@@ -289,10 +356,14 @@ private fun DownloadCard(
                             CircularProgressIndicator(
                                 progress = { progressAnimated },
                                 modifier = Modifier.size(26.dp),
-                                color = AccentPurple,
+                                color = AccentCyan,
                                 strokeWidth = 2.5.dp,
                                 trackColor = Color.White.copy(alpha = 0.2f)
                             )
+                        }
+                    } else if (item.state == DownloadState.PAUSED) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.PauseCircleFilled, contentDescription = "Paused", tint = WarningAmber, modifier = Modifier.size(26.dp))
                         }
                     }
                 }
@@ -326,15 +397,21 @@ private fun DownloadCard(
                                 StatusPill("Completed", AccentPurple.copy(alpha = 0.2f), AccentPurple)
                             }
                             DownloadState.DOWNLOADING -> {
-                                StatusPill("${item.percentDownloaded.toInt()}% Downloading", AccentCyan.copy(alpha = 0.2f), AccentCyan)
-                                if (item.speedBytesPerSecond > 0L) {
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "${Formatter.formatFileSize(context, item.speedBytesPerSecond)}/s",
-                                        color = Color.White.copy(alpha = 0.45f),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    StatusPill(
+                                        text = if (item.percentDownloaded > 0f) "${item.percentDownloaded.toInt()}% Downloading" else "Downloading",
+                                        bgColor = AccentCyan.copy(alpha = 0.2f),
+                                        textColor = AccentCyan
                                     )
+                                    if (item.speedBytesPerSecond > 0L) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "↓ ${Formatter.formatFileSize(context, item.speedBytesPerSecond)}/s",
+                                            color = AccentCyan.copy(alpha = 0.9f),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
                                 }
                             }
                             DownloadState.PAUSED -> {
@@ -343,7 +420,9 @@ private fun DownloadCard(
                             DownloadState.FAILED -> {
                                 StatusPill("Failed", DangerRed.copy(alpha = 0.2f), DangerRed)
                             }
-                            else -> {}
+                            else -> {
+                                StatusPill("Queued", Color.White.copy(alpha = 0.12f), Color.White.copy(alpha = 0.7f))
+                            }
                         }
                     }
                 }
@@ -353,19 +432,27 @@ private fun DownloadCard(
             if (!isCompleted) {
                 Spacer(modifier = Modifier.height(12.dp))
 
-                LinearProgressIndicator(
-                    progress = { progressAnimated },
+                // Custom Rounded Gradient Progress Bar
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(5.dp)
-                        .clip(CircleShape),
-                    color = when (item.state) {
-                        DownloadState.PAUSED -> WarningAmber
-                        DownloadState.FAILED -> DangerRed
-                        else -> AccentCyan
-                    },
-                    trackColor = Color.White.copy(alpha = 0.08f)
-                )
+                        .height(6.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.08f))
+                ) {
+                    val progressBrush = when (item.state) {
+                        DownloadState.PAUSED -> Brush.horizontalGradient(listOf(WarningAmber.copy(alpha = 0.7f), WarningAmber))
+                        DownloadState.FAILED -> Brush.horizontalGradient(listOf(DangerRed.copy(alpha = 0.7f), DangerRed))
+                        else -> Brush.horizontalGradient(listOf(AccentPurple, AccentCyan))
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction = progressAnimated)
+                            .fillMaxHeight()
+                            .clip(CircleShape)
+                            .background(progressBrush)
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -376,15 +463,27 @@ private fun DownloadCard(
                 ) {
                     val downloadedStr = Formatter.formatFileSize(context, item.downloadedBytes)
                     val totalStr = if (item.totalBytes > 0) Formatter.formatFileSize(context, item.totalBytes) else "..."
-                    Text(
-                        text = "$downloadedStr / $totalStr",
-                        color = Color.White.copy(alpha = 0.45f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    val etaStr = item.etaSeconds?.let { formatEta(it) }
 
-                    // Control Buttons (Pause, Resume, Retry, Cancel)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "$downloadedStr / $totalStr",
+                            color = Color.White.copy(alpha = 0.45f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        if (etaStr != null) {
+                            Text(
+                                text = " • ~$etaStr left",
+                                color = AccentCyan.copy(alpha = 0.85f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    // Control Buttons with tactile bounceClick()
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         when (item.state) {
                             DownloadState.DOWNLOADING -> {
                                 ActionButton(icon = Icons.Rounded.Pause, tint = WarningAmber, onClick = onPauseClick)
@@ -405,6 +504,14 @@ private fun DownloadCard(
     }
 }
 
+private fun formatEta(seconds: Long): String {
+    return when {
+        seconds < 60 -> "${seconds}s"
+        seconds < 3600 -> "${seconds / 60}m ${seconds % 60}s"
+        else -> "${seconds / 3600}h ${(seconds % 3600) / 60}m"
+    }
+}
+
 @Composable
 private fun StatusPill(text: String, bgColor: Color, textColor: Color) {
     Box(
@@ -421,10 +528,10 @@ private fun StatusPill(text: String, bgColor: Color, textColor: Color) {
 private fun ActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(30.dp)
+            .size(32.dp)
             .clip(CircleShape)
             .background(Color.White.copy(alpha = 0.08f))
-            .clickable(onClick = onClick),
+            .bounceClick { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))

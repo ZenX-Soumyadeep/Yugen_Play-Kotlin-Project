@@ -65,6 +65,8 @@ class MainActivity : AppCompatActivity() {
     @Inject
     lateinit var anilistService: AnilistService
 
+    private var pendingNavRoute by mutableStateOf<String?>(null)
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { _: Boolean -> }
@@ -72,6 +74,7 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleAuthIntent(intent)
+        handleNotificationIntent(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -79,6 +82,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         handleAuthIntent(intent)
+        handleNotificationIntent(intent)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         var keepSplashOpen by mutableStateOf(true)
@@ -94,7 +98,10 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 Box(modifier = Modifier.fillMaxSize()) {
-                    MainScreen()
+                    MainScreen(
+                        pendingNavRoute = pendingNavRoute,
+                        onRouteHandled = { pendingNavRoute = null }
+                    )
 
                     val isFullscreen = WindowInsets.statusBars.getTop(LocalDensity.current) == 0
 
@@ -143,6 +150,13 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+    }
+
+    private fun handleNotificationIntent(intent: Intent?) {
+        val route = intent?.getStringExtra("NAV_ROUTE")
+        if (!route.isNullOrBlank()) {
+            pendingNavRoute = route
         }
     }
 }

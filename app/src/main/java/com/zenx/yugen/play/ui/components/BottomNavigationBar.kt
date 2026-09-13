@@ -3,6 +3,9 @@ package com.zenx.yugen.play.ui.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
@@ -23,7 +26,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,16 +42,21 @@ fun FloatingAnimatedBottomBar(
     currentRoute: String,
     onItemClick: (String) -> Unit
 ) {
-    val glassPillBg = Color(0xFF141416).copy(alpha = 0.85f)
-    val glassBorder = Color.White.copy(alpha = 0.12f)
+    val glassPillBg = Color(0xFF0F0F13).copy(alpha = 0.92f)
+    val glassBorderBrush = Brush.verticalGradient(
+        colors = listOf(
+            Color.White.copy(alpha = 0.22f),
+            Color.White.copy(alpha = 0.05f)
+        )
+    )
 
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(100.dp))
             .background(glassPillBg)
-            .border(1.dp, glassBorder, RoundedCornerShape(100.dp))
-            .padding(horizontal = 8.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .border(1.dp, glassBorderBrush, RoundedCornerShape(100.dp))
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         items.forEach { item ->
@@ -63,47 +75,78 @@ fun AnimatedBottomBarItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
     val accentPurple = Color(0xFF8B5CF6)
 
     val backgroundColor by animateColorAsState(
-        targetValue = if (isSelected) accentPurple.copy(alpha = 0.15f) else Color.Transparent,
-        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        targetValue = if (isSelected) accentPurple.copy(alpha = 0.20f) else Color.Transparent,
+        animationSpec = tween(240, easing = FastOutSlowInEasing),
         label = "bottom_bar_bg_color"
     )
 
+    val borderColor by animateColorAsState(
+        targetValue = if (isSelected) accentPurple.copy(alpha = 0.40f) else Color.Transparent,
+        animationSpec = tween(240, easing = FastOutSlowInEasing),
+        label = "bottom_bar_border_color"
+    )
+
     val contentColor by animateColorAsState(
-        targetValue = if (isSelected) accentPurple else Color.Gray,
-        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        targetValue = if (isSelected) accentPurple else Color(0xFF9CA3AF),
+        animationSpec = tween(240, easing = FastOutSlowInEasing),
         label = "bottom_bar_content_color"
+    )
+
+    val iconScale by animateFloatAsState(
+        targetValue = if (isSelected) 1.15f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "bottom_bar_icon_scale"
     )
 
     Row(
         modifier = Modifier
             .clip(CircleShape)
             .background(backgroundColor)
+            .border(1.dp, borderColor, CircleShape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = onClick
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onClick()
+                }
             )
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         Icon(
             imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
             contentDescription = item.label,
             tint = contentColor,
-            modifier = Modifier.size(22.dp)
+            modifier = Modifier
+                .size(22.dp)
+                .graphicsLayer {
+                    scaleX = iconScale
+                    scaleY = iconScale
+                }
         )
 
         AnimatedVisibility(
             visible = isSelected,
             enter = expandHorizontally(
-                animationSpec = tween(220, easing = FastOutSlowInEasing)
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
             ) + fadeIn(tween(180)),
             exit = shrinkHorizontally(
-                animationSpec = tween(220, easing = FastOutSlowInEasing)
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
             ) + fadeOut(tween(180))
         ) {
             Text(

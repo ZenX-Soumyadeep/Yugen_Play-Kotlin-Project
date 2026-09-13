@@ -209,7 +209,7 @@ private fun SegmentedButton(
 
     Box(
         modifier = modifier
-            .tvFocusable(shape = RoundedCornerShape(8.dp)) // <-- ADD THIS
+            .tvFocusable(shape = RoundedCornerShape(8.dp))
             .clip(RoundedCornerShape(8.dp))
             .background(bg)
             .clickable(onClick = onClick)
@@ -235,7 +235,7 @@ private fun PanelItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .tvFocusable(shape = RoundedCornerShape(12.dp)) // <-- ADD THIS
+            .tvFocusable(shape = RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .background(bg)
             .border(1.dp, border, RoundedCornerShape(12.dp))

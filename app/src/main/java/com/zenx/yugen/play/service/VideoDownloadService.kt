@@ -14,6 +14,7 @@ import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
 import androidx.media3.exoplayer.offline.DownloadService
+import androidx.media3.exoplayer.scheduler.PlatformScheduler // Issue 9.1 Fix: Imported scheduler
 import androidx.media3.exoplayer.scheduler.Scheduler
 import com.zenx.yugen.play.MainActivity
 import com.zenx.yugen.play.R
@@ -35,11 +36,10 @@ class VideoDownloadService : DownloadService(
     companion object {
         const val CHANNEL_ID = "yugen_download_channel"
         const val FOREGROUND_NOTIFICATION_ID = 1001
+        private const val JOB_ID = 2002 // Unique identifier for the system JobScheduler
     }
 
     private data class CachedDownloadMeta(val animeTitle: String, val episodeNumber: String)
-
-    // L-5: Cache parsed metadata per download ID to avoid parsing JSON on each notification tick
     private val metadataCache = ConcurrentHashMap<String, CachedDownloadMeta>()
 
     @Inject
@@ -57,8 +57,13 @@ class VideoDownloadService : DownloadService(
         return injectedDownloadManager
     }
 
+    // Issue 9.1 Fix: Replaced null with PlatformScheduler to allow OS-level background resumption
     override fun getScheduler(): Scheduler? {
-        return null
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            PlatformScheduler(this, JOB_ID)
+        } else {
+            null
+        }
     }
 
     private fun getOrParseMetadata(download: Download): CachedDownloadMeta {
@@ -97,7 +102,6 @@ class VideoDownloadService : DownloadService(
             it.state == Download.STATE_DOWNLOADING || it.state == Download.STATE_QUEUED
         }
 
-        // Evict finished/removed downloads from the metadata cache
         val currentIds = downloads.map { it.request.id }.toSet()
         metadataCache.keys.retainAll(currentIds)
 

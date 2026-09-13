@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 data class DownloadUiModel(
@@ -31,7 +32,15 @@ data class DownloadUiModel(
     val percentDownloaded: Float,
     val downloadedBytes: Long,
     val totalBytes: Long,
-    val speedBytesPerSecond: Long = 0L
+    val speedBytesPerSecond: Long = 0L,
+    val etaSeconds: Long? = null
+)
+
+private data class CachedDownloadMetadata(
+    val animeTitle: String,
+    val episodeNumber: String,
+    val episodeTitle: String,
+    val posterUrl: String
 )
 
 @OptIn(UnstableApi::class)
@@ -42,23 +51,57 @@ class DownloadsViewModel @Inject constructor(
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
+    private val metaCache = ConcurrentHashMap<String, CachedDownloadMetadata>()
+
+    private fun getOrParseMetadata(id: String, rawData: ByteArray): CachedDownloadMetadata {
+        return metaCache.getOrPut(id) {
+            try {
+                val metadataStr = String(rawData, Charsets.UTF_8)
+                val json = JSONObject(metadataStr)
+                CachedDownloadMetadata(
+                    animeTitle = json.optString("animeTitle", "Anime"),
+                    episodeNumber = json.optString("episodeNumber", "?"),
+                    episodeTitle = json.optString("episodeTitle", "Episode"),
+                    posterUrl = json.optString("posterUrl", "")
+                )
+            } catch (_: Exception) {
+                CachedDownloadMetadata("Anime", "?", "Episode", "")
+            }
+        }
+    }
+
     val downloadsFlow = downloadTracker.downloads.map { downloadMap ->
+        val currentKeys = downloadMap.keys
+        metaCache.keys.retainAll(currentKeys)
+
         downloadMap.values.map { download ->
-            val metadataStr = String(download.request.data, Charsets.UTF_8)
-            val json = try { JSONObject(metadataStr) } catch (_: Exception) { JSONObject() }
+            val meta = getOrParseMetadata(download.request.id, download.request.data)
             val currentSpeed = downloadTracker.getDownloadSpeed(download.request.id)
+            val state = mapExoDownloadState(download.state)
+            val percent = if (download.percentDownloaded < 0f) 0f else download.percentDownloaded
+            val downloadedBytes = download.bytesDownloaded
+            val totalBytes = download.contentLength
+
+            val etaSeconds = if (
+                state == DownloadState.DOWNLOADING &&
+                currentSpeed > 5_000L &&
+                totalBytes > downloadedBytes
+            ) {
+                (totalBytes - downloadedBytes) / currentSpeed
+            } else null
 
             DownloadUiModel(
                 id = download.request.id,
-                animeTitle = json.optString("animeTitle", "Anime"),
-                episodeNumber = json.optString("episodeNumber", "?"),
-                episodeTitle = json.optString("episodeTitle", "Episode"),
-                posterUrl = json.optString("posterUrl", ""),
-                state = mapExoDownloadState(download.state),
-                percentDownloaded = if (download.percentDownloaded < 0f) 0f else download.percentDownloaded,
-                downloadedBytes = download.bytesDownloaded,
-                totalBytes = download.contentLength,
-                speedBytesPerSecond = currentSpeed
+                animeTitle = meta.animeTitle,
+                episodeNumber = meta.episodeNumber,
+                episodeTitle = meta.episodeTitle,
+                posterUrl = meta.posterUrl,
+                state = state,
+                percentDownloaded = percent,
+                downloadedBytes = downloadedBytes,
+                totalBytes = totalBytes,
+                speedBytesPerSecond = currentSpeed,
+                etaSeconds = etaSeconds
             )
         }.sortedWith(
             compareByDescending<DownloadUiModel> { it.state == DownloadState.DOWNLOADING }
@@ -69,6 +112,10 @@ class DownloadsViewModel @Inject constructor(
 
     val totalStorageUsedFlow = downloadsFlow.map { list ->
         list.sumOf { it.downloadedBytes.coerceAtLeast(0L) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val totalSpeedFlow = downloadsFlow.map { list ->
+        list.filter { it.state == DownloadState.DOWNLOADING }.sumOf { it.speedBytesPerSecond }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
     fun pauseDownload(id: String) {
@@ -84,10 +131,12 @@ class DownloadsViewModel @Inject constructor(
     }
 
     fun cancelDownload(id: String) {
+        metaCache.remove(id)
         DownloadService.sendRemoveDownload(context, VideoDownloadService::class.java, id, false)
     }
 
     fun clearAllDownloads(downloads: List<DownloadUiModel>) {
+        metaCache.clear()
         downloads.forEach { cancelDownload(it.id) }
     }
 }

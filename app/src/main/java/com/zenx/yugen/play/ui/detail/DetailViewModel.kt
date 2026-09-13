@@ -64,6 +64,7 @@ const val STOP_REASON_USER_PAUSED = 1
 
 enum class DownloadState { NONE, DOWNLOADING, COMPLETED, PAUSED, FAILED }
 
+@OptIn(androidx.media3.common.util.UnstableApi::class)
 fun mapExoDownloadState(state: Int): DownloadState {
     return when (state) {
         Download.STATE_COMPLETED -> DownloadState.COMPLETED
@@ -325,11 +326,19 @@ class DetailViewModel @Inject constructor(
         }
     }
 
+    fun retryEpisodes() {
+        loadEpisodes()
+    }
+
     fun saveTitleMapping(mappedUrl: String) {
         val mediaId = currentMediaId ?: animeId.toIntOrNull() ?: return
         viewModelScope.launch {
             titleMappingRepository.saveMapping(mediaId, _activeProvider.value, mappedUrl)
+            isMappedFlow.value = true
             hideMappingSheet()
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Title mapped to ${_activeProvider.value.uppercase()}", Toast.LENGTH_SHORT).show()
+            }
             loadEpisodes()
         }
     }
@@ -338,7 +347,11 @@ class DetailViewModel @Inject constructor(
         val mediaId = currentMediaId ?: animeId.toIntOrNull() ?: return
         viewModelScope.launch {
             titleMappingRepository.deleteMapping(mediaId, _activeProvider.value)
+            isMappedFlow.value = false
             hideMappingSheet()
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Manual mapping cleared for ${_activeProvider.value.uppercase()}", Toast.LENGTH_SHORT).show()
+            }
             loadEpisodes()
         }
     }
@@ -346,6 +359,8 @@ class DetailViewModel @Inject constructor(
     fun changeProvider(providerName: String) {
         if (_activeProvider.value == providerName) { hideSourceSheet(); return }
         _activeProvider.value = providerName
+        _mappingSearchQuery.value = animeTitle
+        _mappingSearchResults.value = Resource.Success(emptyList())
         hideSourceSheet()
         loadEpisodes()
     }
@@ -357,7 +372,7 @@ class DetailViewModel @Inject constructor(
             val userFlow = combine(favoriteDao.getAllFavorites(), anilistEntryFlow) { favs, entry -> UserData(favs, entry) }.distinctUntilChanged()
             val pbFlow = combine(watchHistoryDao.getAllHistory(), downloadTracker.downloads, _preparingDownloads) { history, downloadsMap, preparing ->
                 val dlStates = downloadsMap.mapValues { mapExoDownloadState(it.value.state) }
-                val dlProgresses = downloadsMap.mapValues { it.value.percentDownloaded.toInt().toFloat() }
+                val dlProgresses = downloadsMap.mapValues { it.value.percentDownloaded.coerceIn(0f, 100f) }
                 PlaybackData(history, dlStates, dlProgresses, preparing)
             }
 
