@@ -1,6 +1,9 @@
 package com.zenx.yugen.play.di
 
 import android.content.Context
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.preferencesDataStore
+import androidx.datastore.core.DataStore
 import androidx.room.Room
 import com.zenx.yugen.play.BuildConfig
 import com.zenx.yugen.play.data.local.AnimeDetailsDao
@@ -18,6 +21,8 @@ import javax.inject.Singleton
 
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+
+private val Context.playerPrefsDataStore: DataStore<Preferences> by preferencesDataStore(name = "yugen_player_prefs")
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -101,4 +106,10 @@ object DatabaseModule {
 
     @Provides
     fun provideAnimeDetailsDao(database: AppDatabase): AnimeDetailsDao = database.animeDetailsDao()
+
+    @Provides
+    @Singleton
+    fun providePlayerPrefsDataStore(@ApplicationContext context: Context): DataStore<Preferences> {
+        return context.playerPrefsDataStore
+    }
 }

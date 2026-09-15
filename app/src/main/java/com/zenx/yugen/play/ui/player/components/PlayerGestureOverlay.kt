@@ -4,6 +4,8 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,6 +25,7 @@ fun PlayerGestureOverlay(
     isLocked: Boolean,
     durationMs: Long,
     currentPositionMs: Long,
+    seekDurationSeconds: Int,
     onToggleControls: () -> Unit,
     onSeekRelative: (seconds: Int) -> Unit,
     onSeekScrub: (positionMs: Long) -> Unit,
@@ -57,9 +60,9 @@ fun PlayerGestureOverlay(
     val livePositionMs by rememberUpdatedState(currentPositionMs)
     val liveDurationMs by rememberUpdatedState(durationMs)
 
-    fun showHud(type: HudType, value: Float, text: String) {
+    fun showHud(type: HudType, value: Float, text: String, alignLeft: Boolean = false) {
         hudHideJob?.cancel()
-        hudState = HudState(isVisible = true, type = type, value = value, centerText = text)
+        hudState = HudState(isVisible = true, type = type, value = value, centerText = text, alignLeft = alignLeft)
         hudHideJob = coroutineScope.launch {
             delay(900L.milliseconds)
             hudState = hudState.copy(isVisible = false)
@@ -87,12 +90,12 @@ fun PlayerGestureOverlay(
                         val isLeftSide = offset.x < (size.width * 0.35f)
 
                         if (isRightSide) {
-                            onSeekRelative(10)
+                            onSeekRelative(seekDurationSeconds)
                             showForwardRipple = true
                             rippleHideJob?.cancel()
                             rippleHideJob = coroutineScope.launch { delay(400L.milliseconds); showForwardRipple = false }
                         } else if (isLeftSide) {
-                            onSeekRelative(-10)
+                            onSeekRelative(-seekDurationSeconds)
                             showRewindRipple = true
                             rippleHideJob?.cancel()
                             rippleHideJob = coroutineScope.launch { delay(400L.milliseconds); showRewindRipple = false }
@@ -153,7 +156,7 @@ fun PlayerGestureOverlay(
                             if (isLeftSideDrag) {
                                 val newBright = (initialBrightness + deltaPercent).coerceIn(0.01f, 1.0f)
                                 deviceController.currentBrightness = newBright
-                                showHud(HudType.BRIGHTNESS, newBright, "${(newBright * 100).toInt()}%")
+                                showHud(HudType.BRIGHTNESS, newBright, "${(newBright * 100).toInt()}%", alignLeft = true)
                             } else {
                                 val maxVol = deviceController.maxVolume.toFloat().coerceAtLeast(1f)
                                 val newVolExact = (initialVolume + (deltaPercent * maxVol)).coerceIn(0f, maxVol)
@@ -197,8 +200,25 @@ fun PlayerGestureOverlay(
                 )
             }
     ) {
-        DoubleTapSeekRipple(isForward = false, isVisible = showRewindRipple, modifier = Modifier.align(Alignment.CenterStart))
-        DoubleTapSeekRipple(isForward = true, isVisible = showForwardRipple, modifier = Modifier.align(Alignment.CenterEnd))
-        CenterHudOverlay(state = hudState, modifier = Modifier.align(Alignment.Center))
+        DoubleTapSeekRipple(isForward = false, isVisible = showRewindRipple, seconds = seekDurationSeconds, modifier = Modifier.align(Alignment.CenterStart))
+        DoubleTapSeekRipple(isForward = true, isVisible = showForwardRipple, seconds = seekDurationSeconds, modifier = Modifier.align(Alignment.CenterEnd))
+        // Align HUD to the edge where the gesture originated
+        val hudAlignment = when (hudState.type) {
+            HudType.BRIGHTNESS -> Alignment.CenterStart
+            HudType.VOLUME -> Alignment.CenterEnd
+            HudType.SEEK -> Alignment.Center
+        }
+        CenterHudOverlay(
+            state = hudState,
+            modifier = Modifier
+                .align(hudAlignment)
+                .then(
+                    when (hudAlignment) {
+                        Alignment.CenterStart -> Modifier.padding(start = 24.dp)
+                        Alignment.CenterEnd -> Modifier.padding(end = 24.dp)
+                        else -> Modifier
+                    }
+                )
+        )
     }
 }

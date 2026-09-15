@@ -51,7 +51,10 @@ private val TextMuted = Color.White.copy(alpha = 0.5f)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun AnimeInfoHeader(state: DetailsUiState.Success) {
+fun AnimeInfoHeader(
+    state: DetailsUiState.Success,
+    onGenreClick: ((String) -> Unit)? = null
+) {
     val accentPurple = Color(0xFF8B5CF6)
     val glassBg = Color.White.copy(alpha = 0.06f)
     val glassBorder = Color.White.copy(alpha = 0.12f)
@@ -80,7 +83,7 @@ fun AnimeInfoHeader(state: DetailsUiState.Success) {
                     .padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Star, contentDescription = null, tint = Color(0xFFFBBF24), modifier = Modifier.size(15.dp))
+                    Icon(Icons.Rounded.Star, contentDescription = null, tint = Color(0xFFFBBF24), modifier = Modifier.size(14.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(state.score, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
                 }
@@ -96,8 +99,13 @@ fun AnimeInfoHeader(state: DetailsUiState.Success) {
             state.genres.forEach { genre ->
                 Box(
                     modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
                         .border(1.dp, glassBorder, RoundedCornerShape(14.dp))
                         .background(glassBg)
+                        .then(
+                            if (onGenreClick != null) Modifier.bounceClick { onGenreClick(genre) }
+                            else Modifier
+                        )
                         .padding(horizontal = 12.dp, vertical = 5.dp)
                 ) {
                     Text(genre, color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Medium)

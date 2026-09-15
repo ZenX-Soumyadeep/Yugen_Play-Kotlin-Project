@@ -2,6 +2,7 @@ package com.zenx.yugen.play.ui.player
 
 import android.app.PictureInPictureParams
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.os.Build
 import android.util.Rational
 import android.view.WindowManager
@@ -34,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -73,6 +75,19 @@ fun PlayerScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val deviceController = com.zenx.yugen.play.util.rememberDeviceController()
+
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    val toggleOrientation: () -> Unit = {
+        activity?.let { act ->
+            if (isLandscape) {
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            } else {
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
+        }
+    }
 
     var showControls by remember { mutableStateOf(true) }
     var isLocked by remember { mutableStateOf(false) }
@@ -175,12 +190,17 @@ fun PlayerScreen(
                     view.subtitleView?.apply {
                         setFractionalTextSize(state.subtitleSize)
 
-                        val bgColor = if (state.subtitleEdgeStyle == 0) android.graphics.Color.argb(150, 0, 0, 0) else android.graphics.Color.TRANSPARENT
-                        val edgeColor = if (state.subtitleEdgeStyle == 1) android.graphics.Color.BLACK else android.graphics.Color.parseColor("#80000000")
+                        val textArgb = state.subtitleTextColor.toInt()
+                        val bgColor = android.graphics.Color.argb((state.subtitleBgOpacity * 255).toInt(), 0, 0, 0)
+                        val edgeColor = when (state.subtitleEdgeStyle) {
+                            1 -> android.graphics.Color.BLACK
+                            2 -> android.graphics.Color.parseColor("#80000000")
+                            else -> android.graphics.Color.TRANSPARENT
+                        }
 
                         setStyle(
                             CaptionStyleCompat(
-                                android.graphics.Color.WHITE,
+                                textArgb,
                                 bgColor,
                                 android.graphics.Color.TRANSPARENT,
                                 @Suppress("WrongConstant") state.subtitleEdgeStyle,
@@ -252,6 +272,7 @@ fun PlayerScreen(
                         isLocked = isLocked,
                         durationMs = playbackProgress.duration,
                         currentPositionMs = playbackProgress.currentPosition,
+                        seekDurationSeconds = state.seekDurationSec,
                         onToggleControls = { showControls = !showControls },
                         onSeekRelative = { offsetSeconds -> viewModel.seekRelative(offsetSeconds * 1000L) },
                         onSeekScrub = { targetMs -> viewModel.seekTo(targetMs) },
@@ -299,9 +320,11 @@ fun PlayerScreen(
                             onEpisodeSelect = { ep -> viewModel.selectEpisode(ep) },
                             onSubtitlesClick = { viewModel.setSubtitleSheetVisibility(true) },
                             onQualityClick = { viewModel.setQualitySheetVisibility(true) },
-                            onSpeedClick = { viewModel.cyclePlaybackSpeed() },
+                            onSpeedClick = { viewModel.setSpeedSheetVisibility(true) },
                             onFitClick = { viewModel.cycleResizeMode() },
-                            onMoreClick = { viewModel.setServerSheetVisibility(true) }
+                            onMoreClick = { viewModel.setServerSheetVisibility(true) },
+                            isLandscape = isLandscape,
+                            onRotateClick = toggleOrientation
                         )
                     }
 

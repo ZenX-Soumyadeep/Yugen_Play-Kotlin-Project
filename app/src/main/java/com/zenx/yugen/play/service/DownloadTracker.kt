@@ -16,10 +16,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Duration.Companion.milliseconds
 
+import com.zenx.yugen.play.data.local.PlayerPreferences
+
 @OptIn(UnstableApi::class)
 @Singleton
 class DownloadTracker @Inject constructor(
-    private val context: Context
+    private val context: Context,
+    private val playerPreferences: PlayerPreferences
 ) : DownloadManager.Listener, Closeable {
 
     private val _downloads = MutableSharedFlow<Map<String, Download>>(
@@ -43,6 +46,12 @@ class DownloadTracker @Inject constructor(
         downloadManager = manager
         manager.addListener(this)
         loadInitialDownloads(manager)
+        
+        scope.launch {
+            playerPreferences.maxParallelDownloads.collect { maxCount ->
+                manager.maxParallelDownloads = maxCount
+            }
+        }
     }
 
     fun getDownloadSpeed(id: String): Long {

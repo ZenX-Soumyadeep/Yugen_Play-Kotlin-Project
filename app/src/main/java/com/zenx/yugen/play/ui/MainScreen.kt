@@ -194,8 +194,12 @@ fun MainScreen(
             }
 
             composable(
-                route = "search?sort={sort}",
-                arguments = listOf(navArgument("sort") { type = NavType.StringType; nullable = true })
+                route = "search?sort={sort}&query={query}&genre={genre}",
+                arguments = listOf(
+                    navArgument("sort") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("query") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("genre") { type = NavType.StringType; nullable = true; defaultValue = null }
+                )
             ) {
                 SearchScreen(
                     onAnimeClick = { id, title, posterUrl ->
@@ -254,11 +258,10 @@ fun MainScreen(
                     },
                     onBackClick = { navController.popBackStack() },
                     onDownloadsClick = {
-                        navController.navigate(BottomNavItem.Downloads.route) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                        navController.navigate(BottomNavItem.Downloads.route)
+                    },
+                    onGenreClick = { genre ->
+                        navController.navigate("search?genre=${Uri.encode(genre)}")
                     }
                 )
             }

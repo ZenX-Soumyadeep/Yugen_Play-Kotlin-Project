@@ -35,6 +35,7 @@ import androidx.work.WorkManager
 import com.zenx.yugen.play.data.local.AuthPreferences
 import com.zenx.yugen.play.data.local.OfflineSyncDao
 import com.zenx.yugen.play.data.local.OfflineSyncEntity
+import com.zenx.yugen.play.data.local.PlayerPreferences
 import com.zenx.yugen.play.data.local.WatchHistoryDao
 import com.zenx.yugen.play.data.local.WatchHistoryEntity
 import com.zenx.yugen.play.di.ProviderClient
@@ -65,6 +66,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -118,13 +120,22 @@ sealed interface PlayerUiState {
         val isEpisodeSheetVisible: Boolean = false,
         val isSubtitleSheetVisible: Boolean = false,
         val isQualitySheetVisible: Boolean = false,
+        val isSpeedSheetVisible: Boolean = false,
         val skipIntervals: List<SkipInterval> = emptyList(),
         val activeSkipInterval: SkipInterval? = null,
         val nextEpisode: Episode? = null,
         val autoPlayCountdown: Int? = null,
         val transientWarning: String? = null,
         val subtitleSize: Float = 0.053f,
-        val subtitleEdgeStyle: Int = 2
+        val subtitleEdgeStyle: Int = 2,
+        // 0xAARRGGBB — default white. Stored as Long to survive state diffing cleanly.
+        val subtitleTextColor: Long = 0xFFFFFFFF,
+        // 0f = transparent bg, 0.6f = semi-opaque box
+        val subtitleBgOpacity: Float = 0f,
+        // Configurable double-tap seek duration in seconds
+        val seekDurationSec: Int = 10,
+        // Whether to trigger the auto-play countdown at episode end
+        val autoPlayNext: Boolean = true
     ) : PlayerUiState
     data class Error(val message: String) : PlayerUiState
 }
@@ -141,6 +152,7 @@ class PlayerViewModel @Inject constructor(
     private val watchHistoryDao: WatchHistoryDao,
     private val offlineSyncDao: OfflineSyncDao,
     private val authPreferences: AuthPreferences,
+    private val playerPreferences: PlayerPreferences,
     private val providerRegistry: ProviderRegistry,
     private val downloadManager: DownloadManager,
     private val downloadCache: Cache,
@@ -202,6 +214,15 @@ class PlayerViewModel @Inject constructor(
 
     @Volatile
     private var cachedPlaybackState: Int = Player.STATE_IDLE
+
+    private var savedSubtitleSize: Float = PlayerPreferences.DEFAULT_SUBTITLE_SIZE
+    private var savedSubtitleEdgeStyle: Int = PlayerPreferences.DEFAULT_SUBTITLE_EDGE_STYLE
+    private var savedSubtitleTextColor: Long = PlayerPreferences.DEFAULT_SUBTITLE_TEXT_COLOR
+    private var savedSubtitleBgOpacity: Float = PlayerPreferences.DEFAULT_SUBTITLE_BG_OPACITY
+    private var savedPlaybackSpeed: Float = PlayerPreferences.DEFAULT_PLAYBACK_SPEED
+    private var savedSeekDurationSec: Int = PlayerPreferences.DEFAULT_SEEK_DURATION_SEC
+    private var savedAutoPlayNext: Boolean = PlayerPreferences.DEFAULT_AUTO_PLAY_NEXT
+    private var savedPreferDub: Boolean = PlayerPreferences.DEFAULT_PREFER_DUB
 
     companion object {
         private val LANGUAGE_MAP = mapOf(
@@ -417,6 +438,31 @@ class PlayerViewModel @Inject constructor(
             )
         }
         loadEpisodesAndPlay(currentEpisodeId)
+
+        // Load saved preferences and apply them to cache and Ready state.
+        viewModelScope.launch {
+            savedSubtitleSize      = playerPreferences.subtitleSize.first()
+            savedSubtitleEdgeStyle = playerPreferences.subtitleEdgeStyle.first()
+            savedSubtitleTextColor = playerPreferences.subtitleTextColor.first()
+            savedSubtitleBgOpacity = playerPreferences.subtitleBgOpacity.first()
+            savedPlaybackSpeed     = playerPreferences.playbackSpeed.first()
+            savedSeekDurationSec   = playerPreferences.seekDurationSec.first()
+            savedAutoPlayNext      = playerPreferences.autoPlayNext.first()
+            savedPreferDub         = playerPreferences.preferDub.first()
+
+            updateReadyState {
+                it.copy(
+                    subtitleSize      = savedSubtitleSize,
+                    subtitleEdgeStyle = savedSubtitleEdgeStyle,
+                    subtitleTextColor = savedSubtitleTextColor,
+                    subtitleBgOpacity = savedSubtitleBgOpacity,
+                    playbackSpeed     = savedPlaybackSpeed,
+                    seekDurationSec   = savedSeekDurationSec,
+                    autoPlayNext      = savedAutoPlayNext
+                )
+            }
+            if (savedPlaybackSpeed != 1.0f) getActivePlayer().setPlaybackSpeed(savedPlaybackSpeed)
+        }
     }
 
     private fun stopCastProxy() {
@@ -750,7 +796,17 @@ class PlayerViewModel @Inject constructor(
                 when (streamResult) {
                     is Resource.Success -> {
                         val streams = streamResult.data ?: emptyList()
-                        val activeStream = if (targetStreamUrl != null) streams.find { it.url == targetStreamUrl } ?: streams.firstOrNull() else streams.firstOrNull()
+                        val activeStream = if (targetStreamUrl != null) {
+                            streams.find { it.url == targetStreamUrl } ?: streams.firstOrNull()
+                        } else {
+                            if (savedPreferDub) {
+                                streams.find { it.serverName?.contains("dub", ignoreCase = true) == true || it.quality.contains("dub", ignoreCase = true) }
+                                    ?: streams.firstOrNull()
+                            } else {
+                                streams.find { it.serverName?.contains("dub", ignoreCase = true) != true && !it.quality.contains("dub", ignoreCase = true) }
+                                    ?: streams.firstOrNull()
+                            }
+                        }
 
                         if (activeStream != null) {
                             currentStreamIndex = streams.indexOf(activeStream).coerceAtLeast(0)
@@ -767,6 +823,9 @@ class PlayerViewModel @Inject constructor(
                                 ?: if (activeStream.subtitles.isNotEmpty()) 0 else -1
 
                             val activePlayer = getActivePlayer()
+                            if (savedPlaybackSpeed != 1.0f) {
+                                activePlayer.setPlaybackSpeed(savedPlaybackSpeed)
+                            }
                             val liveTracks = activePlayer.currentTracks.takeIf { !it.isEmpty } ?: cachedTracks
                             val liveQualities = extractQualitiesFromTracks(liveTracks, isOffline = false)
                             val liveIsPlaying = activePlayer.isPlaying || cachedIsPlaying
@@ -789,10 +848,16 @@ class PlayerViewModel @Inject constructor(
                                 subtitles = safeUiSubtitles,
                                 selectedSubtitleIndex = defaultIndex,
                                 qualities = liveQualities, selectedQualityHeight = -1,
-                                playbackSpeed = 1.0f, isPlaying = liveIsPlaying, isBuffering = liveBuffering,
+                                playbackSpeed = savedPlaybackSpeed, isPlaying = liveIsPlaying, isBuffering = liveBuffering,
                                 currentPosition = _playbackProgress.value.currentPosition,
                                 bufferedPosition = _playbackProgress.value.bufferedPosition,
-                                duration = liveDuration, skipIntervals = skipIntervals
+                                duration = liveDuration, skipIntervals = skipIntervals,
+                                subtitleSize = savedSubtitleSize,
+                                subtitleEdgeStyle = savedSubtitleEdgeStyle,
+                                subtitleTextColor = savedSubtitleTextColor,
+                                subtitleBgOpacity = savedSubtitleBgOpacity,
+                                seekDurationSec = savedSeekDurationSec,
+                                autoPlayNext = savedAutoPlayNext
                             )
                             if (liveIsPlaying) startProgressTracker()
                         } else {
@@ -806,8 +871,26 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    fun setSubtitleSize(fraction: Float) = updateReadyState { it.copy(subtitleSize = fraction) }
-    fun setSubtitleEdgeStyle(style: Int) = updateReadyState { it.copy(subtitleEdgeStyle = style) }
+    fun setSubtitleSize(fraction: Float) {
+        savedSubtitleSize = fraction
+        updateReadyState { it.copy(subtitleSize = fraction) }
+        viewModelScope.launch { playerPreferences.setSubtitleSize(fraction) }
+    }
+    fun setSubtitleEdgeStyle(style: Int) {
+        savedSubtitleEdgeStyle = style
+        updateReadyState { it.copy(subtitleEdgeStyle = style) }
+        viewModelScope.launch { playerPreferences.setSubtitleEdgeStyle(style) }
+    }
+    fun setSubtitleTextColor(color: Long) {
+        savedSubtitleTextColor = color
+        updateReadyState { it.copy(subtitleTextColor = color) }
+        viewModelScope.launch { playerPreferences.setSubtitleTextColor(color) }
+    }
+    fun setSubtitleBgOpacity(opacity: Float) {
+        savedSubtitleBgOpacity = opacity
+        updateReadyState { it.copy(subtitleBgOpacity = opacity) }
+        viewModelScope.launch { playerPreferences.setSubtitleBgOpacity(opacity) }
+    }
 
     fun cycleResizeMode() {
         val current = (_uiState.value as? PlayerUiState.Ready)?.resizeMode ?: VideoResizeMode.FIT
@@ -815,10 +898,13 @@ class PlayerViewModel @Inject constructor(
         updateReadyState { it.copy(resizeMode = next) }; showTransientWarning("Aspect Ratio: ${next.label}")
     }
 
-    fun cyclePlaybackSpeed() {
-        val current = (_uiState.value as? PlayerUiState.Ready)?.playbackSpeed ?: return
-        val next = when (current) { 0.5f -> 0.75f; 0.75f -> 1.0f; 1.0f -> 1.25f; 1.25f -> 1.5f; 1.5f -> 2.0f; else -> 0.5f }
-        getActivePlayer().setPlaybackSpeed(next); updateReadyState { it.copy(playbackSpeed = next) }; showTransientWarning("Speed: ${next}x")
+    /** Called from the Speed panel to set an explicit speed value. */
+    fun setPlaybackSpeed(speed: Float) {
+        savedPlaybackSpeed = speed
+        getActivePlayer().setPlaybackSpeed(speed)
+        updateReadyState { it.copy(playbackSpeed = speed, isSpeedSheetVisible = false) }
+        showTransientWarning("Speed: ${speed}x")
+        viewModelScope.launch { playerPreferences.setPlaybackSpeed(speed) }
     }
 
     @Synchronized
@@ -878,6 +964,9 @@ class PlayerViewModel @Inject constructor(
         @Suppress("DEPRECATION")
         if (castSessionManager.castPlayer?.isCastSessionAvailable == true) return
         if (hasTriggeredOutroAutoPlay) return
+        // Respect the auto-play next preference stored in Ready state
+        val isAutoPlayEnabled = (_uiState.value as? PlayerUiState.Ready)?.autoPlayNext ?: savedAutoPlayNext
+        if (!isAutoPlayEnabled) return
 
         val currentIndex = allEpisodes.indexOfFirst { it.id == currentEpisodeId }
         if (currentIndex != -1 && currentIndex < allEpisodes.size - 1) {
@@ -1004,6 +1093,7 @@ class PlayerViewModel @Inject constructor(
     fun setEpisodeSheetVisibility(visible: Boolean) = updateReadyState { it.copy(isEpisodeSheetVisible = visible) }
     fun setSubtitleSheetVisibility(visible: Boolean) = updateReadyState { it.copy(isSubtitleSheetVisible = visible) }
     fun setQualitySheetVisibility(visible: Boolean) = updateReadyState { it.copy(isQualitySheetVisible = visible) }
+    fun setSpeedSheetVisibility(visible: Boolean) = updateReadyState { it.copy(isSpeedSheetVisible = visible) }
     fun retryPlayback() { loadEpisodesAndPlay(currentEpisodeId) }
 
     private suspend fun playOfflineEpisode(download: Download, meta: JSONObject, targetEpId: String) {
@@ -1069,6 +1159,9 @@ class PlayerViewModel @Inject constructor(
             ?: if (offlineStream.subtitles.isNotEmpty()) 0 else -1
 
         val activePlayer = getActivePlayer()
+        if (savedPlaybackSpeed != 1.0f) {
+            activePlayer.setPlaybackSpeed(savedPlaybackSpeed)
+        }
         val liveTracks = activePlayer.currentTracks.takeIf { !it.isEmpty } ?: cachedTracks
         val liveQualities = extractQualitiesFromTracks(liveTracks, isOffline = true)
         val liveIsPlaying = activePlayer.isPlaying || cachedIsPlaying
@@ -1091,10 +1184,16 @@ class PlayerViewModel @Inject constructor(
             subtitles = safeUiSubtitles,
             selectedSubtitleIndex = defaultIndex,
             qualities = liveQualities, selectedQualityHeight = -1,
-            playbackSpeed = 1.0f, isPlaying = liveIsPlaying, isBuffering = liveBuffering,
+            playbackSpeed = savedPlaybackSpeed, isPlaying = liveIsPlaying, isBuffering = liveBuffering,
             currentPosition = _playbackProgress.value.currentPosition,
             bufferedPosition = _playbackProgress.value.bufferedPosition,
-            duration = liveDuration, skipIntervals = skipIntervals
+            duration = liveDuration, skipIntervals = skipIntervals,
+            subtitleSize = savedSubtitleSize,
+            subtitleEdgeStyle = savedSubtitleEdgeStyle,
+            subtitleTextColor = savedSubtitleTextColor,
+            subtitleBgOpacity = savedSubtitleBgOpacity,
+            seekDurationSec = savedSeekDurationSec,
+            autoPlayNext = savedAutoPlayNext
         )
         if (liveIsPlaying) startProgressTracker()
     }

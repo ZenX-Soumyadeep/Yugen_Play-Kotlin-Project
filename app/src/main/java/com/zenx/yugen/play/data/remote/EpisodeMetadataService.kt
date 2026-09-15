@@ -49,7 +49,7 @@ class EpisodeMetadataService @Inject constructor(
                 val result = metadataClient.newCall(request).execute().use { response ->
                     if (response.code == 404) return null
                     if (!response.isSuccessful) return@use null
-                    response.body?.string()
+                    response.body.string()
                 }
 
                 if (!result.isNullOrBlank()) return result
@@ -63,6 +63,43 @@ class EpisodeMetadataService @Inject constructor(
             }
         }
         return null
+    }
+
+    private fun parseEpisodeNode(epNode: JSONObject, defaultEpNum: Int): ExternalEpisodeMeta? {
+        val epNum = epNode.optInt("episodeNumber", epNode.optInt("episode", epNode.optInt("number", defaultEpNum)))
+        if (epNum == -1) return null
+
+        val titleNode = epNode.opt("title")
+        val title = when (titleNode) {
+            is JSONObject -> titleNode.optString("en").ifBlank {
+                titleNode.optString("x-jat").ifBlank { titleNode.optString("ja", "") }
+            }
+            is String -> titleNode
+            null -> ""
+            else -> ""
+        }.trim()
+
+        val desc = epNode.optString("overview", epNode.optString("description", "")).trim()
+        val rawImage = epNode.optString("image").ifBlank {
+            epNode.optString("thumbnail").ifBlank {
+                epNode.optString("thumb").ifBlank {
+                    epNode.optString("picture", "")
+                }
+            }
+        }.trim()
+
+        val image = when {
+            rawImage.startsWith("http://") || rawImage.startsWith("https://") -> rawImage
+            rawImage.startsWith("/") -> "https://image.tmdb.org/t/p/w500$rawImage"
+            else -> rawImage
+        }
+
+        return ExternalEpisodeMeta(
+            number = epNum,
+            title = title,
+            description = desc,
+            image = image
+        )
     }
 
     suspend fun getMetadata(anilistId: Int): Map<Int, ExternalEpisodeMeta> = withContext(Dispatchers.IO) {
@@ -83,54 +120,16 @@ class EpisodeMetadataService @Inject constructor(
                 while (keys.hasNext()) {
                     val key = keys.next()
                     val epNode = episodesObj.optJSONObject(key) ?: continue
-                    val epNum = epNode.optInt("episodeNumber", epNode.optInt("episode", key.toIntOrNull() ?: -1))
-
-                    if (epNum != -1) {
-                        val titleNode = epNode.opt("title")
-                        val title = when (titleNode) {
-                            is JSONObject -> titleNode.optString("en").ifBlank {
-                                titleNode.optString("x-jat").ifBlank { titleNode.optString("ja", "") }
-                            }
-                            is String -> titleNode
-                            else -> ""
-                        }.trim()
-
-                        val desc = epNode.optString("overview", epNode.optString("description", "")).trim()
-                        val image = epNode.optString("image", epNode.optString("thumbnail", "")).trim()
-
-                        result[epNum] = ExternalEpisodeMeta(
-                            number = epNum,
-                            title = title,
-                            description = desc,
-                            image = image
-                        )
-                    }
+                    val meta = parseEpisodeNode(epNode, key.toIntOrNull() ?: -1)
+                    if (meta != null) result[meta.number] = meta
                 }
             } else {
                 val episodesArr = json.optJSONArray("episodes")
                 if (episodesArr != null) {
                     for (i in 0 until episodesArr.length()) {
                         val epNode = episodesArr.optJSONObject(i) ?: continue
-                        val epNum = epNode.optInt("episodeNumber", epNode.optInt("number", i + 1))
-
-                        val titleNode = epNode.opt("title")
-                        val title = when (titleNode) {
-                            is JSONObject -> titleNode.optString("en").ifBlank {
-                                titleNode.optString("x-jat").ifBlank { titleNode.optString("ja", "") }
-                            }
-                            is String -> titleNode
-                            else -> ""
-                        }.trim()
-
-                        val desc = epNode.optString("overview", epNode.optString("description", "")).trim()
-                        val image = epNode.optString("image", epNode.optString("thumbnail", "")).trim()
-
-                        result[epNum] = ExternalEpisodeMeta(
-                            number = epNum,
-                            title = title,
-                            description = desc,
-                            image = image
-                        )
+                        val meta = parseEpisodeNode(epNode, i + 1)
+                        if (meta != null) result[meta.number] = meta
                     }
                 }
             }

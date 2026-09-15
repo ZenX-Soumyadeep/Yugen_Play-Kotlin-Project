@@ -43,22 +43,31 @@ class SearchViewModel @Inject constructor(
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
-    private val _searchQuery = MutableStateFlow("")
+    private val initialQuery: String = savedStateHandle.get<String>("query")?.trim() ?: ""
+    private val initialGenre: String? = savedStateHandle.get<String>("genre")?.trim()
+    private val initialFormat: String? = savedStateHandle.get<String>("format")?.trim()
+    private val initialSeason: String? = savedStateHandle.get<String>("season")?.trim()
+    private val initialYear: Int? = savedStateHandle.get<String>("year")?.toIntOrNull()
+    private val initialSort: String? = savedStateHandle.get<String>("sort")?.trim()
+
+    private val _searchQuery = MutableStateFlow(initialQuery)
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private val _selectedGenres = MutableStateFlow<Set<String>>(emptySet())
+    private val _selectedGenres = MutableStateFlow<Set<String>>(
+        if (!initialGenre.isNullOrBlank()) setOf(initialGenre) else emptySet()
+    )
     val selectedGenres: StateFlow<Set<String>> = _selectedGenres.asStateFlow()
 
-    private val _selectedFormat = MutableStateFlow<String?>(null)
+    private val _selectedFormat = MutableStateFlow<String?>(initialFormat)
     val selectedFormat: StateFlow<String?> = _selectedFormat.asStateFlow()
 
-    private val _selectedSeason = MutableStateFlow<String?>(null)
+    private val _selectedSeason = MutableStateFlow<String?>(initialSeason)
     val selectedSeason: StateFlow<String?> = _selectedSeason.asStateFlow()
 
-    private val _selectedYear = MutableStateFlow<Int?>(null)
+    private val _selectedYear = MutableStateFlow<Int?>(initialYear)
     val selectedYear: StateFlow<Int?> = _selectedYear.asStateFlow()
 
-    private val _selectedSort = MutableStateFlow<String?>(savedStateHandle.get<String>("sort"))
+    private val _selectedSort = MutableStateFlow<String?>(initialSort)
     val selectedSort: StateFlow<String?> = _selectedSort.asStateFlow()
 
     private val _recentSearches = MutableStateFlow<List<String>>(emptyList())
@@ -89,7 +98,7 @@ class SearchViewModel @Inject constructor(
         loadRecentSearches()
         setupNetworkObserver()
 
-        if (_selectedSort.value != null) {
+        if (_selectedSort.value != null || _searchQuery.value.isNotBlank() || _selectedGenres.value.isNotEmpty() || _selectedFormat.value != null || _selectedSeason.value != null || _selectedYear.value != null) {
             executeSearch()
         }
     }

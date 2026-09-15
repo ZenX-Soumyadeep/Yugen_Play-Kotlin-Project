@@ -38,6 +38,7 @@ fun DetailScreen(
     onEpisodeClick: (episodeId: String, animeUrl: String, title: String, poster: String, streamUrl: String?) -> Unit,
     onBackClick: () -> Unit,
     onDownloadsClick: () -> Unit,
+    onGenreClick: (String) -> Unit = {},
     viewModel: DetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -87,7 +88,7 @@ fun DetailScreen(
                         }
                     }
 
-                    item { AnimeInfoHeader(state) }
+                    item { AnimeInfoHeader(state, onGenreClick) }
 
                     item {
                         Row(
@@ -155,18 +156,35 @@ fun DetailScreen(
                         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text("Episodes", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(glassBg)
-                                        .border(1.dp, glassBorder, RoundedCornerShape(10.dp))
-                                        .bounceClick { onDownloadsClick() }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text("Downloads", color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    Icon(Icons.Rounded.Download, contentDescription = "Download Page", tint = accentPurple, modifier = Modifier.size(15.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    if (episodeChunks.isNotEmpty()) {
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(glassBg)
+                                                .border(1.dp, glassBorder, RoundedCornerShape(10.dp))
+                                                .bounceClick { viewModel.showBatchDownloadSheet() }
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(Icons.Rounded.DownloadForOffline, contentDescription = "Batch Download", tint = accentPurple, modifier = Modifier.size(15.dp))
+                                            Text("Batch", color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(glassBg)
+                                            .border(1.dp, glassBorder, RoundedCornerShape(10.dp))
+                                            .bounceClick { onDownloadsClick() }
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text("Downloads", color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Icon(Icons.Rounded.Download, contentDescription = "Download Page", tint = accentPurple, modifier = Modifier.size(15.dp))
+                                    }
                                 }
                             }
 
@@ -247,7 +265,7 @@ fun DetailScreen(
                             EpisodeItemRow(
                                 ep = ep,
                                 isResumeTarget = resumeEpisode?.id == ep.id,
-                                defaultPoster = state.posterUrl,
+                                defaultPoster = state.bannerUrl.ifBlank { state.posterUrl },
                                 onPlayClicked = {
                                     if (ep.downloadState == DownloadState.COMPLETED) onEpisodeClick(ep.id, viewModel.animeUrl, viewModel.animeTitle, state.posterUrl, null)
                                     else viewModel.triggerEpisodeAction(ep, isDownload = false)

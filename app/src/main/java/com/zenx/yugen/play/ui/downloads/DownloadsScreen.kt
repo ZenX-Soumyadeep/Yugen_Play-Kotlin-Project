@@ -6,6 +6,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,8 +56,9 @@ fun DownloadsScreen(
     onPlayClick: (episodeId: String, animeUrl: String, title: String, poster: String) -> Unit,
     viewModel: DownloadsViewModel = hiltViewModel()
 ) {
-    val downloads by viewModel.downloadsFlow.collectAsStateWithLifecycle()
+    val groupedDownloads by viewModel.groupedDownloadsFlow.collectAsStateWithLifecycle()
     val totalStorage by viewModel.totalStorageUsedFlow.collectAsStateWithLifecycle()
+    val freeStorage by viewModel.freeStorageFlow.collectAsStateWithLifecycle()
     val totalSpeed by viewModel.totalSpeedFlow.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -70,7 +73,8 @@ fun DownloadsScreen(
             text = { Text("Are you sure you want to delete all offline episodes? This cannot be undone.", color = Color.White.copy(alpha = 0.7f)) },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.clearAllDownloads(downloads)
+                    val allDownloads = groupedDownloads.flatMap { it.episodes }
+                    viewModel.clearAllDownloads(allDownloads)
                     showClearDialog = false
                 }) {
                     Text("Delete All", color = DangerRed, fontWeight = FontWeight.Bold)
@@ -94,7 +98,38 @@ fun DownloadsScreen(
                     }
                 },
                 actions = {
-                    if (downloads.isNotEmpty()) {
+                    val usedFormatted = Formatter.formatFileSize(context, totalStorage)
+                    val freeFormatted = Formatter.formatFileSize(context, freeStorage)
+
+                    if (freeStorage > 0L || totalStorage > 0L) {
+                        Box(
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.08f))
+                                .border(1.dp, GlassBorder, RoundedCornerShape(10.dp))
+                                .padding(horizontal = 9.dp, vertical = 5.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Storage,
+                                    contentDescription = null,
+                                    tint = AccentCyan,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = if (totalStorage > 0L) "$usedFormatted • $freeFormatted Free" else "$freeFormatted Free",
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+
+                    if (groupedDownloads.isNotEmpty()) {
                         IconButton(onClick = { showClearDialog = true }) {
                             Icon(Icons.Default.DeleteOutline, contentDescription = "Clear All", tint = Color.White.copy(alpha = 0.6f))
                         }
@@ -105,7 +140,7 @@ fun DownloadsScreen(
         },
         containerColor = BaseBackground
     ) { paddingValues ->
-        if (downloads.isEmpty()) {
+        if (groupedDownloads.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -138,7 +173,7 @@ fun DownloadsScreen(
             ) {
                 // Storage Overview Bar
                 item {
-                    val activeCount = downloads.count { it.state == DownloadState.DOWNLOADING || it.state == DownloadState.PAUSED }
+                    val activeCount = groupedDownloads.sumOf { it.activeDownloadsCount }
 
                     Row(
                         modifier = Modifier
@@ -153,21 +188,16 @@ fun DownloadsScreen(
                         Column {
                             Text("STORAGE USED", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(Formatter.formatFileSize(context, totalStorage), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(Formatter.formatFileSize(context, totalStorage), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                                if (freeStorage > 0L) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("(${Formatter.formatFileSize(context, freeStorage)} free)", color = Color.White.copy(alpha = 0.45f), fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 2.dp))
+                                }
+                            }
                         }
 
                         if (activeCount > 0) {
-                            val infiniteTransition = rememberInfiniteTransition(label = "pulse_active")
-                            val dotAlpha by infiniteTransition.animateFloat(
-                                initialValue = 0.35f,
-                                targetValue = 1f,
-                                animationSpec = infiniteRepeatable(
-                                    animation = tween(800, easing = FastOutSlowInEasing),
-                                    repeatMode = RepeatMode.Reverse
-                                ),
-                                label = "dot_alpha"
-                            )
-
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(10.dp))
@@ -180,7 +210,7 @@ fun DownloadsScreen(
                                         modifier = Modifier
                                             .size(7.dp)
                                             .clip(CircleShape)
-                                            .background(AccentCyan.copy(alpha = dotAlpha))
+                                            .background(AccentCyan)
                                     )
                                     Spacer(modifier = Modifier.width(7.dp))
                                     Text(
@@ -199,14 +229,195 @@ fun DownloadsScreen(
                     }
                 }
 
-                items(downloads, key = { it.id }) { item ->
-                    val isCompleted = item.state == DownloadState.COMPLETED
+                groupedDownloads.forEach { group ->
+                    item(key = group.animeTitle) {
+                        AnimeDownloadGroupItem(
+                            group = group,
+                            onPlayClick = onPlayClick,
+                            viewModel = viewModel
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
+@Composable
+private fun AnimeDownloadGroupItem(
+    group: AnimeDownloadGroup,
+    onPlayClick: (episodeId: String, animeUrl: String, title: String, poster: String) -> Unit,
+    viewModel: DownloadsViewModel
+) {
+    var expanded by remember(group.animeTitle) { mutableStateOf(group.activeDownloadsCount > 0 || group.episodes.size <= 3) }
+    val context = LocalContext.current
+
+    var showGroupDeleteDialog by remember { mutableStateOf(false) }
+    var episodeToDelete by remember { mutableStateOf<DownloadUiModel?>(null) }
+
+    if (showGroupDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showGroupDeleteDialog = false },
+            containerColor = Color(0xFF161622),
+            shape = RoundedCornerShape(20.dp),
+            title = { Text("Delete ${group.animeTitle}?", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete all ${group.episodes.size} downloaded episodes for this anime?", color = Color.White.copy(alpha = 0.7f)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.clearAllDownloads(group.episodes)
+                    showGroupDeleteDialog = false
+                }) {
+                    Text("Delete", color = DangerRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGroupDeleteDialog = false }) {
+                    Text("Cancel", color = Color.White.copy(alpha = 0.8f))
+                }
+            }
+        )
+    }
+
+    if (episodeToDelete != null) {
+        val ep = episodeToDelete!!
+        AlertDialog(
+            onDismissRequest = { episodeToDelete = null },
+            containerColor = Color(0xFF161622),
+            shape = RoundedCornerShape(20.dp),
+            title = { Text("Delete Episode ${ep.episodeNumber}?", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete this episode?", color = Color.White.copy(alpha = 0.7f)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.cancelDownload(ep.id)
+                    episodeToDelete = null
+                }) {
+                    Text("Delete", color = DangerRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { episodeToDelete = null }) {
+                    Text("Cancel", color = Color.White.copy(alpha = 0.8f))
+                }
+            }
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        val groupDismissState = rememberSwipeToDismissBoxState(
+            confirmValueChange = { dismissValue ->
+                if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
+                    showGroupDeleteDialog = true
+                    false
+                } else false
+            }
+        )
+
+        SwipeToDismissBox(
+            state = groupDismissState,
+            enableDismissFromStartToEnd = false,
+            backgroundContent = {
+                val color by animateColorAsState(
+                    targetValue = if (groupDismissState.targetValue == SwipeToDismissBoxValue.EndToStart) DangerRed.copy(alpha = 0.85f) else Color.Transparent,
+                    label = "GroupSwipeColor"
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(color)
+                        .padding(horizontal = 24.dp),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete Group", tint = Color.White)
+                }
+            }
+        ) {
+            // Group Header
+            Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(CardSurface)
+                .border(1.dp, if (group.activeDownloadsCount > 0) AccentPurple.copy(alpha = 0.4f) else GlassBorder, RoundedCornerShape(12.dp))
+                .clickable { expanded = !expanded }
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.5f))
+            ) {
+                AsyncImage(
+                    model = group.posterUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = group.animeTitle,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (group.activeDownloadsCount > 0) {
+                        CircularProgressIndicator(
+                            color = AccentCyan,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Downloading ${group.activeDownloadsCount} episodes",
+                            color = AccentCyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    } else {
+                        Text(
+                            text = "${group.episodes.size} Episodes • ${Formatter.formatFileSize(context, group.totalBytes)}",
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.5f),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+
+        // Expanded Episodes
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, start = 8.dp, end = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                group.episodes.forEach { item ->
+                    val isCompleted = item.state == DownloadState.COMPLETED
                     val dismissState = rememberSwipeToDismissBoxState(
                         confirmValueChange = { dismissValue ->
                             if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
-                                viewModel.cancelDownload(item.id)
-                                true
+                                episodeToDelete = item
+                                false
                             } else false
                         }
                     )
@@ -264,27 +475,11 @@ private fun DownloadCard(
         label = "DownloadProgress"
     )
 
-    val infiniteTransition = rememberInfiniteTransition(label = "download_pulse")
-    val borderPulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.2f,
-        targetValue = 0.65f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "border_pulse"
-    )
-
     val borderModifier = when {
         item.state == DownloadState.DOWNLOADING -> {
             Modifier.border(
                 width = 1.dp,
-                brush = Brush.horizontalGradient(
-                    listOf(
-                        AccentPurple.copy(alpha = borderPulseAlpha),
-                        AccentCyan.copy(alpha = borderPulseAlpha)
-                    )
-                ),
+                color = AccentPurple.copy(alpha = 0.6f),
                 shape = RoundedCornerShape(16.dp)
             )
         }

@@ -35,7 +35,8 @@ data class HudState(
     val isVisible: Boolean = false,
     val type: HudType = HudType.VOLUME,
     val value: Float = 0f,
-    val centerText: String = ""
+    val centerText: String = "",
+    val alignLeft: Boolean = false
 )
 
 @Composable
@@ -124,6 +125,7 @@ fun CenterHudOverlay(
 fun DoubleTapSeekRipple(
     isForward: Boolean,
     isVisible: Boolean,
+    seconds: Int = 10,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -153,7 +155,7 @@ fun DoubleTapSeekRipple(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = if (isForward) "+10s" else "-10s",
+                    text = if (isForward) "+${seconds}s" else "-${seconds}s",
                     color = Color.White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold

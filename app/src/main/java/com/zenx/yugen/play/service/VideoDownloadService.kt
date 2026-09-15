@@ -120,36 +120,46 @@ class VideoDownloadService : DownloadService(
             return builder.build()
         }
 
-        val firstMeta = getOrParseMetadata(activeDownloads.first())
-        val animeTitle = firstMeta.animeTitle
-        val epNum = firstMeta.episodeNumber
+        val groups = activeDownloads.groupBy { getOrParseMetadata(it).animeTitle }
 
-        if (activeDownloads.size == 1) {
-            val dl = activeDownloads.first()
-            val progress = dl.percentDownloaded.toInt().coerceIn(0, 100)
-            builder.setContentTitle("$animeTitle - Episode $epNum")
-            builder.setContentText(if (dl.state == Download.STATE_QUEUED) "Queued..." else "$progress% • Downloading")
-            builder.setProgress(100, progress, dl.state == Download.STATE_QUEUED)
-        } else {
-            builder.setContentTitle("Downloading Episodes ($animeTitle)")
-            val inboxStyle = NotificationCompat.InboxStyle()
-            var totalProgress = 0f
-            var count = 0
-
-            activeDownloads.forEach { dl ->
-                val meta = getOrParseMetadata(dl)
-                val ep = meta.episodeNumber
-                val p = dl.percentDownloaded.toInt().coerceIn(0, 100)
-
-                val statusText = if (dl.state == Download.STATE_QUEUED) "Queued" else "$p%"
-                inboxStyle.addLine("Ep $ep: $statusText")
-                totalProgress += dl.percentDownloaded
-                count++
+        if (groups.keys.size == 1) {
+            val title = groups.keys.first()
+            val eps = groups.values.first()
+            if (eps.size == 1) {
+                val dl = eps.first()
+                val progress = dl.percentDownloaded.toInt().coerceIn(0, 100)
+                val epNum = getOrParseMetadata(dl).episodeNumber
+                builder.setContentTitle("$title - Episode $epNum")
+                builder.setContentText(if (dl.state == Download.STATE_QUEUED) "Queued..." else "$progress% • Downloading")
+                builder.setProgress(100, progress, dl.state == Download.STATE_QUEUED)
+            } else {
+                builder.setContentTitle("Downloading $title")
+                val inboxStyle = NotificationCompat.InboxStyle()
+                var totalProgress = 0f
+                eps.forEach { dl ->
+                    val ep = getOrParseMetadata(dl).episodeNumber
+                    val p = dl.percentDownloaded.toInt().coerceIn(0, 100)
+                    val statusText = if (dl.state == Download.STATE_QUEUED) "Queued" else "$p%"
+                    inboxStyle.addLine("Ep $ep: $statusText")
+                    totalProgress += dl.percentDownloaded
+                }
+                val avgProgress = (totalProgress / eps.size).toInt()
+                builder.setContentText("${eps.size} episodes • $avgProgress%")
+                builder.setProgress(100, avgProgress, false)
+                builder.setStyle(inboxStyle)
             }
-
-            val avgProgress = if (count > 0) (totalProgress / count).toInt() else 0
-            builder.setContentText("Overall Progress: $avgProgress%")
-            builder.setProgress(100, avgProgress, false)
+        } else {
+            builder.setContentTitle("Downloading ${activeDownloads.size} Episodes")
+            val inboxStyle = NotificationCompat.InboxStyle()
+            var totalProgress = 0.0
+            groups.forEach { (anime, eps) ->
+                val avg = (eps.sumOf { it.percentDownloaded.toDouble() } / eps.size).toInt()
+                inboxStyle.addLine("$anime: ${eps.size} eps ($avg%)")
+                totalProgress += eps.sumOf { it.percentDownloaded.toDouble() }
+            }
+            builder.setContentText("${groups.keys.size} Anime Series")
+            val avgAll = (totalProgress / activeDownloads.size).toInt()
+            builder.setProgress(100, avgAll, false)
             builder.setStyle(inboxStyle)
         }
 

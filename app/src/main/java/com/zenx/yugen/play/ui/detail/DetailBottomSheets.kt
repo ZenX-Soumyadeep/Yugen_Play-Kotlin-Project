@@ -7,15 +7,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +45,7 @@ fun DetailBottomSheets(
     val isMappingSheetVisible by viewModel.isMappingSheetVisible.collectAsStateWithLifecycle()
     val isSourceSheetVisible by viewModel.isSourceSheetVisible.collectAsStateWithLifecycle()
     val isAnilistSheetVisible by viewModel.isAnilistSheetVisible.collectAsStateWithLifecycle()
+    val isBatchDownloadSheetVisible by viewModel.isBatchDownloadSheetVisible.collectAsStateWithLifecycle()
 
     if (isMappingSheetVisible) {
         MappingBottomSheet(viewModel, state.activeProvider)
@@ -53,6 +57,10 @@ fun DetailBottomSheets(
 
     if (isAnilistSheetVisible) {
         AnilistBottomSheet(viewModel, state.anilistStatus, state.anilistEntryId)
+    }
+
+    if (isBatchDownloadSheetVisible) {
+        BatchDownloadBottomSheet(viewModel, state)
     }
 }
 
@@ -370,6 +378,292 @@ fun AnilistBottomSheet(viewModel: DetailViewModel, anilistStatus: String?, anili
                             Text("Remove from Library", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BatchDownloadBottomSheet(
+    viewModel: DetailViewModel,
+    state: DetailsUiState.Success
+) {
+    val episodeChunks by viewModel.episodes.collectAsStateWithLifecycle()
+    val allEpisodes = remember(episodeChunks) { episodeChunks.flatten().sortedBy { it.number.toFloatOrNull() ?: 0f } }
+    val defaultDub by viewModel.defaultPreferDub.collectAsStateWithLifecycle(initialValue = false)
+    var preferDub by remember(defaultDub) { mutableStateOf(defaultDub) }
+
+    val selectedIds = remember { mutableStateListOf<String>() }
+
+    LaunchedEffect(allEpisodes) {
+        if (selectedIds.isEmpty()) {
+            val downloadable = allEpisodes.filter { it.downloadState != DownloadState.COMPLETED }
+            selectedIds.addAll(downloadable.map { it.id })
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = { viewModel.hideBatchDownloadSheet() },
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        modifier = Modifier.fillMaxHeight(0.85f),
+        containerColor = sheetContainerBg,
+        tonalElevation = 8.dp,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = Color.DarkGray) }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(accentPurple.copy(alpha = 0.15f))
+                            .border(1.dp, accentPurple.copy(alpha = 0.3f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Rounded.DownloadForOffline,
+                            contentDescription = null,
+                            tint = accentPurple,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Column {
+                        Text("Batch Download", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "${selectedIds.size} of ${allEpisodes.size} episodes selected",
+                            color = Color.LightGray,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(glassBg)
+                        .bounceClick { viewModel.hideBatchDownloadSheet() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.LightGray, modifier = Modifier.size(18.dp))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Preset Filters Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val nonCompletedCount = allEpisodes.count { it.downloadState != DownloadState.COMPLETED }
+                val isAllSelected = selectedIds.size == nonCompletedCount && nonCompletedCount > 0
+
+                // "All" Preset
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (isAllSelected) accentPurple.copy(alpha = 0.2f) else glassBg)
+                        .border(1.dp, if (isAllSelected) accentPurple.copy(alpha = 0.5f) else glassBorder, RoundedCornerShape(10.dp))
+                        .bounceClick {
+                            selectedIds.clear()
+                            selectedIds.addAll(allEpisodes.filter { it.downloadState != DownloadState.COMPLETED }.map { it.id })
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text("All ($nonCompletedCount)", color = if (isAllSelected) accentPurple else Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+
+                // "Unwatched" Preset
+                val unwatched = allEpisodes.filter { !it.isWatched && it.downloadState != DownloadState.COMPLETED }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(glassBg)
+                        .border(1.dp, glassBorder, RoundedCornerShape(10.dp))
+                        .bounceClick {
+                            selectedIds.clear()
+                            selectedIds.addAll(unwatched.map { it.id })
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text("Unwatched (${unwatched.size})", color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+
+                // "Clear" Preset
+                if (selectedIds.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(glassBg)
+                            .border(1.dp, glassBorder, RoundedCornerShape(10.dp))
+                            .bounceClick { selectedIds.clear() }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text("Clear", color = Color(0xFFEF4444), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Dub Preference Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(glassBg)
+                    .border(1.dp, glassBorder, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
+                    Text("Prefer Dub Servers", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+                Switch(
+                    checked = preferDub,
+                    onCheckedChange = { preferDub = it },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = Color(0xFF38BDF8),
+                        uncheckedTrackColor = Color.DarkGray
+                    ),
+                    modifier = Modifier.scale(0.85f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Episodes List
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(allEpisodes, key = { it.id }) { ep ->
+                    val isDownloaded = ep.downloadState == DownloadState.COMPLETED
+                    val isDownloading = ep.downloadState == DownloadState.DOWNLOADING || ep.isPreparing
+                    val isSelected = selectedIds.contains(ep.id)
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isSelected && !isDownloaded) accentPurple.copy(alpha = 0.12f) else glassBg)
+                            .border(
+                                1.dp,
+                                if (isSelected && !isDownloaded) accentPurple.copy(alpha = 0.4f) else glassBorder,
+                                RoundedCornerShape(12.dp)
+                            )
+                            .clickable(enabled = !isDownloaded && !isDownloading) {
+                                if (isSelected) selectedIds.remove(ep.id) else selectedIds.add(ep.id)
+                            }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Checkbox / Status
+                        when {
+                            isDownloaded -> {
+                                Icon(Icons.Rounded.CheckCircle, contentDescription = "Downloaded", tint = Color(0xFF10B981), modifier = Modifier.size(20.dp))
+                            }
+                            isDownloading -> {
+                                CircularProgressIndicator(color = accentPurple, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                            }
+                            else -> {
+                                Checkbox(
+                                    checked = isSelected,
+                                    onCheckedChange = { checked ->
+                                        if (checked) selectedIds.add(ep.id) else selectedIds.remove(ep.id)
+                                    },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = accentPurple,
+                                        uncheckedColor = Color.Gray,
+                                        checkmarkColor = Color.White
+                                    ),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        // Thumbnail
+                        Box(
+                            modifier = Modifier
+                                .width(54.dp)
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(6.dp))
+                        ) {
+                            AsyncImage(
+                                model = ep.thumbnailUrl ?: state.bannerUrl.ifBlank { state.posterUrl },
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        // Episode Title / Subtitle
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "EP ${ep.number} • ${ep.title}",
+                                color = if (isDownloaded) Color.Gray else Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (isDownloaded) "Already downloaded" else if (isDownloading) "Currently downloading" else ep.duration,
+                                color = if (isDownloaded) Color(0xFF10B981) else Color.Gray,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Download CTA Button
+            val selectedEpisodes = allEpisodes.filter { selectedIds.contains(it.id) && it.downloadState != DownloadState.COMPLETED }
+            Button(
+                onClick = { viewModel.batchDownloadEpisodes(selectedEpisodes, preferDub) },
+                enabled = selectedEpisodes.isNotEmpty(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .clip(RoundedCornerShape(14.dp)),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = accentPurple,
+                    disabledContainerColor = Color.DarkGray.copy(alpha = 0.5f)
+                )
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Rounded.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Text(
+                        text = if (selectedEpisodes.isNotEmpty()) "Download ${selectedEpisodes.size} Episodes" else "Select Episodes to Download",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }

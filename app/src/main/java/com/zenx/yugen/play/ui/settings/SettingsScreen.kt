@@ -48,9 +48,16 @@ fun SettingsScreen(
 
     val updateInfo by updateViewModel.updateInfo.collectAsStateWithLifecycle()
     var showUpdateDialog by remember { mutableStateOf(false) }
+    var showWhatsNewSheet by remember { mutableStateOf(false) }
     var showClearHistoryDialog by remember { mutableStateOf(false) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var isCheckingUpdate by remember { mutableStateOf(false) }
+
+    // Player preferences state
+    val seekDurationSec by viewModel.seekDurationSec.collectAsStateWithLifecycle(initialValue = 10)
+    val autoPlayNext by viewModel.autoPlayNext.collectAsStateWithLifecycle(initialValue = true)
+    val preferDub by viewModel.preferDub.collectAsStateWithLifecycle(initialValue = false)
+    val maxParallelDownloads by viewModel.maxParallelDownloads.collectAsStateWithLifecycle(initialValue = 1)
 
     LaunchedEffect(updateInfo) {
         if (updateInfo != null) {
@@ -124,6 +131,89 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(18.dp),
             contentPadding = PaddingValues(bottom = 32.dp)
         ) {
+            // Section 0: Player Preferences
+            item {
+                SectionLabel(title = "Player Preferences")
+                Spacer(modifier = Modifier.height(8.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(glassBg)
+                        .border(1.dp, glassBorder, RoundedCornerShape(18.dp))
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Double-tap Seek Duration
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.FastForward, contentDescription = null, tint = accentPurple, modifier = Modifier.size(18.dp))
+                            Text("Double-Tap Seek", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+                        Text("Duration when double-tapping left/right to seek", color = Color.Gray, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(5, 10, 15, 30).forEach { sec ->
+                                val isSelected = seekDurationSec == sec
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isSelected) accentPurple.copy(alpha = 0.2f) else glassBg)
+                                        .border(1.dp, if (isSelected) accentPurple.copy(alpha = 0.6f) else glassBorder, RoundedCornerShape(10.dp))
+                                        .bounceClick { viewModel.setSeekDuration(sec) }
+                                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                                ) {
+                                    Text("${sec}s", color = if (isSelected) accentPurple else Color.LightGray, fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium, fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = glassBorder)
+
+                    // Auto-play next episode
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
+                            Column {
+                                Text("Auto-Play Next Episode", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text("Show countdown and auto-advance at episode end", color = Color.Gray, fontSize = 12.sp)
+                            }
+                        }
+                        Switch(
+                            checked = autoPlayNext,
+                            onCheckedChange = { viewModel.setAutoPlayNext(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = accentPurple)
+                        )
+                    }
+
+                    HorizontalDivider(color = glassBorder)
+
+                    // Prefer Dub
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = accentBlue, modifier = Modifier.size(18.dp))
+                            Column {
+                                Text("Prefer Dub Streams", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text("Prioritize English dub servers when available", color = Color.Gray, fontSize = 12.sp)
+                            }
+                        }
+                        Switch(
+                            checked = preferDub,
+                            onCheckedChange = { viewModel.setPreferDub(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = accentBlue)
+                        )
+                    }
+                }
+            }
+
             // Section 1: Data & Storage
             item {
                 SectionLabel(title = "Data & Storage")
@@ -135,6 +225,34 @@ fun SettingsScreen(
                         .background(glassBg)
                         .border(1.dp, glassBorder, RoundedCornerShape(18.dp))
                 ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.Download, contentDescription = null, tint = accentPurple, modifier = Modifier.size(18.dp))
+                            Text("Max Parallel Downloads", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+                        Text("Number of episodes to download simultaneously in a batch.", color = Color.Gray, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(1, 2, 3, 5).forEach { count ->
+                                val isSelected = maxParallelDownloads == count
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isSelected) accentPurple.copy(alpha = 0.2f) else glassBg)
+                                        .border(1.dp, if (isSelected) accentPurple.copy(alpha = 0.6f) else glassBorder, RoundedCornerShape(10.dp))
+                                        .bounceClick { viewModel.setMaxParallelDownloads(count) }
+                                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                                ) {
+                                    Text("$count", color = if (isSelected) accentPurple else Color.LightGray, fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium, fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = glassBorder)
+
                     SettingsItem(
                         icon = Icons.Default.Refresh,
                         title = "Clear Image Cache",
@@ -175,6 +293,14 @@ fun SettingsScreen(
                                 snackbarHostState.showSnackbar("YugenPlay v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})")
                             }
                         }
+                    )
+                    HorizontalDivider(color = glassBorder)
+                    SettingsItem(
+                        icon = Icons.Default.NewReleases,
+                        title = "What's New",
+                        subtitle = "See recent features and improvements in v${BuildConfig.VERSION_NAME}",
+                        iconTint = Color(0xFFF59E0B),
+                        onClick = { showWhatsNewSheet = true }
                     )
                     HorizontalDivider(color = glassBorder)
                     SettingsItem(
@@ -299,6 +425,12 @@ fun SettingsScreen(
     }
 
     // Dialogs
+    if (showWhatsNewSheet) {
+        com.zenx.yugen.play.ui.components.WhatsNewBottomSheet(
+            onDismiss = { showWhatsNewSheet = false }
+        )
+    }
+
     if (showUpdateDialog && updateInfo != null) {
         UpdateDialog(
             updateInfo = updateInfo!!,

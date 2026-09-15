@@ -55,6 +55,7 @@ fun HomeScreen(
 
     val notifications by viewModel.notifications.collectAsStateWithLifecycle()
     val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
+    val shouldShowWhatsNew by viewModel.shouldShowWhatsNew.collectAsStateWithLifecycle()
 
     var showAuthDialog by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf(false) }
@@ -101,6 +102,12 @@ fun HomeScreen(
             onAnimeClick = { animeId, title, poster ->
                 onAnimeClick(animeId, title, poster)
             }
+        )
+    }
+
+    if (shouldShowWhatsNew) {
+        com.zenx.yugen.play.ui.components.WhatsNewBottomSheet(
+            onDismiss = { viewModel.dismissWhatsNew() }
         )
     }
 

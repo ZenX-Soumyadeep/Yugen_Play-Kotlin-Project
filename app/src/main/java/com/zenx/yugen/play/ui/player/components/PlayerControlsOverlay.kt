@@ -76,6 +76,8 @@ fun PlayerControlsOverlay(
     onSpeedClick: () -> Unit,
     onFitClick: () -> Unit,
     onMoreClick: () -> Unit,
+    isLandscape: Boolean = true,
+    onRotateClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showPlaylist by remember { mutableStateOf(false) }
@@ -94,11 +96,13 @@ fun PlayerControlsOverlay(
             episodeString = formattedEpisodeString,
             serverName = serverName,
             quality = quality,
+            currentSpeed = currentSpeed,
             isLocked = isLocked,
+            isLandscape = isLandscape,
             onBackClick = onBackClick,
             onLockToggle = onLockToggle,
             onPipClick = onPipClick,
-            onSettingsClick = { },
+            onRotateClick = onRotateClick,
             modifier = Modifier.align(Alignment.TopCenter)
         )
 
@@ -158,6 +162,7 @@ fun PlayerControlsOverlay(
                     bufferMs = bufferMs,
                     skipIntervals = skipIntervals,
                     activeSkipInterval = activeSkipInterval,
+                    isLandscape = isLandscape,
                     onSeek = onSeek,
                     onSkipClick = onSkipClick,
                     onPlaylistToggle = { showPlaylist = !showPlaylist },
@@ -178,25 +183,36 @@ private fun PlayerTopBar(
     episodeString: String,
     serverName: String,
     quality: String,
+    currentSpeed: Float,
     isLocked: Boolean,
+    isLandscape: Boolean,
     onBackClick: () -> Unit,
     onLockToggle: () -> Unit,
     onPipClick: () -> Unit,
-    onSettingsClick: () -> Unit,
+    onRotateClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var routeButtonInstance by remember { mutableStateOf<MediaRouteButton?>(null) }
 
+    val btnSize = if (isLandscape) 42.dp else 36.dp
+    val iconSize = if (isLandscape) 22.dp else 18.dp
+    val castIconSize = if (isLandscape) 26.dp else 20.dp
+    val hPadding = if (isLandscape) 24.dp else 12.dp
+    val vPadding = if (isLandscape) 24.dp else 12.dp
+    val spacing = if (isLandscape) 16.dp else 8.dp
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 24.dp)
+            .padding(horizontal = hPadding, vertical = vPadding)
             .statusBarsPadding()
     ) {
         if (isLocked) {
             GlassyIconButton(
                 icon = Icons.Rounded.Lock,
                 tint = IconPurple,
+                size = btnSize,
+                iconSize = iconSize,
                 onClick = onLockToggle,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
@@ -207,32 +223,46 @@ private fun PlayerTopBar(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.Top
         ) {
-            GlassyIconButton(icon = Icons.Rounded.ArrowBackIosNew, onClick = onBackClick)
-            Spacer(modifier = Modifier.width(16.dp))
+            GlassyIconButton(
+                icon = Icons.Rounded.ArrowBackIosNew,
+                size = btnSize,
+                iconSize = iconSize,
+                onClick = onBackClick
+            )
+            Spacer(modifier = Modifier.width(spacing))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = episodeString,
                     color = Color.White,
-                    fontSize = 18.sp,
+                    fontSize = if (isLandscape) 18.sp else 15.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(if (isLandscape) 8.dp else 4.dp))
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TopBarChip(text = animeTitle, modifier = Modifier.weight(1f, fill = false))
                     TopBarChip(text = serverName, modifier = Modifier.weight(1f, fill = false))
                     TopBarChip(text = quality, modifier = Modifier.weight(1f, fill = false))
+                    // Speed chip — only shown when not at normal 1.0× speed
+                    if (currentSpeed != 1.0f) {
+                        val speedLabel = if (currentSpeed == currentSpeed.toLong().toFloat()) "${currentSpeed.toLong()}×" else "${currentSpeed}×"
+                        TopBarChip(
+                            text = speedLabel,
+                            tint = AccentPurple,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                    }
                 }
             }
-            Spacer(modifier = Modifier.width(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Spacer(modifier = Modifier.width(spacing))
+            Row(horizontalArrangement = Arrangement.spacedBy(spacing)) {
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(btnSize)
                         .clip(RoundedCornerShape(14.dp))
                         .background(GlassCardBg)
                         .border(1.dp, GlassBorder, RoundedCornerShape(14.dp))
@@ -253,13 +283,29 @@ private fun PlayerTopBar(
                                 routeButtonInstance = this
                             }
                         },
-                        modifier = Modifier.size(26.dp)
+                        modifier = Modifier.size(castIconSize)
                     )
                 }
 
-                GlassyIconButton(icon = Icons.Rounded.LockOpen, onClick = onLockToggle)
-                GlassyIconButton(icon = Icons.Rounded.PictureInPicture, onClick = onPipClick)
-                GlassyIconButton(icon = Icons.Rounded.Settings, onClick = onSettingsClick)
+                GlassyIconButton(
+                    icon = Icons.Rounded.ScreenRotation,
+                    tint = if (!isLandscape) IconPurple else Color.White,
+                    size = btnSize,
+                    iconSize = iconSize,
+                    onClick = onRotateClick
+                )
+                GlassyIconButton(
+                    icon = Icons.Rounded.LockOpen,
+                    size = btnSize,
+                    iconSize = iconSize,
+                    onClick = onLockToggle
+                )
+                GlassyIconButton(
+                    icon = Icons.Rounded.PictureInPicture,
+                    size = btnSize,
+                    iconSize = iconSize,
+                    onClick = onPipClick
+                )
             }
         }
     }
@@ -273,6 +319,7 @@ private fun PlayerBottomBar(
     bufferMs: Long,
     skipIntervals: List<SkipInterval>,
     activeSkipInterval: SkipInterval?,
+    isLandscape: Boolean,
     onSeek: (Long) -> Unit,
     onSkipClick: (Long) -> Unit,
     onPlaylistToggle: () -> Unit,
@@ -293,11 +340,16 @@ private fun PlayerBottomBar(
     val showSkip = activeSkipInterval != null
     val skipText = if (activeSkipInterval?.type == "ed" || activeSkipInterval?.type == "mixed-ed") "Skip Outro" else "Skip Intro"
 
+    val hPadding = if (isLandscape) 24.dp else 12.dp
+    val bPadding = if (isLandscape) 24.dp else 12.dp
+    val spacing = if (isLandscape) 16.dp else 8.dp
+    val toolSpacing = if (isLandscape) 16.dp else 6.dp
+
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp)
-            .padding(bottom = 24.dp)
+            .padding(horizontal = hPadding)
+            .padding(bottom = bPadding)
             .navigationBarsPadding(),
         verticalArrangement = Arrangement.Bottom
     ) {
@@ -370,7 +422,7 @@ private fun PlayerBottomBar(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(if (isLandscape) 16.dp else 10.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -378,10 +430,15 @@ private fun PlayerBottomBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                GlassyLabel(text = formatDuration(safePos))
-                Spacer(modifier = Modifier.width(16.dp))
+                GlassyLabel(text = formatDuration(safePos), isCompact = !isLandscape)
+                Spacer(modifier = Modifier.width(spacing))
                 @Suppress("DEPRECATION")
-                GlassyIconButton(icon = Icons.Rounded.PlaylistPlay, size = 42.dp, iconSize = 22.dp, onClick = onPlaylistToggle)
+                GlassyIconButton(
+                    icon = Icons.Rounded.PlaylistPlay,
+                    size = if (isLandscape) 42.dp else 36.dp,
+                    iconSize = if (isLandscape) 22.dp else 18.dp,
+                    onClick = onPlaylistToggle
+                )
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -390,18 +447,21 @@ private fun PlayerBottomBar(
                         .clip(RoundedCornerShape(14.dp))
                         .background(GlassCardBg)
                         .border(1.dp, GlassBorder, RoundedCornerShape(14.dp))
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        .padding(
+                            horizontal = if (isLandscape) 8.dp else 4.dp,
+                            vertical = if (isLandscape) 6.dp else 4.dp
+                        ),
+                    horizontalArrangement = Arrangement.spacedBy(toolSpacing),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    ToolbarIcon(icon = Icons.Rounded.Subtitles, onClick = onSubtitlesClick)
-                    ToolbarIcon(icon = Icons.Rounded.CloudQueue, onClick = onServerClick)
-                    ToolbarIcon(icon = Icons.Rounded.HighQuality, onClick = onQualityClick)
-                    ToolbarIcon(icon = Icons.Rounded.Speed, onClick = onSpeedClick)
-                    ToolbarIcon(icon = Icons.Rounded.AspectRatio, onClick = onFitClick)
+                    ToolbarIcon(icon = Icons.Rounded.Subtitles, isCompact = !isLandscape, onClick = onSubtitlesClick)
+                    ToolbarIcon(icon = Icons.Rounded.CloudQueue, isCompact = !isLandscape, onClick = onServerClick)
+                    ToolbarIcon(icon = Icons.Rounded.HighQuality, isCompact = !isLandscape, onClick = onQualityClick)
+                    ToolbarIcon(icon = Icons.Rounded.Speed, isCompact = !isLandscape, onClick = onSpeedClick)
+                    ToolbarIcon(icon = Icons.Rounded.AspectRatio, isCompact = !isLandscape, onClick = onFitClick)
                 }
-                Spacer(modifier = Modifier.width(16.dp))
-                GlassyLabel(text = formatDuration(maxDur))
+                Spacer(modifier = Modifier.width(spacing))
+                GlassyLabel(text = formatDuration(maxDur), isCompact = !isLandscape)
             }
         }
     }
@@ -430,17 +490,17 @@ fun GlassyIconButton(
 }
 
 @Composable
-private fun TopBarChip(text: String, modifier: Modifier = Modifier) {
+private fun TopBarChip(text: String, tint: Color = ChipText, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(6.dp))
             .background(ChipBg)
-            .border(1.dp, GlassBorder, RoundedCornerShape(6.dp))
+            .border(1.dp, if (tint == ChipText) GlassBorder else tint.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
             .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
         Text(
             text = text,
-            color = ChipText,
+            color = tint,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
@@ -450,27 +510,47 @@ private fun TopBarChip(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun GlassyLabel(text: String) {
+private fun GlassyLabel(text: String, isCompact: Boolean = false) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(14.dp))
             .background(GlassCardBg)
             .border(1.dp, GlassBorder, RoundedCornerShape(14.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .padding(
+                horizontal = if (isCompact) 8.dp else 14.dp,
+                vertical = if (isCompact) 6.dp else 10.dp
+            )
     ) {
-        Text(text = text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Text(
+            text = text,
+            color = Color.White,
+            fontSize = if (isCompact) 11.sp else 13.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
 @Composable
-private fun ToolbarIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun ToolbarIcon(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isCompact: Boolean = false,
+    onClick: () -> Unit
+) {
     Box(
         modifier = Modifier
             .clip(CircleShape)
             .bounceClick(onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 4.dp)
+            .padding(
+                horizontal = if (isCompact) 2.dp else 4.dp,
+                vertical = if (isCompact) 2.dp else 4.dp
+            )
     ) {
-        Icon(imageVector = icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(if (isCompact) 20.dp else 24.dp)
+        )
     }
 }
 

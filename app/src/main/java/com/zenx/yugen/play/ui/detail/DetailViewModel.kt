@@ -19,6 +19,7 @@ import androidx.media3.exoplayer.offline.DownloadService
 import com.zenx.yugen.play.data.local.AuthPreferences
 import com.zenx.yugen.play.data.local.FavoriteDao
 import com.zenx.yugen.play.data.local.FavoriteEntity
+import com.zenx.yugen.play.data.local.PlayerPreferences
 import com.zenx.yugen.play.data.local.WatchHistoryDao
 import com.zenx.yugen.play.data.local.WatchHistoryEntity
 import com.zenx.yugen.play.data.remote.AnilistService
@@ -42,6 +43,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,6 +61,8 @@ import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import android.util.LruCache
+import kotlinx.coroutines.flow.flowOn
 import javax.inject.Inject
 
 const val STOP_REASON_USER_PAUSED = 1
@@ -123,6 +128,7 @@ class DetailViewModel @Inject constructor(
     private val favoriteDao: FavoriteDao,
     private val watchHistoryDao: WatchHistoryDao,
     private val authPreferences: AuthPreferences,
+    private val playerPreferences: PlayerPreferences,
     private val downloadTracker: DownloadTracker,
     private val okHttpClient: OkHttpClient,
     private val anilistService: AnilistService,
@@ -161,6 +167,9 @@ class DetailViewModel @Inject constructor(
     val isSourceSheetVisible = _isSourceSheetVisible.asStateFlow()
     private val _isAnilistSheetVisible = MutableStateFlow(false)
     val isAnilistSheetVisible = _isAnilistSheetVisible.asStateFlow()
+    private val _isBatchDownloadSheetVisible = MutableStateFlow(false)
+    val isBatchDownloadSheetVisible = _isBatchDownloadSheetVisible.asStateFlow()
+    val defaultPreferDub = playerPreferences.preferDub
     private val _activeProvider = MutableStateFlow(providerRegistry.getDefaultProvider().name)
     val activeProvider = _activeProvider.asStateFlow()
     private val _mappingSearchQuery = MutableStateFlow(animeTitle)
@@ -289,7 +298,7 @@ class DetailViewModel @Inject constructor(
 
             val provider = _activeProvider.value
             val mappedUrl = mediaId?.let { titleMappingRepository.getMappedUrl(it, provider) }
-            isMappedFlow.value = (mappedUrl != null)
+            isMappedFlow.value = (!mappedUrl.isNullOrBlank())
 
             val targetUrl = mappedUrl ?: animeUrl.takeIf { it.startsWith("http") }
             val result = getEpisodesUseCase(
@@ -390,7 +399,7 @@ class DetailViewModel @Inject constructor(
                     DetailsUiState.Success(
                         id = details.id, animeUrl = animeUrl, title = animeTitle, bannerUrl = banner, posterUrl = poster, format = details.format, episodeCount = totalEp, year = yearText, score = scoreText, genres = details.genres, synopsis = details.description, isFavorite = isFav, isEpisodesLoading = epData.isLoading, episodeError = epData.error, isUserLoggedIn = authPreferences.authState.value.token != null, anilistStatus = userData.anilistEntry?.status, anilistEntryId = userData.anilistEntry?.id, activeProvider = epData.provider, installedProviders = providerRegistry.getAllProviders().map { it.name }, isMapped = epData.isMapped, nextAiringAt = details.nextAiringAt, nextAiringEpisode = details.nextAiringEpisode
                     )
-                }.distinctUntilChanged().collect { _uiState.value = it }
+                }.distinctUntilChanged().flowOn(Dispatchers.Default).collect { _uiState.value = it }
             }
 
             val baseEpisodeModelsFlow = combine(epFlow, externalMetaFlow, animeDetailsFlow) { epData, extMeta, details ->
@@ -400,11 +409,21 @@ class DetailViewModel @Inject constructor(
                 epData.episodes.mapIndexed { index, ep ->
                     val epNumString = ep.formattedNumber
                     val epNumInt = ep.number.toInt()
-                    val aniListEp = details.streamingEpisodes.find { it.title.contains("Episode $epNumString", ignoreCase = true) || it.title.startsWith("$epNumString -") || it.title.startsWith("$epNumString.") } ?: details.streamingEpisodes.getOrNull(index)
+                    val aniListEp = details.streamingEpisodes.find {
+                        it.title.contains("Episode $epNumString", ignoreCase = true) ||
+                        it.title.startsWith("$epNumString -") ||
+                        it.title.startsWith("$epNumString.") ||
+                        it.title.startsWith("$epNumString:") ||
+                        it.title.startsWith("#$epNumString")
+                    } ?: details.streamingEpisodes.getOrNull(index)
                     val metaData = extMeta[epNumInt]
                     var rawTitle = metaData?.title?.takeIf { it.isNotBlank() } ?: ep.title.takeIf { it.isNotBlank() && !it.matches(fallbackEpisodeRegex) } ?: aniListEp?.title?.takeIf { it.isNotBlank() } ?: "Episode $epNumString"
                     rawTitle = rawTitle.replace(episodePrefixRegex, "").trim()
-                    val finalThumbnail = metaData?.image?.takeIf { it.isNotBlank() } ?: aniListEp?.thumbnail?.takeIf { it.isNotBlank() } ?: navPosterUrl
+                    val finalThumbnail = ep.thumbnail?.takeIf { it.isNotBlank() }
+                        ?: metaData?.image?.takeIf { it.isNotBlank() }
+                        ?: aniListEp?.thumbnail?.takeIf { it.isNotBlank() }
+                        ?: details.bannerImage.takeIf { it.isNotBlank() }
+                        ?: navPosterUrl
                     val finalDesc = metaData?.description?.takeIf { it.isNotBlank() } ?: "Episode description preview not available."
                     val defaultDuration = if (isMovie) "Feature Film" else "24m"
 
@@ -459,7 +478,7 @@ class DetailViewModel @Inject constructor(
                     val chunks = updatedEps.chunked(24)
                     updateDefaultIslandState(_resumeEpisode.value, chunks)
                     chunks
-                }.collect { chunkedList -> _episodes.value = chunkedList }
+                }.flowOn(Dispatchers.Default).collect { chunkedList -> _episodes.value = chunkedList }
             }
         }
     }
@@ -491,7 +510,7 @@ class DetailViewModel @Inject constructor(
 
                 okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
                     if (!response.isSuccessful) return@withContext url
-                    file.writeText(response.body?.string() ?: return@withContext url)
+                    file.writeText(response.body.string())
                     "file://${file.absolutePath}"
                 }
             } catch (_: Exception) { url }
@@ -520,17 +539,12 @@ class DetailViewModel @Inject constructor(
         var bytes = fullJson.toString().toByteArray(Charsets.UTF_8)
         if (bytes.size <= 3800) return MetadataPayloadResult(bytes, wasSubtitlesTruncated = false)
 
-        fullJson.remove("posterUrl")
-        bytes = fullJson.toString().toByteArray(Charsets.UTF_8)
-        if (bytes.size <= 3800) return MetadataPayloadResult(bytes, wasSubtitlesTruncated = false)
-
-        fullJson.remove("skipIntervals")
-        bytes = fullJson.toString().toByteArray(Charsets.UTF_8)
-        if (bytes.size <= 3800) return MetadataPayloadResult(bytes, wasSubtitlesTruncated = false)
-
-        fullJson.remove("episodeTitle")
-        bytes = fullJson.toString().toByteArray(Charsets.UTF_8)
-        if (bytes.size <= 3800) return MetadataPayloadResult(bytes, wasSubtitlesTruncated = false)
+        val keysToRemove = listOf("posterUrl", "skipIntervals", "episodeTitle")
+        for (key in keysToRemove) {
+            fullJson.remove(key)
+            bytes = fullJson.toString().toByteArray(Charsets.UTF_8)
+            if (bytes.size <= 3800) return MetadataPayloadResult(bytes, wasSubtitlesTruncated = false)
+        }
 
         var wasTruncated = false
         if (subtitles.isNotEmpty()) {
@@ -538,13 +552,12 @@ class DetailViewModel @Inject constructor(
                 it.optBoolean("isDefault", false) || it.optString("label").contains("English", ignoreCase = true)
             }
             val prunedSubs = JSONArray()
+            fullJson.put("subtitles", prunedSubs)
 
             for (sub in sortedSubs) {
                 prunedSubs.put(sub)
-                fullJson.put("subtitles", prunedSubs)
                 if (fullJson.toString().toByteArray(Charsets.UTF_8).size > 3800) {
                     prunedSubs.remove(prunedSubs.length() - 1)
-                    fullJson.put("subtitles", prunedSubs)
                     wasTruncated = true
                     break
                 }
@@ -552,72 +565,146 @@ class DetailViewModel @Inject constructor(
 
             if (prunedSubs.length() == 0 && sortedSubs.isNotEmpty()) {
                 prunedSubs.put(sortedSubs.first())
-                fullJson.put("subtitles", prunedSubs)
                 wasTruncated = true
             }
+            bytes = fullJson.toString().toByteArray(Charsets.UTF_8)
         }
 
-        return MetadataPayloadResult(fullJson.toString().toByteArray(Charsets.UTF_8), wasSubtitlesTruncated = wasTruncated)
+        return MetadataPayloadResult(bytes, wasSubtitlesTruncated = wasTruncated)
     }
 
     fun enqueueDownload(episode: EpisodeUiModel, stream: VideoStream) {
-        if (stream.url.isBlank() || stream.url.contains("/watch/")) return
+        viewModelScope.launch(Dispatchers.IO) {
+            performEnqueueDownload(episode, stream)
+        }
+    }
+
+    private suspend fun performEnqueueDownload(episode: EpisodeUiModel, stream: VideoStream) = withContext(Dispatchers.IO) {
+        if (stream.url.isBlank() || stream.url.contains("/watch/")) return@withContext
         if (context.filesDir.usableSpace < 500L * 1024 * 1024) {
-            viewModelScope.launch(Dispatchers.Main) { Toast.makeText(context, "Not enough storage.", Toast.LENGTH_LONG).show() }
-            return
+            withContext(Dispatchers.Main) { Toast.makeText(context, "Not enough storage.", Toast.LENGTH_LONG).show() }
+            return@withContext
         }
 
         _preparingDownloads.update { it + episode.id }
 
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val downloadedSubs = mutableListOf<JSONObject>()
-                stream.subtitles.forEach { sub ->
-                    if (sub.url.isNotBlank()) {
-                        val localPath = downloadSubtitleLocally(sub.url, episode.id, sub.label, stream.headers)
-                        downloadedSubs.add(
-                            JSONObject().apply {
-                                put("url", localPath)
-                                put("label", sub.label)
-                                put("isDefault", sub.isDefault)
+        try {
+            val downloadedSubs = mutableListOf<JSONObject>()
+            stream.subtitles.forEach { sub ->
+                if (sub.url.isNotBlank()) {
+                    val localPath = downloadSubtitleLocally(sub.url, episode.id, sub.label, stream.headers)
+                    downloadedSubs.add(
+                        JSONObject().apply {
+                            put("url", localPath)
+                            put("label", sub.label)
+                            put("isDefault", sub.isDefault)
+                        }
+                    )
+                }
+            }
+
+            val headersObj = JSONObject().apply { stream.headers.forEach { (k, v) -> put(k, v) } }
+            val skipObjs = stream.skipIntervals.map { skip ->
+                JSONObject().apply {
+                    put("startTime", skip.startTime)
+                    put("endTime", skip.endTime)
+                    put("type", skip.type)
+                }
+            }
+
+            val payloadResult = buildOptimizedMetadataPayload(
+                animeTitle = animeTitle,
+                episodeNumber = episode.number,
+                episodeTitle = episode.title,
+                posterUrl = navPosterUrl,
+                subtitles = downloadedSubs,
+                headers = headersObj,
+                skipIntervals = skipObjs
+            )
+
+            if (payloadResult.wasSubtitlesTruncated) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Secondary subtitles truncated to fit download limits.", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            val secureStreamUrl = "${stream.url}${if(stream.url.contains("?")) "&" else "?"}y_ref=${Uri.encode(stream.headers["Referer"] ?: "https://megaplay.buzz/")}&y_ori=${Uri.encode(stream.headers["Origin"] ?: "https://megaplay.buzz/")}"
+            val request = DownloadRequest.Builder(episode.id, secureStreamUrl.toUri())
+                .setMimeType(if (stream.isM3U8 || stream.url.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.VIDEO_MP4)
+                .setData(payloadResult.data).build()
+
+            DownloadService.sendAddDownload(context, VideoDownloadService::class.java, request, false)
+        } finally {
+            _preparingDownloads.update { it - episode.id }
+        }
+    }
+
+    fun showBatchDownloadSheet() { _isBatchDownloadSheetVisible.value = true }
+    fun hideBatchDownloadSheet() { _isBatchDownloadSheetVisible.value = false }
+
+    fun batchDownloadEpisodes(episodes: List<EpisodeUiModel>, preferDub: Boolean) {
+        if (episodes.isEmpty()) return
+        hideBatchDownloadSheet()
+        viewModelScope.launch {
+            val toDownload = episodes.filter {
+                it.downloadState != DownloadState.COMPLETED &&
+                it.downloadState != DownloadState.DOWNLOADING &&
+                !it.isPreparing
+            }
+            if (toDownload.isEmpty()) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "All selected episodes are already downloaded.", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
+
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Queueing ${toDownload.size} episodes for download...", Toast.LENGTH_SHORT).show()
+            }
+
+            var queuedCount = 0
+            val sortedToDownload = toDownload.sortedBy { it.number.toFloatOrNull() ?: 0f }
+            val chunks = sortedToDownload.chunked(3)
+            for (chunk in chunks) {
+                val results = chunk.map { ep ->
+                    async(Dispatchers.IO) {
+                        val cached = StreamDataCache.get(ep.id)
+                        val streams = if (cached != null) {
+                            cached
+                        } else {
+                            val res = getVideoStreamsUseCase(ep.id)
+                            if (res is Resource.Success) {
+                                res.data?.also { StreamDataCache.set(ep.id, it) } ?: emptyList()
+                            } else emptyList()
+                        }
+
+                        if (streams.isNotEmpty()) {
+                            val stream = if (preferDub) {
+                                streams.find { it.serverName?.contains("dub", ignoreCase = true) == true || it.quality.contains("dub", ignoreCase = true) }
+                                    ?: streams.first()
+                            } else {
+                                streams.find { it.serverName?.contains("dub", ignoreCase = true) != true && !it.quality.contains("dub", ignoreCase = true) }
+                                    ?: streams.first()
                             }
-                        )
+                            Pair(ep, stream)
+                        } else {
+                            null
+                        }
                     }
+                }.awaitAll()
+                
+                results.filterNotNull().forEach { (ep, stream) ->
+                    performEnqueueDownload(ep, stream)
+                    queuedCount++
                 }
+            }
 
-                val headersObj = JSONObject().apply { stream.headers.forEach { (k, v) -> put(k, v) } }
-                val skipObjs = stream.skipIntervals.map { skip ->
-                    JSONObject().apply {
-                        put("startTime", skip.startTime)
-                        put("endTime", skip.endTime)
-                        put("type", skip.type)
-                    }
+            withContext(Dispatchers.Main) {
+                if (queuedCount > 0) {
+                    Toast.makeText(context, "Queued $queuedCount episodes for download.", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Failed to resolve streams for selected episodes.", Toast.LENGTH_SHORT).show()
                 }
-
-                val payloadResult = buildOptimizedMetadataPayload(
-                    animeTitle = animeTitle,
-                    episodeNumber = episode.number,
-                    episodeTitle = episode.title,
-                    posterUrl = navPosterUrl,
-                    subtitles = downloadedSubs,
-                    headers = headersObj,
-                    skipIntervals = skipObjs
-                )
-
-                if (payloadResult.wasSubtitlesTruncated) {
-                    viewModelScope.launch(Dispatchers.Main) {
-                        Toast.makeText(context, "Secondary subtitles truncated to fit download limits.", Toast.LENGTH_SHORT).show()
-                    }
-                }
-
-                val secureStreamUrl = "${stream.url}${if(stream.url.contains("?")) "&" else "?"}y_ref=${Uri.encode(stream.headers["Referer"] ?: "https://megaplay.buzz/")}&y_ori=${Uri.encode(stream.headers["Origin"] ?: "https://megaplay.buzz/")}"
-                val request = DownloadRequest.Builder(episode.id, secureStreamUrl.toUri())
-                    .setMimeType(if (stream.isM3U8 || stream.url.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.VIDEO_MP4)
-                    .setData(payloadResult.data).build()
-
-                DownloadService.sendAddDownload(context, VideoDownloadService::class.java, request, false)
-            } finally {
-                _preparingDownloads.update { it - episode.id }
             }
         }
     }
@@ -666,17 +753,17 @@ class DetailViewModel @Inject constructor(
 }
 
 object StreamDataCache {
-    private val cache = ConcurrentHashMap<String, List<VideoStream>>()
+    private val cache = LruCache<String, List<VideoStream>>(100)
 
     fun set(episodeId: String, streams: List<VideoStream>) {
-        cache[episodeId] = streams.toList()
+        cache.put(episodeId, streams.toList())
     }
 
     fun get(episodeId: String): List<VideoStream>? {
-        return cache.remove(episodeId)
+        return cache.get(episodeId)
     }
 
     fun clear() {
-        cache.clear()
+        cache.evictAll()
     }
 }

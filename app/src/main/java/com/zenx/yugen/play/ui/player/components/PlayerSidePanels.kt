@@ -14,6 +14,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FormatSize
+import androidx.compose.material.icons.rounded.Opacity
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Style
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -42,7 +45,7 @@ fun PlayerSidePanels(
     viewModel: PlayerViewModel,
     modifier: Modifier = Modifier
 ) {
-    val isAnyPanelVisible = state.isQualitySheetVisible || state.isSubtitleSheetVisible || state.isServerSheetVisible
+    val isAnyPanelVisible = state.isQualitySheetVisible || state.isSubtitleSheetVisible || state.isServerSheetVisible || state.isSpeedSheetVisible
 
     AnimatedVisibility(
         visible = isAnyPanelVisible,
@@ -61,6 +64,7 @@ fun PlayerSidePanels(
                     viewModel.setQualitySheetVisibility(false)
                     viewModel.setSubtitleSheetVisibility(false)
                     viewModel.setServerSheetVisibility(false)
+                    viewModel.setSpeedSheetVisibility(false)
                 }
         )
     }
@@ -88,6 +92,7 @@ fun PlayerSidePanels(
                     state.isQualitySheetVisible -> QualityPanel(state, viewModel)
                     state.isSubtitleSheetVisible -> SubtitlePanel(state, viewModel)
                     state.isServerSheetVisible -> ServerPanel(state, viewModel)
+                    state.isSpeedSheetVisible -> SpeedPanel(state, viewModel)
                 }
             }
         }
@@ -130,18 +135,57 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Style Selector
+                // Edge Style
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Rounded.Style, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(20.dp).align(Alignment.CenterVertically))
-                    SegmentedButton("Shadow", state.subtitleEdgeStyle == 2, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(2) } // DROP_SHADOW
-                    SegmentedButton("Outline", state.subtitleEdgeStyle == 1, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(1) } // OUTLINE
-                    SegmentedButton("Box", state.subtitleEdgeStyle == 0, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(0) } // NONE (Relies on background color)
+                    SegmentedButton("Shadow", state.subtitleEdgeStyle == 2, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(2) }
+                    SegmentedButton("Outline", state.subtitleEdgeStyle == 1, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(1) }
+                    SegmentedButton("Box", state.subtitleEdgeStyle == 0, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(0) }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Text Color Selector
+                val colorOptions = listOf(
+                    "White" to 0xFFFFFFFF,
+                    "Yellow" to 0xFFFFDD00,
+                    "Cyan" to 0xFF00E5FF,
+                    "Green" to 0xFF69FF47
+                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Palette, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
+                    colorOptions.forEach { (label, colorLong) ->
+                        val isSelected = state.subtitleTextColor == colorLong
+                        val swatch = Color(colorLong.toInt())
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(swatch.copy(alpha = if (isSelected) 1f else 0.35f))
+                                .border(1.5.dp, if (isSelected) Color.White else Color.Transparent, RoundedCornerShape(8.dp))
+                                .bounceClick { viewModel.setSubtitleTextColor(colorLong) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(label, color = if (isSelected) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Background Opacity
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Opacity, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
+                    SegmentedButton("None", state.subtitleBgOpacity == 0f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleBgOpacity(0f) }
+                    SegmentedButton("Light", state.subtitleBgOpacity == 0.4f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleBgOpacity(0.4f) }
+                    SegmentedButton("Dark", state.subtitleBgOpacity == 0.75f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleBgOpacity(0.75f) }
                 }
             }
         }
 
         item {
-            Divider(color = GlassBorder, modifier = Modifier.padding(vertical = 4.dp))
+            HorizontalDivider(color = GlassBorder, modifier = Modifier.padding(vertical = 4.dp))
         }
 
         item {
@@ -163,12 +207,38 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
 }
 
 @Composable
+private fun SpeedPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
+    val speeds = listOf(
+        0.25f to "0.25×",
+        0.5f to "0.5×",
+        0.75f to "0.75×",
+        1.0f to "Normal",
+        1.25f to "1.25×",
+        1.5f to "1.5×",
+        1.75f to "1.75×",
+        2.0f to "2.0×"
+    )
+    PanelHeader("Playback Speed", icon = Icons.Rounded.Speed) { viewModel.setSpeedSheetVisibility(false) }
+    LazyColumn(contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        items(speeds) { (speed, label) ->
+            PanelItem(
+                title = label,
+                subtitle = if (speed == 1.0f) "Default" else null,
+                isSelected = state.playbackSpeed == speed,
+                onClick = { viewModel.setPlaybackSpeed(speed) }
+            )
+        }
+    }
+}
+
+@Composable
 private fun ServerPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
     PanelHeader("Switch Server") { viewModel.setServerSheetVisibility(false) }
     LazyColumn(contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         items(state.streams) { stream ->
-            val cleanServerName = stream.quality.replace(Regex("\\[?(sub|dub)\\]?", RegexOption.IGNORE_CASE), "").trim().ifBlank { "Unknown Server" }
-            val badgeText = if (stream.quality.contains("dub", ignoreCase = true)) "DUB" else "SUB"
+            val rawName = stream.serverName?.takeIf { it.isNotBlank() } ?: stream.quality
+            val cleanServerName = rawName.replace(Regex("\\[?(sub|dub)\\]?", RegexOption.IGNORE_CASE), "").trim().ifBlank { "Unknown Server" }
+            val badgeText = if (stream.quality.contains("dub", ignoreCase = true) || stream.serverName?.contains("dub", ignoreCase = true) == true) "DUB" else "SUB"
 
             PanelItem(
                 title = cleanServerName,
@@ -182,7 +252,7 @@ private fun ServerPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) 
 }
 
 @Composable
-private fun PanelHeader(title: String, onClose: () -> Unit) {
+private fun PanelHeader(title: String, icon: ImageVector? = null, onClose: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -190,7 +260,12 @@ private fun PanelHeader(title: String, onClose: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (icon != null) {
+                Icon(icon, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(18.dp))
+            }
+            Text(text = title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
         IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
             Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(24.dp))
         }

@@ -18,6 +18,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.Dispatchers
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -34,6 +36,16 @@ data class DownloadUiModel(
     val totalBytes: Long,
     val speedBytesPerSecond: Long = 0L,
     val etaSeconds: Long? = null
+)
+
+data class AnimeDownloadGroup(
+    val animeTitle: String,
+    val posterUrl: String,
+    val episodes: List<DownloadUiModel>,
+    val activeDownloadsCount: Int,
+    val totalBytes: Long,
+    val downloadedBytes: Long,
+    val speedBytesPerSecond: Long
 )
 
 private data class CachedDownloadMetadata(
@@ -71,14 +83,11 @@ class DownloadsViewModel @Inject constructor(
     }
 
     val downloadsFlow = downloadTracker.downloads.map { downloadMap ->
-        val currentKeys = downloadMap.keys
-        metaCache.keys.retainAll(currentKeys)
-
         downloadMap.values.map { download ->
             val meta = getOrParseMetadata(download.request.id, download.request.data)
             val currentSpeed = downloadTracker.getDownloadSpeed(download.request.id)
             val state = mapExoDownloadState(download.state)
-            val percent = if (download.percentDownloaded < 0f) 0f else download.percentDownloaded
+            val percent = download.percentDownloaded.coerceAtLeast(0f)
             val downloadedBytes = download.bytesDownloaded
             val totalBytes = download.contentLength
 
@@ -103,16 +112,40 @@ class DownloadsViewModel @Inject constructor(
                 speedBytesPerSecond = currentSpeed,
                 etaSeconds = etaSeconds
             )
-        }.sortedWith(
-            compareByDescending<DownloadUiModel> { it.state == DownloadState.DOWNLOADING }
-                .thenByDescending { it.state == DownloadState.PAUSED }
-                .thenByDescending { it.id }
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val groupedDownloadsFlow = downloadsFlow.map { list ->
+        list.groupBy { it.animeTitle }
+            .map { (title, eps) ->
+                AnimeDownloadGroup(
+                    animeTitle = title,
+                    posterUrl = eps.firstOrNull { it.posterUrl.isNotBlank() }?.posterUrl ?: "",
+                    episodes = eps.sortedBy { it.episodeNumber.toFloatOrNull() ?: 0f },
+                    activeDownloadsCount = eps.count { it.state == DownloadState.DOWNLOADING || it.state == DownloadState.PAUSED },
+                    totalBytes = eps.sumOf { it.totalBytes.coerceAtLeast(0L) },
+                    downloadedBytes = eps.sumOf { it.downloadedBytes.coerceAtLeast(0L) },
+                    speedBytesPerSecond = eps.sumOf { it.speedBytesPerSecond }
+                )
+            }
+            .sortedByDescending { it.activeDownloadsCount > 0 }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val totalStorageUsedFlow = downloadsFlow.map { list ->
         list.sumOf { it.downloadedBytes.coerceAtLeast(0L) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val freeStorageFlow = downloadsFlow.map {
+        try {
+            context.filesDir.usableSpace
+        } catch (_: Exception) {
+            0L
+        }
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        try { context.filesDir.usableSpace } catch (_: Exception) { 0L }
+    )
 
     val totalSpeedFlow = downloadsFlow.map { list ->
         list.filter { it.state == DownloadState.DOWNLOADING }.sumOf { it.speedBytesPerSecond }

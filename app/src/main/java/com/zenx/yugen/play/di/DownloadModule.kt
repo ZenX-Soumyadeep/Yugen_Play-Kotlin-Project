@@ -97,8 +97,11 @@ object DownloadModule {
 
     @Provides
     @Singleton
-    fun provideDownloadTracker(@ApplicationContext context: Context): DownloadTracker {
-        return DownloadTracker(context)
+    fun provideDownloadTracker(
+        @ApplicationContext context: Context,
+        playerPreferences: com.zenx.yugen.play.data.local.PlayerPreferences
+    ): DownloadTracker {
+        return DownloadTracker(context, playerPreferences)
     }
 
     @Provides

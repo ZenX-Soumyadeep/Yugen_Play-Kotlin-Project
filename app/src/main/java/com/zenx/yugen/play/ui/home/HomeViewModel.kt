@@ -8,9 +8,11 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zenx.yugen.play.BuildConfig
 import com.zenx.yugen.play.data.local.AuthPreferences
 import com.zenx.yugen.play.data.local.FavoriteDao
 import com.zenx.yugen.play.data.local.FavoriteEntity
+import com.zenx.yugen.play.data.local.PlayerPreferences
 import com.zenx.yugen.play.data.local.WatchHistoryDao
 import com.zenx.yugen.play.data.local.WatchHistoryEntity
 import com.zenx.yugen.play.data.remote.AniListNotification
@@ -32,6 +34,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -73,6 +76,7 @@ class HomeViewModel @Inject constructor(
     private val favoriteDao: FavoriteDao,
     private val authPreferences: AuthPreferences,
     private val anilistService: AnilistService,
+    private val playerPreferences: PlayerPreferences,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -81,6 +85,16 @@ class HomeViewModel @Inject constructor(
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    private val _shouldShowWhatsNew = MutableStateFlow(false)
+    val shouldShowWhatsNew: StateFlow<Boolean> = _shouldShowWhatsNew.asStateFlow()
+
+    fun dismissWhatsNew() {
+        _shouldShowWhatsNew.value = false
+        viewModelScope.launch {
+            playerPreferences.setLastSeenVersion(BuildConfig.VERSION_NAME)
+        }
+    }
 
     private val popularAnimeFlow = MutableStateFlow<List<AnimeCardItem>>(emptyList())
     private val airingFlow = MutableStateFlow<List<AiringAnimeItem>>(emptyList())
@@ -112,6 +126,15 @@ class HomeViewModel @Inject constructor(
         fetchRemoteData()
         fetchAnilistWatching()
         fetchNotifications()
+
+        viewModelScope.launch {
+            try {
+                val lastSeen = playerPreferences.lastSeenVersion.first()
+                if (lastSeen != BuildConfig.VERSION_NAME) {
+                    _shouldShowWhatsNew.value = true
+                }
+            } catch (_: Exception) {}
+        }
 
         val filter = IntentFilter("com.zenx.yugen.play.NOTIFICATION_DISMISSED")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
