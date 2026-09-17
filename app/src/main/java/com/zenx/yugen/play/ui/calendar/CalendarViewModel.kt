@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -44,10 +45,23 @@ class CalendarViewModel @Inject constructor(
     private val scheduleFlow = MutableStateFlow<List<AiringAnimeItem>>(emptyList())
     private val anilistEntriesFlow = MutableStateFlow<List<AnilistListEntry>>(emptyList())
 
+    private val _remindedAnimeIds = MutableStateFlow<Set<String>>(emptySet())
+    val remindedAnimeIds: StateFlow<Set<String>> = _remindedAnimeIds.asStateFlow()
+
     init {
         loadSchedule()
         fetchAnilistEntries()
         observeCombinedState()
+    }
+
+    fun toggleReminder(animeId: String) {
+        _remindedAnimeIds.update { current ->
+            if (current.contains(animeId)) current - animeId else current + animeId
+        }
+    }
+
+    fun refresh() {
+        loadSchedule()
     }
 
     // Exposed delegation to satisfy CalendarScreen caller sites

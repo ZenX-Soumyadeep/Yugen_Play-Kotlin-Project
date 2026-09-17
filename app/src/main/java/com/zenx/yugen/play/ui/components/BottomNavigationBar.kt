@@ -26,7 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -40,23 +39,19 @@ import com.zenx.yugen.play.ui.BottomNavItem
 fun FloatingAnimatedBottomBar(
     items: List<BottomNavItem>,
     currentRoute: String,
-    onItemClick: (String) -> Unit
+    onItemClick: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val glassPillBg = Color(0xFF0F0F13).copy(alpha = 0.92f)
-    val glassBorderBrush = Brush.verticalGradient(
-        colors = listOf(
-            Color.White.copy(alpha = 0.22f),
-            Color.White.copy(alpha = 0.05f)
-        )
-    )
+    val glassPillBg = Color(0xFF141418).copy(alpha = 0.92f)
+    val glassBorder = Color.White.copy(alpha = 0.14f)
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(100.dp))
             .background(glassPillBg)
-            .border(1.dp, glassBorderBrush, RoundedCornerShape(100.dp))
-            .padding(horizontal = 8.dp, vertical = 7.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+            .border(1.dp, glassBorder, RoundedCornerShape(100.dp))
+            .padding(horizontal = 6.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         items.forEach { item ->
@@ -79,13 +74,13 @@ fun AnimatedBottomBarItem(
     val accentPurple = Color(0xFF8B5CF6)
 
     val backgroundColor by animateColorAsState(
-        targetValue = if (isSelected) accentPurple.copy(alpha = 0.20f) else Color.Transparent,
+        targetValue = if (isSelected) accentPurple.copy(alpha = 0.22f) else Color.Transparent,
         animationSpec = tween(240, easing = FastOutSlowInEasing),
         label = "bottom_bar_bg_color"
     )
 
     val borderColor by animateColorAsState(
-        targetValue = if (isSelected) accentPurple.copy(alpha = 0.40f) else Color.Transparent,
+        targetValue = if (isSelected) accentPurple.copy(alpha = 0.45f) else Color.Transparent,
         animationSpec = tween(240, easing = FastOutSlowInEasing),
         label = "bottom_bar_border_color"
     )
@@ -97,7 +92,7 @@ fun AnimatedBottomBarItem(
     )
 
     val iconScale by animateFloatAsState(
-        targetValue = if (isSelected) 1.15f else 1.0f,
+        targetValue = if (isSelected) 1.12f else 1.0f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
@@ -107,6 +102,7 @@ fun AnimatedBottomBarItem(
 
     Row(
         modifier = Modifier
+            .defaultMinSize(minHeight = 42.dp)
             .clip(CircleShape)
             .background(backgroundColor)
             .border(1.dp, borderColor, CircleShape)
@@ -118,9 +114,9 @@ fun AnimatedBottomBarItem(
                     onClick()
                 }
             )
-            .padding(horizontal = 14.dp, vertical = 9.dp),
+            .padding(horizontal = if (isSelected) 14.dp else 11.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Icon(
             imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
@@ -152,8 +148,8 @@ fun AnimatedBottomBarItem(
             Text(
                 text = item.label,
                 color = contentColor,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
                 softWrap = false
             )

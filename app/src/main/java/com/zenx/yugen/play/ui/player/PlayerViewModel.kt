@@ -126,12 +126,12 @@ sealed interface PlayerUiState {
         val nextEpisode: Episode? = null,
         val autoPlayCountdown: Int? = null,
         val transientWarning: String? = null,
-        val subtitleSize: Float = 0.053f,
-        val subtitleEdgeStyle: Int = 2,
+        val subtitleSize: Float = PlayerPreferences.DEFAULT_SUBTITLE_SIZE,
+        val subtitleEdgeStyle: Int = PlayerPreferences.DEFAULT_SUBTITLE_EDGE_STYLE,
         // 0xAARRGGBB — default white. Stored as Long to survive state diffing cleanly.
-        val subtitleTextColor: Long = 0xFFFFFFFF,
-        // 0f = transparent bg, 0.6f = semi-opaque box
-        val subtitleBgOpacity: Float = 0f,
+        val subtitleTextColor: Long = PlayerPreferences.DEFAULT_SUBTITLE_TEXT_COLOR,
+        // 0.4f = Light translucent box
+        val subtitleBgOpacity: Float = PlayerPreferences.DEFAULT_SUBTITLE_BG_OPACITY,
         // Configurable double-tap seek duration in seconds
         val seekDurationSec: Int = 10,
         // Whether to trigger the auto-play countdown at episode end
@@ -334,7 +334,13 @@ class PlayerViewModel @Inject constructor(
 
         override fun onTracksChanged(tracks: Tracks) {
             cachedTracks = tracks
-            val availableQualities = extractQualitiesFromTracks(tracks, isOffline = false)
+            val state = _uiState.value as? PlayerUiState.Ready
+            val availableQualities = buildAvailableQualities(
+                activeStream = state?.activeStream,
+                allStreams = state?.streams ?: emptyList(),
+                tracks = tracks,
+                isOffline = false
+            )
             cachedQualities = availableQualities
             updateReadyState { it.copy(qualities = availableQualities) }
         }
@@ -471,16 +477,70 @@ class PlayerViewModel @Inject constructor(
         } catch (_: Throwable) {}
     }
 
-    private fun extractQualitiesFromTracks(tracks: Tracks, isOffline: Boolean = false): List<VideoQualityUiModel> {
-        val defaultLabel = if (isOffline) "Offline" else "Auto"
-        val availableQualities = mutableListOf(VideoQualityUiModel(-1, defaultLabel))
+    fun getActiveServerStreams(activeStream: VideoStream?, allStreams: List<VideoStream>): List<VideoStream> {
+        if (activeStream == null) return allStreams
+        val activeRaw = activeStream.serverName?.takeIf { it.isNotBlank() } ?: activeStream.quality
+        val activeClean = activeRaw
+            .replace(Regex("\\[?(sub|dub)\\]?", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\(.*\\)|\\[.*?\\]"), "")
+            .trim()
+        val activeIsDub = activeStream.quality.contains("dub", ignoreCase = true) || activeStream.serverName?.contains("dub", ignoreCase = true) == true
+
+        val matches = allStreams.filter { s ->
+            val sRaw = s.serverName?.takeIf { it.isNotBlank() } ?: s.quality
+            val sClean = sRaw
+                .replace(Regex("\\[?(sub|dub)\\]?", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("\\(.*\\)|\\[.*?\\]"), "")
+                .trim()
+            val sIsDub = s.quality.contains("dub", ignoreCase = true) || s.serverName?.contains("dub", ignoreCase = true) == true
+
+            val isSameServer = when {
+                !activeStream.serverName.isNullOrBlank() && !s.serverName.isNullOrBlank() ->
+                    s.serverName.equals(activeStream.serverName, ignoreCase = true) ||
+                    (activeClean.isNotBlank() && sClean.equals(activeClean, ignoreCase = true))
+                activeClean.isNotBlank() && activeClean != "Server" ->
+                    sClean.equals(activeClean, ignoreCase = true)
+                else -> s.url == activeStream.url
+            }
+
+            isSameServer && sIsDub == activeIsDub
+        }
+        return if (matches.isNotEmpty()) matches else listOf(activeStream)
+    }
+
+    private fun buildAvailableQualities(
+        activeStream: VideoStream?,
+        allStreams: List<VideoStream>,
+        tracks: Tracks,
+        isOffline: Boolean = false
+    ): List<VideoQualityUiModel> {
+        if (isOffline) {
+            return listOf(VideoQualityUiModel(-1, "Offline"))
+        }
+        val qualities = mutableListOf<VideoQualityUiModel>()
+        qualities.add(VideoQualityUiModel(-1, "Auto"))
+
         tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }.forEach { group ->
             for (i in 0 until group.length) {
                 val format = group.getTrackFormat(i)
-                if (format.height > 0) availableQualities.add(VideoQualityUiModel(format.height, "${format.height}p"))
+                if (format.height > 0) qualities.add(VideoQualityUiModel(format.height, "${format.height}p"))
             }
         }
-        return availableQualities.distinctBy { it.height }.sortedByDescending { it.height }
+
+        if (activeStream != null) {
+            val serverStreams = getActiveServerStreams(activeStream, allStreams)
+            for (stream in serverStreams) {
+                val h = stream.resolution?.filter { it.isDigit() }?.toIntOrNull()
+                    ?: Regex("(\\d{3,4})p?").find(stream.quality)?.groupValues?.get(1)?.toIntOrNull()
+                if (h != null && h > 0) {
+                    qualities.add(VideoQualityUiModel(h, "${h}p"))
+                }
+            }
+        }
+
+        return qualities.distinctBy { it.height }.sortedWith(
+            compareByDescending<VideoQualityUiModel> { it.height == -1 }.thenByDescending { it.height }
+        )
     }
 
     private fun resolveUserErrorMessage(error: PlaybackException): String {
@@ -827,7 +887,7 @@ class PlayerViewModel @Inject constructor(
                                 activePlayer.setPlaybackSpeed(savedPlaybackSpeed)
                             }
                             val liveTracks = activePlayer.currentTracks.takeIf { !it.isEmpty } ?: cachedTracks
-                            val liveQualities = extractQualitiesFromTracks(liveTracks, isOffline = false)
+                            val liveQualities = buildAvailableQualities(activeStream, streams, liveTracks, isOffline = false)
                             val liveIsPlaying = activePlayer.isPlaying || cachedIsPlaying
                             val liveBuffering = activePlayer.playbackState == Player.STATE_BUFFERING || cachedIsBuffering
                             val liveDuration = activePlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
@@ -998,8 +1058,39 @@ class PlayerViewModel @Inject constructor(
     fun skipCurrentInterval() = _playbackProgress.value.activeSkipInterval?.let { seekTo((it.endTime * 1000).toLong()) }
 
     fun selectQuality(height: Int) {
-        playerEngine.exoPlayer.trackSelectionParameters = if (height == -1) playerEngine.exoPlayer.trackSelectionParameters.buildUpon().clearVideoSizeConstraints().build()
-        else playerEngine.exoPlayer.trackSelectionParameters.buildUpon().setMaxVideoSize(Int.MAX_VALUE, height).setMinVideoSize(0, height).build()
+        val state = _uiState.value as? PlayerUiState.Ready ?: return
+        val activeStream = state.activeStream ?: return
+        val serverStreams = getActiveServerStreams(activeStream, state.streams)
+        val matchingStream = if (height == -1) {
+            serverStreams.find { it.format.equals("HLS", ignoreCase = true) || it.resolution.equals("Auto", true) }
+                ?: serverStreams.maxByOrNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() ?: 0 }
+        } else {
+            serverStreams.find { s ->
+                val h = s.resolution?.filter { it.isDigit() }?.toIntOrNull()
+                    ?: Regex("(\\d{3,4})p?").find(s.quality)?.groupValues?.get(1)?.toIntOrNull()
+                h == height
+            }
+        }
+
+        if (matchingStream != null && matchingStream.url != activeStream.url) {
+            val currentPos = getActivePlayer().currentPosition
+            currentStreamIndex = state.streams.indexOf(matchingStream).coerceAtLeast(0)
+            skipIntervals = matchingStream.skipIntervals
+            updateReadyState { it.copy(
+                activeStream = matchingStream,
+                selectedQualityHeight = height,
+                skipIntervals = matchingStream.skipIntervals,
+                isQualitySheetVisible = false
+            ) }
+            playStream(matchingStream, startPositionMs = currentPos)
+            return
+        }
+
+        playerEngine.exoPlayer.trackSelectionParameters = if (height == -1) {
+            playerEngine.exoPlayer.trackSelectionParameters.buildUpon().clearVideoSizeConstraints().build()
+        } else {
+            playerEngine.exoPlayer.trackSelectionParameters.buildUpon().setMaxVideoSize(Int.MAX_VALUE, height).setMinVideoSize(0, height).build()
+        }
         updateReadyState { it.copy(selectedQualityHeight = height, isQualitySheetVisible = false) }
     }
 
@@ -1011,7 +1102,20 @@ class PlayerViewModel @Inject constructor(
         val currentPos = getActivePlayer().currentPosition
         skipIntervals = stream.skipIntervals
 
-        updateReadyState { it.copy(activeStream = stream, skipIntervals = stream.skipIntervals, isServerSheetVisible = false) }
+        val newQualities = buildAvailableQualities(
+            activeStream = stream,
+            allStreams = state.streams,
+            tracks = playerEngine.exoPlayer.currentTracks,
+            isOffline = false
+        )
+        cachedQualities = newQualities
+
+        updateReadyState { it.copy(
+            activeStream = stream,
+            skipIntervals = stream.skipIntervals,
+            qualities = newQualities,
+            isServerSheetVisible = false
+        ) }
         playStream(stream, startPositionMs = currentPos)
     }
 
@@ -1163,7 +1267,7 @@ class PlayerViewModel @Inject constructor(
             activePlayer.setPlaybackSpeed(savedPlaybackSpeed)
         }
         val liveTracks = activePlayer.currentTracks.takeIf { !it.isEmpty } ?: cachedTracks
-        val liveQualities = extractQualitiesFromTracks(liveTracks, isOffline = true)
+        val liveQualities = buildAvailableQualities(null, emptyList(), liveTracks, isOffline = true)
         val liveIsPlaying = activePlayer.isPlaying || cachedIsPlaying
         val liveBuffering = activePlayer.playbackState == Player.STATE_BUFFERING || cachedIsBuffering
         val liveDuration = activePlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L

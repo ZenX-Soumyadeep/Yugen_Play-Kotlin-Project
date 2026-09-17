@@ -10,6 +10,8 @@ import com.zenx.yugen.play.domain.AnimeCardItem
 import com.zenx.yugen.play.domain.AnimeDetails
 import com.zenx.yugen.play.domain.AnilistListEntry
 import com.zenx.yugen.play.domain.AnilistUser
+import com.zenx.yugen.play.domain.HeroUiModel
+import com.zenx.yugen.play.domain.HomeAnimeCardUiModel
 import com.zenx.yugen.play.domain.UserListEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -259,6 +261,264 @@ class AnilistService @Inject constructor(
             Log.e(TAG, "Failed to parse Kitsu popular anime", e)
         }
         return list
+    }
+
+    // ==========================================
+    // HERO & CATEGORIES
+    // ==========================================
+
+    suspend fun fetchHeroTrending(count: Int = 6): List<HeroUiModel> = withContext(Dispatchers.IO) {
+        val query = """
+            query {
+              Page(page: 1, perPage: $count) {
+                media(type: ANIME, sort: TRENDING_DESC, isAdult: false) {
+                  id
+                  title { english romaji }
+                  coverImage { extraLarge large }
+                  bannerImage
+                  format
+                  episodes
+                  duration
+                  averageScore
+                  genres
+                  description(asHtml: false)
+                  nextAiringEpisode {
+                    episode
+                    timeUntilAiring
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+
+        try {
+            val jsonPayload = JSONObject().apply { put("query", query) }
+            val request = Request.Builder()
+                .url(GRAPHQL_URL)
+                .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            val response = executeWithRetry(request)
+            val bodyString = response.use { if (it.isSuccessful) it.body?.string().orEmpty() else "" }
+            if (bodyString.isBlank()) return@withContext emptyList()
+
+            val json = validateGraphQLResponse(bodyString)
+            val mediaArray = json.optJSONObject("data")?.optJSONObject("Page")?.optJSONArray("media") ?: return@withContext emptyList()
+            val list = mutableListOf<HeroUiModel>()
+
+            for (i in 0 until mediaArray.length()) {
+                val item = mediaArray.getJSONObject(i)
+                val titleObj = item.optJSONObject("title")
+                val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: titleObj?.optString("romaji").orEmpty()
+
+                val banner = item.optString("bannerImage").takeIf { it.isNotBlank() && it != "null" }
+                    ?: item.optJSONObject("coverImage")?.optString("extraLarge").orEmpty()
+                val poster = item.optJSONObject("coverImage")?.optString("extraLarge")
+                    ?: item.optJSONObject("coverImage")?.optString("large").orEmpty()
+
+                val format = item.optString("format", "TV").replace("_", " ")
+                val epCount = item.optInt("episodes", 0).takeIf { it > 0 }?.toString() ?: "??"
+                val score = item.optInt("averageScore", 0).takeIf { it > 0 }?.toString() ?: "80"
+                val duration = item.optInt("duration", 24).takeIf { it > 0 }?.let { "$it mins" } ?: "24 mins"
+
+                val nextAiring = item.optJSONObject("nextAiringEpisode")
+                val countdown = nextAiring?.let { na ->
+                    val ep = na.optInt("episode", 0)
+                    val seconds = na.optLong("timeUntilAiring", 0L)
+                    if (ep > 0 && seconds > 0L) {
+                        val days = seconds / 86400L
+                        val hours = (seconds % 86400L) / 3600L
+                        if (days > 0) "EP $ep  ${days}D ${hours}H"
+                        else "EP $ep  ${hours}H"
+                    } else null
+                }
+
+                val genresList = mutableListOf<String>()
+                val genresArr = item.optJSONArray("genres")
+                if (genresArr != null) {
+                    for (g in 0 until genresArr.length()) {
+                        val gen = genresArr.optString(g)
+                        if (gen.isNotBlank()) genresList.add(gen)
+                    }
+                }
+
+                val desc = item.optString("description", "").replace(Regex("<[^>]*>"), "")
+
+                list.add(
+                    HeroUiModel(
+                        id = item.optString("id"),
+                        title = title,
+                        bannerUrl = banner,
+                        posterUrl = poster,
+                        format = format,
+                        episodeText = epCount,
+                        score = score,
+                        duration = duration,
+                        airingCountdown = countdown,
+                        genres = genresList.take(3),
+                        description = desc
+                    )
+                )
+            }
+            list
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to fetch hero trending", e)
+            emptyList()
+        }
+    }
+
+    suspend fun fetchCategoryAnime(
+        sort: String,
+        page: Int = 1,
+        perPage: Int = 18
+    ): List<HomeAnimeCardUiModel> = withContext(Dispatchers.IO) {
+        val query = """
+            query (${'$'}page: Int, ${'$'}perPage: Int, ${'$'}sort: [MediaSort]) {
+              Page(page: ${'$'}page, perPage: ${'$'}perPage) {
+                media(type: ANIME, sort: ${'$'}sort, isAdult: false) {
+                  id
+                  title { english romaji }
+                  coverImage { extraLarge large }
+                  averageScore
+                  format
+                  episodes
+                  startDate { year }
+                }
+              }
+            }
+        """.trimIndent()
+
+        try {
+            val variables = JSONObject().apply {
+                put("page", page)
+                put("perPage", perPage)
+                put("sort", JSONArray().apply { put(sort) })
+            }
+            val jsonPayload = JSONObject().apply {
+                put("query", query)
+                put("variables", variables)
+            }
+            val request = Request.Builder()
+                .url(GRAPHQL_URL)
+                .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            val response = executeWithRetry(request)
+            val bodyString = response.use { if (it.isSuccessful) it.body?.string().orEmpty() else "" }
+            if (bodyString.isBlank()) return@withContext emptyList()
+
+            val json = validateGraphQLResponse(bodyString)
+            val mediaArray = json.optJSONObject("data")?.optJSONObject("Page")?.optJSONArray("media") ?: return@withContext emptyList()
+            val list = mutableListOf<HomeAnimeCardUiModel>()
+
+            for (i in 0 until mediaArray.length()) {
+                val item = mediaArray.getJSONObject(i)
+                val titleObj = item.optJSONObject("title")
+                val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: titleObj?.optString("romaji").orEmpty()
+
+                val poster = item.optJSONObject("coverImage")?.optString("extraLarge")?.takeIf { it.isNotBlank() }
+                    ?: item.optJSONObject("coverImage")?.optString("large").orEmpty()
+
+                val scoreInt = item.optInt("averageScore", 0)
+                val rating = if (scoreInt > 0) "$scoreInt%" else "N/A"
+                val format = item.optString("format", "TV").replace("_", " ")
+                val year = item.optJSONObject("startDate")?.optInt("year")?.takeIf { it > 0 }?.toString() ?: ""
+                val ep = item.optInt("episodes", 0).takeIf { it > 0 }?.let { "$it EP" } ?: ""
+
+                list.add(
+                    HomeAnimeCardUiModel(
+                        id = item.optString("id"),
+                        title = title,
+                        posterUrl = poster,
+                        rating = rating,
+                        type = format,
+                        year = year,
+                        episodes = ep,
+                        isDub = false
+                    )
+                )
+            }
+            list
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to fetch category anime sort=$sort", e)
+            emptyList()
+        }
+    }
+
+    suspend fun fetchMovies(
+        page: Int = 1,
+        perPage: Int = 18
+    ): List<HomeAnimeCardUiModel> = withContext(Dispatchers.IO) {
+        val query = """
+            query (${'$'}page: Int, ${'$'}perPage: Int) {
+              Page(page: ${'$'}page, perPage: ${'$'}perPage) {
+                media(type: ANIME, format: MOVIE, sort: POPULARITY_DESC, isAdult: false) {
+                  id
+                  title { english romaji }
+                  coverImage { extraLarge large }
+                  averageScore
+                  startDate { year }
+                  episodes
+                }
+              }
+            }
+        """.trimIndent()
+
+        try {
+            val variables = JSONObject().apply {
+                put("page", page)
+                put("perPage", perPage)
+            }
+            val jsonPayload = JSONObject().apply {
+                put("query", query)
+                put("variables", variables)
+            }
+            val request = Request.Builder()
+                .url(GRAPHQL_URL)
+                .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            val response = executeWithRetry(request)
+            val bodyString = response.use { if (it.isSuccessful) it.body?.string().orEmpty() else "" }
+            if (bodyString.isBlank()) return@withContext emptyList()
+
+            val json = validateGraphQLResponse(bodyString)
+            val mediaArray = json.optJSONObject("data")?.optJSONObject("Page")?.optJSONArray("media") ?: return@withContext emptyList()
+            val list = mutableListOf<HomeAnimeCardUiModel>()
+
+            for (i in 0 until mediaArray.length()) {
+                val item = mediaArray.getJSONObject(i)
+                val titleObj = item.optJSONObject("title")
+                val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: titleObj?.optString("romaji").orEmpty()
+
+                val poster = item.optJSONObject("coverImage")?.optString("extraLarge")?.takeIf { it.isNotBlank() }
+                    ?: item.optJSONObject("coverImage")?.optString("large").orEmpty()
+
+                val scoreInt = item.optInt("averageScore", 0)
+                val rating = if (scoreInt > 0) "$scoreInt%" else "N/A"
+                val year = item.optJSONObject("startDate")?.optInt("year")?.takeIf { it > 0 }?.toString() ?: ""
+
+                list.add(
+                    HomeAnimeCardUiModel(
+                        id = item.optString("id"),
+                        title = title,
+                        posterUrl = poster,
+                        rating = rating,
+                        type = "MOVIE",
+                        year = year,
+                        episodes = "1 EP",
+                        isDub = false
+                    )
+                )
+            }
+            list
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to fetch movies", e)
+            emptyList()
+        }
     }
 
     // ==========================================

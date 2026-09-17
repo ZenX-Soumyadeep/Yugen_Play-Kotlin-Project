@@ -34,9 +34,10 @@ import com.zenx.yugen.play.ui.settings.SettingsScreen
 
 sealed class BottomNavItem(val route: String, val label: String, val selectedIcon: ImageVector, val unselectedIcon: ImageVector) {
     data object Home : BottomNavItem("home", "Home", Icons.Filled.Home, Icons.Outlined.Home)
-    data object Calendar : BottomNavItem("calendar", "Calendar", Icons.Filled.DateRange, Icons.Outlined.DateRange)
-    data object Library : BottomNavItem("library", "Library", Icons.Filled.Favorite, Icons.Outlined.FavoriteBorder)
+    data object Search : BottomNavItem("search", "Search", Icons.Filled.Search, Icons.Outlined.Search)
     data object Downloads : BottomNavItem("downloads", "Downloads", Icons.Filled.Download, Icons.Outlined.Download)
+    data object Library : BottomNavItem("library", "Library", Icons.Filled.VideoLibrary, Icons.Outlined.VideoLibrary)
+    data object Settings : BottomNavItem("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
 private fun buildPlayerRoute(
@@ -74,22 +75,25 @@ fun MainScreen(
 
     val bottomNavItems = listOf(
         BottomNavItem.Home,
-        BottomNavItem.Calendar,
+        BottomNavItem.Search,
+        BottomNavItem.Downloads,
         BottomNavItem.Library,
-        BottomNavItem.Downloads
+        BottomNavItem.Settings
     )
-    val bottomNavRoutes = remember { bottomNavItems.map { it.route } }
+    val bottomNavRoutes = remember { bottomNavItems.map { it.route } + listOf("calendar") }
 
     val activeTabRoute = remember(currentRoute) {
         when {
-            currentRoute?.startsWith(BottomNavItem.Calendar.route) == true -> BottomNavItem.Calendar.route
-            currentRoute?.startsWith(BottomNavItem.Library.route) == true -> BottomNavItem.Library.route
+            currentRoute?.startsWith(BottomNavItem.Search.route) == true -> BottomNavItem.Search.route
             currentRoute?.startsWith(BottomNavItem.Downloads.route) == true -> BottomNavItem.Downloads.route
-            else -> BottomNavItem.Home.route
+            currentRoute?.startsWith(BottomNavItem.Library.route) == true -> BottomNavItem.Library.route
+            currentRoute?.startsWith(BottomNavItem.Settings.route) == true -> BottomNavItem.Settings.route
+            currentRoute?.startsWith(BottomNavItem.Home.route) == true -> BottomNavItem.Home.route
+            else -> ""
         }
     }
 
-    val showBottomBar = currentRoute in bottomNavRoutes
+    val showBottomBar = bottomNavRoutes.any { currentRoute?.startsWith(it) == true }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF09090B))) {
 
@@ -165,6 +169,8 @@ fun MainScreen(
             composable(BottomNavItem.Home.route) {
                 HomeScreen(
                     onSearchClick = { navController.navigate("search") },
+                    onCalendarClick = { navController.navigate("calendar") },
+                    onGenreClick = { genre -> navController.navigate("search?genre=${Uri.encode(genre)}") },
                     onAnimeClick = { id, title, posterUrl -> navController.navigate("detail?id=${Uri.encode(id)}&url=&title=${Uri.encode(title)}&poster=${Uri.encode(posterUrl)}") },
                     onHistoryClick = { episodeId, title, poster ->
                         if (episodeId.startsWith("CLOUD_SYNC_")) {
@@ -177,19 +183,14 @@ fun MainScreen(
                     onProfileClick = { navController.navigate("profile") },
                     onSettingsClick = { navController.navigate("settings") },
                     onTrendingViewAll = { navController.navigate("search?sort=TRENDING_DESC") },
-                    onAiringViewAll = {
-                        navController.navigate(BottomNavItem.Calendar.route) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    }
+                    onAiringViewAll = { navController.navigate("calendar") }
                 )
             }
 
-            composable(BottomNavItem.Calendar.route) {
+            composable("calendar") {
                 CalendarScreen(
-                    onAnimeClick = { id, title, posterUrl -> navController.navigate("detail?id=${Uri.encode(id)}&url=&title=${Uri.encode(title)}&poster=${Uri.encode(posterUrl)}") }
+                    onAnimeClick = { id, title, posterUrl -> navController.navigate("detail?id=${Uri.encode(id)}&url=&title=${Uri.encode(title)}&poster=${Uri.encode(posterUrl)}") },
+                    onBackClick = { navController.popBackStack() }
                 )
             }
 
@@ -289,14 +290,15 @@ fun MainScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 24.dp),
+                    .navigationBarsPadding()
+                    .padding(bottom = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
                 FloatingAnimatedBottomBar(
                     items = bottomNavItems,
                     currentRoute = activeTabRoute,
                     onItemClick = { route ->
-                        if (currentRoute != route) {
+                        if (activeTabRoute != route) {
                             navController.navigate(route) {
                                 popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                                 launchSingleTop = true

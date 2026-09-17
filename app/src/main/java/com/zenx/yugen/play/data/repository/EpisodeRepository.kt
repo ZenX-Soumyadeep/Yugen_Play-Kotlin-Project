@@ -82,19 +82,44 @@ class EpisodeRepository @Inject constructor(
 
         // 3. Provider search
         if (resolvedUrl == null) {
-            val searchResults = provider.search(title)
+            var searchResults = provider.search(title)
             var bestMatch = findBestMatch(title, searchResults)
+
+            if (bestMatch == null) {
+                val cleanQuery = title.replace(Regex("""\s*\(\d{4}\)"""), "").replace("×", "x").trim()
+                if (cleanQuery != title && cleanQuery.isNotBlank()) {
+                    val fallbackResults = provider.search(cleanQuery)
+                    bestMatch = findBestMatch(title, fallbackResults)
+                    if (bestMatch != null) searchResults = fallbackResults
+                }
+            }
 
             if (bestMatch == null) {
                 val shortTitle = title.substringBefore(":").substringBefore(" Season").substringBefore(" Part").trim()
                 if (shortTitle != title && shortTitle.isNotBlank()) {
                     val fallbackResults = provider.search(shortTitle)
                     bestMatch = findBestMatch(title, fallbackResults)
+                    if (bestMatch != null) searchResults = fallbackResults
                 }
             }
 
             if (bestMatch != null) {
                 resolvedUrl = bestMatch.url
+                // Avoid dummy 1-episode fallback matches when a multi-episode candidate exists
+                var testEpisodes = provider.getEpisodes(resolvedUrl)
+                if ((testEpisodes.isEmpty() || (testEpisodes.size == 1 && testEpisodes.first().title.contains("Full Movie", ignoreCase = true))) && searchResults.size > 1) {
+                    for (alternate in searchResults.filter { it.url != resolvedUrl }) {
+                        if (cleanBaseTitle(alternate.title) == cleanBaseTitle(title)) {
+                            val altEps = provider.getEpisodes(alternate.url)
+                            if (altEps.size > testEpisodes.size) {
+                                resolvedUrl = alternate.url
+                                testEpisodes = altEps
+                                break
+                            }
+                        }
+                    }
+                }
+
                 val cacheKey = if (anilistId != null) "${provider.name}:$anilistId" else "${provider.name}:$title"
                 sessionUrlCache.put(cacheKey, resolvedUrl)
             }
@@ -119,7 +144,13 @@ class EpisodeRepository @Inject constructor(
         }
         if (rawEpisodes.isEmpty()) return emptyList()
 
-        return rawEpisodes.mapIndexed { index, ep ->
+        val distinctEpisodes = rawEpisodes
+            .filter { it.number > 0f }
+            .distinctBy { it.number }
+            .ifEmpty { rawEpisodes.distinctBy { it.id } }
+            .sortedBy { it.number }
+
+        return distinctEpisodes.mapIndexed { index, ep ->
             val fallbackNumber = (index + 1).toFloat()
             val validNumber = if (ep.number > 0f) ep.number else fallbackNumber
             val cleanTitle = sanitizeTitle(ep.title, validNumber)
@@ -156,6 +187,7 @@ class EpisodeRepository @Inject constructor(
 
         val targetSeason = extractSeason(targetTitle)
         val targetPart = extractPart(targetTitle)
+        val targetYear = extractYear(targetTitle)
         val cleanTarget = cleanBaseTitle(targetTitle)
 
         var bestResult: SearchResult? = null
@@ -164,20 +196,29 @@ class EpisodeRepository @Inject constructor(
         for (result in results) {
             val candidateSeason = extractSeason(result.title)
             val candidatePart = extractPart(result.title)
+            val candidateYear = extractYear(result.title)
             val cleanCandidate = cleanBaseTitle(result.title)
 
-            // Issue 8.1 Fix: Allow exact base title match without forcing strict season inequality
-            // If the base titles match perfectly, and the explicitly stated seasons DO NOT conflict, it's a perfect match
+            // Season and part conflicts disqualify candidate
+            val seasonConflict = targetSeason != null && candidateSeason != null && targetSeason != candidateSeason
+            val partConflict = targetPart != null && candidatePart != null && targetPart != candidatePart
+            val yearConflict = targetYear != null && candidateYear != null && targetYear != candidateYear
+            if (seasonConflict || partConflict || yearConflict) continue
+
             if (cleanTarget == cleanCandidate) {
-                val seasonConflict = targetSeason != null && candidateSeason != null && targetSeason != candidateSeason
-                val partConflict = targetPart != null && candidatePart != null && targetPart != candidatePart
-                if (!seasonConflict && !partConflict) {
+                // If years explicitly match or candidate has same year, it's a top-tier match
+                if (targetYear != null && candidateYear == targetYear) {
                     return result
+                }
+                if (bestResult == null) {
+                    bestResult = result
+                    highestScore = 1.0
                 }
             }
 
-            // Fallback to fuzzy Levenshtein for weird scraper naming conventions (e.g. story arcs instead of seasons)
-            val score = calculateSimilarity(cleanTarget, cleanCandidate)
+            // Levenshtein similarity with bonus for year alignment
+            val yearBonus = if (targetYear != null && candidateYear == targetYear) 0.2 else 0.0
+            val score = calculateSimilarity(cleanTarget, cleanCandidate) + yearBonus
             if (score > highestScore) {
                 highestScore = score
                 bestResult = result
@@ -191,6 +232,11 @@ class EpisodeRepository @Inject constructor(
         }
 
         return if (highestScore >= requiredThreshold) bestResult else null
+    }
+
+    private fun extractYear(title: String): Int? {
+        val match = Regex("""\b(19\d{2}|20\d{2})\b""").find(title)
+        return match?.groupValues?.get(1)?.toIntOrNull()
     }
 
     // Issue 8.1 Fix: Return nullable integers. Do not assume '1' or hardcode 'final season'.
@@ -243,6 +289,8 @@ class EpisodeRepository @Inject constructor(
             .replace(Regex("""\b(?:part|cour)[-.\s]*(?:\d+|iv|iii|ii|i)\b"""), "")
             .replace(Regex("""\bfinal season\b"""), "")
             .replace(Regex("""\b(iv|iii|ii)\b"""), "")
+            .replace(Regex("""\b(19\d{2}|20\d{2})\b"""), "")
+            .replace("×", "x")
             .replace(Regex("""[^a-z0-9 ]"""), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()

@@ -18,6 +18,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,17 +43,23 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.util.Consumer
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.Player
+import androidx.media3.common.text.Cue
+import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
@@ -148,8 +155,20 @@ fun PlayerScreen(
         }
     }
 
+    val readyState = uiState as? PlayerUiState.Ready
+    val isAnyPanelVisible = readyState?.let {
+        it.isQualitySheetVisible || it.isSubtitleSheetVisible || it.isServerSheetVisible || it.isSpeedSheetVisible
+    } ?: false
+
     BackHandler(enabled = !isInPipMode) {
-        if (isLocked) {
+        if (isAnyPanelVisible) {
+            viewModel.setQualitySheetVisibility(false)
+            viewModel.setSubtitleSheetVisibility(false)
+            viewModel.setServerSheetVisibility(false)
+            viewModel.setSpeedSheetVisibility(false)
+        } else if (showControls && !isLocked) {
+            showControls = false
+        } else if (isLocked) {
             showControls = true
         } else {
             viewModel.saveCurrentProgress()
@@ -157,7 +176,48 @@ fun PlayerScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
+    val subtitleElevationFraction = 0.10f
+    val targetSubtitleLine = 1.0f - subtitleElevationFraction
+
+    DisposableEffect(viewModel.player, playerViewRef) {
+        val pv = playerViewRef ?: return@DisposableEffect onDispose {}
+
+        fun adjustCues(cues: List<Cue>): List<Cue> {
+            return cues.map { cue ->
+                val isBottom = cue.line == Cue.DIMEN_UNSET ||
+                    (cue.lineType == Cue.LINE_TYPE_FRACTION && cue.line >= 0.65f) ||
+                    (cue.lineType == Cue.LINE_TYPE_NUMBER && (cue.line < 0f || cue.line >= 10f))
+
+                if (isBottom) {
+                    cue.buildUpon()
+                        .setLine(targetSubtitleLine, Cue.LINE_TYPE_FRACTION)
+                        .setLineAnchor(Cue.ANCHOR_TYPE_END)
+                        .build()
+                } else {
+                    cue
+                }
+            }
+        }
+
+        val cueListener = object : Player.Listener {
+            override fun onCues(cueGroup: CueGroup) {
+                pv.subtitleView?.setCues(adjustCues(cueGroup.cues))
+            }
+        }
+
+        viewModel.player.addListener(cueListener)
+        val current = viewModel.player.currentCues.cues
+        onDispose {
+            viewModel.player.removeListener(cueListener)
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
 
         AndroidView(
             factory = { ctx ->
@@ -171,12 +231,16 @@ fun PlayerScreen(
                     keepScreenOn = true
 
                     subtitleView?.apply {
-                        setApplyEmbeddedStyles(true)
-                        setApplyEmbeddedFontSizes(true)
+                        setApplyEmbeddedStyles(false)
+                        setApplyEmbeddedFontSizes(false)
+                        setBottomPaddingFraction(subtitleElevationFraction)
                     }
+
+                    playerViewRef = this
                 }
             },
             update = { view ->
+                playerViewRef = view
                 val readyState = uiState as? PlayerUiState.Ready
 
                 view.resizeMode = when (readyState?.resizeMode) {
@@ -188,6 +252,9 @@ fun PlayerScreen(
 
                 readyState?.let { state ->
                     view.subtitleView?.apply {
+                        setApplyEmbeddedStyles(false)
+                        setApplyEmbeddedFontSizes(false)
+                        setBottomPaddingFraction(subtitleElevationFraction)
                         setFractionalTextSize(state.subtitleSize)
 
                         val textArgb = state.subtitleTextColor.toInt()
@@ -210,6 +277,9 @@ fun PlayerScreen(
                         )
                     }
                 }
+            },
+            onRelease = {
+                playerViewRef = null
             }
         )
 

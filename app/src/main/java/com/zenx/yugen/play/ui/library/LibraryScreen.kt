@@ -178,7 +178,7 @@ fun LibraryScreen(
                 ) {
                     Text(
                         text = label,
-                        color = if (isSelected) Color.White else Color.Gray,
+                        color = if (isSelected) Color.White else Color.White.copy(alpha = 0.65f),
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                         fontSize = 13.5.sp,
                         maxLines = 1,
@@ -195,13 +195,24 @@ fun LibraryScreen(
             0 -> {
                 // Bookmarks Tab
                 if (authState.isAuthenticated) {
-                    val filterCategories = listOf("All", "Watching", "Completed", "Planning", "Local")
+                    // Category Sub-filter (All, Watching, Completed, etc.)
+                    val categories = listOf("All", "Watching", "Completed", "Planning", "Local")
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp)
                     ) {
-                        items(filterCategories) { cat ->
+                        items(categories) { cat ->
                             val isCatSelected = selectedBookmarkFilter == cat
+                            val count = if (cat == "All") {
+                                anilistData.values.flatten().distinctBy { it.mediaId }.size + favorites.size
+                            } else if (cat == "Local") {
+                                favorites.size
+                            } else {
+                                anilistData[cat]?.distinctBy { it.mediaId }?.size ?: 0
+                            }
+
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
@@ -211,8 +222,8 @@ fun LibraryScreen(
                                     .padding(horizontal = 12.dp, vertical = 6.dp)
                             ) {
                                 Text(
-                                    text = cat,
-                                    color = if (isCatSelected) accentPurple else Color.LightGray,
+                                    text = "$cat ($count)",
+                                    color = if (isCatSelected) accentPurple else Color.White.copy(alpha = 0.75f),
                                     fontSize = 12.sp,
                                     fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Medium
                                 )
@@ -224,10 +235,20 @@ fun LibraryScreen(
                         LibrarySkeletonGrid()
                     } else if (anilistData.isEmpty() && favorites.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.Bookmarks, contentDescription = null, tint = glassBorder, modifier = Modifier.size(54.dp))
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text("No bookmarks found in your library.", color = Color.Gray, fontSize = 14.sp)
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.padding(horizontal = 32.dp)
+                            ) {
+                                Icon(Icons.Default.Bookmarks, contentDescription = null, tint = Color.White.copy(alpha = 0.25f), modifier = Modifier.size(52.dp))
+                                Text("No Bookmarks Yet", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "Save your favorite anime from any detail page to keep track of shows you love.",
+                                    color = Color.White.copy(alpha = 0.65f),
+                                    fontSize = 13.sp,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = 18.sp
+                                )
                             }
                         }
                     } else {
@@ -356,12 +377,20 @@ fun LibraryScreen(
                     // Local Bookmarks only
                     if (favorites.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.Bookmarks, contentDescription = null, tint = glassBorder, modifier = Modifier.size(54.dp))
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text("No bookmarks yet.", color = Color.Gray, fontSize = 14.sp)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text("Bookmark shows from details page to access them here.", color = Color.DarkGray, fontSize = 12.sp)
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.padding(horizontal = 32.dp)
+                            ) {
+                                Icon(Icons.Default.Bookmarks, contentDescription = null, tint = Color.White.copy(alpha = 0.25f), modifier = Modifier.size(52.dp))
+                                Text("No Local Bookmarks Yet", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "Bookmark shows from any anime detail page to quickly access them offline or locally.",
+                                    color = Color.White.copy(alpha = 0.65f),
+                                    fontSize = 13.sp,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = 18.sp
+                                )
                             }
                         }
                     } else {
@@ -413,12 +442,20 @@ fun LibraryScreen(
                 // Watch History Tab
                 if (history.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.History, contentDescription = null, tint = glassBorder, modifier = Modifier.size(54.dp))
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text("No watch history found.", color = Color.Gray, fontSize = 14.sp)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("Episodes you play will automatically appear here.", color = Color.DarkGray, fontSize = 12.sp)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.padding(horizontal = 32.dp)
+                        ) {
+                            Icon(Icons.Default.History, contentDescription = null, tint = Color.White.copy(alpha = 0.25f), modifier = Modifier.size(52.dp))
+                            Text("No Watch History Yet", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Episodes you play on mobile or TV will automatically appear here with your saved timestamp progress.",
+                                color = Color.White.copy(alpha = 0.65f),
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 18.sp
+                            )
                         }
                     }
                 } else {

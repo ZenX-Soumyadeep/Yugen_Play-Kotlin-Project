@@ -47,6 +47,7 @@ fun SettingsScreen(
     val haptic = LocalHapticFeedback.current
 
     val updateInfo by updateViewModel.updateInfo.collectAsStateWithLifecycle()
+    val downloadState by updateViewModel.downloadState.collectAsStateWithLifecycle()
     var showUpdateDialog by remember { mutableStateOf(false) }
     var showWhatsNewSheet by remember { mutableStateOf(false) }
     var showClearHistoryDialog by remember { mutableStateOf(false) }
@@ -115,7 +116,7 @@ fun SettingsScreen(
                     )
                     Text(
                         text = "Preferences & Diagnostics",
-                        color = Color.Gray,
+                        color = Color.White.copy(alpha = 0.65f),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -150,7 +151,7 @@ fun SettingsScreen(
                             Icon(Icons.Default.FastForward, contentDescription = null, tint = accentPurple, modifier = Modifier.size(18.dp))
                             Text("Double-Tap Seek", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         }
-                        Text("Duration when double-tapping left/right to seek", color = Color.Gray, fontSize = 12.sp)
+                        Text("Duration when double-tapping left/right to seek", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf(5, 10, 15, 30).forEach { sec ->
                                 val isSelected = seekDurationSec == sec
@@ -180,7 +181,7 @@ fun SettingsScreen(
                             Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
                             Column {
                                 Text("Auto-Play Next Episode", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                Text("Show countdown and auto-advance at episode end", color = Color.Gray, fontSize = 12.sp)
+                                Text("Show countdown and auto-advance at episode end", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp)
                             }
                         }
                         Switch(
@@ -202,7 +203,7 @@ fun SettingsScreen(
                             Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = accentBlue, modifier = Modifier.size(18.dp))
                             Column {
                                 Text("Prefer Dub Streams", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                Text("Prioritize English dub servers when available", color = Color.Gray, fontSize = 12.sp)
+                                Text("Prioritize English dub servers when available", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp)
                             }
                         }
                         Switch(
@@ -233,7 +234,7 @@ fun SettingsScreen(
                             Icon(Icons.Default.Download, contentDescription = null, tint = accentPurple, modifier = Modifier.size(18.dp))
                             Text("Max Parallel Downloads", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         }
-                        Text("Number of episodes to download simultaneously in a batch.", color = Color.Gray, fontSize = 12.sp)
+                        Text("Number of episodes to download simultaneously in a batch.", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf(1, 2, 3, 5).forEach { count ->
                                 val isSelected = maxParallelDownloads == count
@@ -381,7 +382,7 @@ fun SettingsScreen(
                             Icon(
                                 Icons.AutoMirrored.Filled.OpenInNew,
                                 contentDescription = null,
-                                tint = Color.Gray,
+                                tint = Color.White.copy(alpha = 0.5f),
                                 modifier = Modifier.size(18.dp)
                             )
                         },
@@ -405,7 +406,7 @@ fun SettingsScreen(
                             Icon(
                                 Icons.AutoMirrored.Filled.OpenInNew,
                                 contentDescription = null,
-                                tint = Color.Gray,
+                                tint = Color.White.copy(alpha = 0.5f),
                                 modifier = Modifier.size(18.dp)
                             )
                         },
@@ -434,11 +435,12 @@ fun SettingsScreen(
     if (showUpdateDialog && updateInfo != null) {
         UpdateDialog(
             updateInfo = updateInfo!!,
+            downloadState = downloadState,
             onDismiss = { showUpdateDialog = false },
-            onUpdateClick = {
-                showUpdateDialog = false
-                updateViewModel.triggerUpdateDownload(updateInfo!!.downloadUrl)
-            }
+            onStartDownload = { url -> updateViewModel.downloadAndInstallApk(url) },
+            onInstallApk = { file -> updateViewModel.installApk(file) },
+            onCancelDownload = { updateViewModel.cancelDownload() },
+            onResetDownloadState = { updateViewModel.resetDownloadState() }
         )
     }
 
@@ -557,7 +559,7 @@ private fun SettingsItem(
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = subtitle,
-                color = Color.Gray,
+                color = Color.White.copy(alpha = 0.65f),
                 fontSize = 12.sp,
                 lineHeight = 16.sp
             )

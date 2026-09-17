@@ -98,21 +98,30 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 Box(modifier = Modifier.fillMaxSize()) {
-                    MainScreen(
-                        pendingNavRoute = pendingNavRoute,
-                        onRouteHandled = { pendingNavRoute = null }
-                    )
+                    val isTv = remember { com.zenx.yugen.play.util.DeviceUtils.isTvDevice(this@MainActivity) }
 
-                    val isFullscreen = WindowInsets.statusBars.getTop(LocalDensity.current) == 0
+                    if (isTv) {
+                        com.zenx.yugen.play.ui.tv.TvMainScreen(
+                            pendingNavRoute = pendingNavRoute,
+                            onRouteHandled = { pendingNavRoute = null }
+                        )
+                    } else {
+                        MainScreen(
+                            pendingNavRoute = pendingNavRoute,
+                            onRouteHandled = { pendingNavRoute = null }
+                        )
 
-                    if (!isFullscreen) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .statusBarsPadding()
-                                .zIndex(1f)
-                        ) {
-                            GlobalNetworkBanner(context = LocalContext.current)
+                        val isFullscreen = WindowInsets.statusBars.getTop(LocalDensity.current) == 0
+
+                        if (!isFullscreen) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .statusBarsPadding()
+                                    .zIndex(1f)
+                            ) {
+                                GlobalNetworkBanner(context = LocalContext.current)
+                            }
                         }
                     }
                 }

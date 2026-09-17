@@ -121,25 +121,25 @@ fun AnimeInfoHeader(
         ) {
             if (state.year.isNotBlank() && state.year != "N/A") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.CalendarToday, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(12.dp))
+                    Icon(Icons.Rounded.CalendarToday, contentDescription = null, tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(12.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(state.year, color = Color.LightGray, fontSize = 12.sp)
+                    Text(state.year, color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
                 }
-                Text("•", color = Color.DarkGray, fontSize = 12.sp)
+                Text("•", color = Color.White.copy(alpha = 0.35f), fontSize = 12.sp)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.SlowMotionVideo, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(14.dp))
+                Icon(Icons.Rounded.SlowMotionVideo, contentDescription = null, tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(14.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("${state.episodeCount} Ep", color = Color.LightGray, fontSize = 12.sp)
+                Text("${state.episodeCount} Ep", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
             }
-            Text("•", color = Color.DarkGray, fontSize = 12.sp)
+            Text("•", color = Color.White.copy(alpha = 0.35f), fontSize = 12.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Schedule, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(13.dp))
+                Icon(Icons.Rounded.Schedule, contentDescription = null, tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(13.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("24m", color = Color.LightGray, fontSize = 12.sp)
+                Text("24m", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
             }
             if (state.format.isNotBlank()) {
-                Text("•", color = Color.DarkGray, fontSize = 12.sp)
+                Text("•", color = Color.White.copy(alpha = 0.35f), fontSize = 12.sp)
                 Text(state.format, color = accentPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
@@ -601,7 +601,7 @@ fun DynamicActionIsland(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text("Delete Download?", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                Text("Episode ${targetState.episode.number}", color = Color.Gray, fontSize = 13.sp)
+                                Text("Episode ${targetState.episode.number}", color = Color.White.copy(alpha = 0.65f), fontSize = 13.sp)
                             }
                         }
                         Row {
@@ -632,7 +632,6 @@ private fun IslandStreamSelector(
     val hasDub = remember(streams) { streams.any { it.quality.contains("dub", ignoreCase = true) } }
     val hasSub = remember(streams) { streams.any { !it.quality.contains("dub", ignoreCase = true) } }
     var isDubTabSelected by remember(hasDub, hasSub) { mutableStateOf(hasDub && !hasSub) }
-    var selectedServerName by remember { mutableStateOf<String?>(null) }
 
     val currentStreams = remember(streams, isDubTabSelected) { streams.filter { it.quality.contains("dub", ignoreCase = true) == isDubTabSelected } }
     val serverGroups = remember(currentStreams) {
@@ -642,35 +641,32 @@ private fun IslandStreamSelector(
         }
     }
 
-    BackHandler(enabled = selectedServerName != null) { selectedServerName = null }
-
     Box(modifier = Modifier.fillMaxWidth().heightIn(max = 450.dp).padding(top = 20.dp, bottom = 12.dp)) {
-        AnimatedContent(
-            targetState = selectedServerName,
-            transitionSpec = {
-                if (targetState != null) slideInHorizontally(tween(300)) { width -> width } + fadeIn() togetherWith slideOutHorizontally(tween(300)) { width -> -width } + fadeOut()
-                else slideInHorizontally(tween(300)) { width -> -width } + fadeIn() togetherWith slideOutHorizontally(tween(300)) { width -> width } + fadeOut()
-            }, label = "IslandNavigation"
-        ) { activeServer ->
-            if (activeServer == null) {
-                IslandServerSelectionView(
-                    hasSub = hasSub, hasDub = hasDub, isDubTabSelected = isDubTabSelected, onTabChange = { isDubTabSelected = it },
-                    serverGroups = serverGroups, dominantColor = dominantColor, onClose = onDismiss, onServerClick = { selectedServerName = it }
-                )
-            } else {
-                val serverStreams = serverGroups[activeServer] ?: emptyList()
-                IslandResolutionSelectionView(
-                    serverName = activeServer, isDub = isDubTabSelected, streams = serverStreams, isDownloadMode = isDownloadMode,
-                    dominantColor = dominantColor, onBack = { selectedServerName = null }, onSelect = onStreamSelected
-                )
+        IslandServerSelectionView(
+            hasSub = hasSub,
+            hasDub = hasDub,
+            isDubTabSelected = isDubTabSelected,
+            isDownloadMode = isDownloadMode,
+            onTabChange = { isDubTabSelected = it },
+            serverGroups = serverGroups,
+            dominantColor = dominantColor,
+            onClose = onDismiss,
+            onServerClick = { serverName ->
+                val serverStreams = serverGroups[serverName] ?: emptyList()
+                val chosenStream = serverStreams.maxByOrNull { s ->
+                    s.resolution?.filter { it.isDigit() }?.toIntOrNull() ?: 0
+                } ?: serverStreams.firstOrNull()
+                if (chosenStream != null) {
+                    onStreamSelected(chosenStream)
+                }
             }
-        }
+        )
     }
 }
 
 @Composable
 private fun IslandServerSelectionView(
-    hasSub: Boolean, hasDub: Boolean, isDubTabSelected: Boolean,
+    hasSub: Boolean, hasDub: Boolean, isDubTabSelected: Boolean, isDownloadMode: Boolean,
     onTabChange: (Boolean) -> Unit, serverGroups: Map<String, List<VideoStream>>,
     dominantColor: Color, onClose: () -> Unit, onServerClick: (String) -> Unit
 ) {
@@ -701,7 +697,13 @@ private fun IslandServerSelectionView(
                     val badge = when { maxRes >= 1080 -> "FHD"; maxRes >= 720 -> "HD"; maxRes > 0 -> "SD"; else -> "Auto" }
 
                     Row(
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (isTopRecommended) dominantColor.copy(alpha = 0.1f) else IslandCardBg).border(1.dp, if (isTopRecommended) dominantColor.copy(alpha = 0.3f) else Color.Transparent, RoundedCornerShape(14.dp)).clickable { onServerClick(serverName) }.padding(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (isTopRecommended) dominantColor.copy(alpha = 0.1f) else IslandCardBg)
+                            .border(1.dp, if (isTopRecommended) dominantColor.copy(alpha = 0.3f) else Color.Transparent, RoundedCornerShape(14.dp))
+                            .clickable { onServerClick(serverName) }
+                            .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(if (isTopRecommended) dominantColor else IslandItemBg), contentAlignment = Alignment.Center) {
@@ -713,73 +715,13 @@ private fun IslandServerSelectionView(
                             Text(text = badge, color = dominantColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
                         Spacer(modifier = Modifier.width(12.dp))
-                        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
+                        Icon(
+                            imageVector = if (isDownloadMode) Icons.Rounded.Download else Icons.Rounded.PlayArrow,
+                            contentDescription = if (isDownloadMode) "Download" else "Play",
+                            tint = if (isTopRecommended) dominantColor else TextMuted,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun IslandResolutionSelectionView(
-    serverName: String, isDub: Boolean, streams: List<VideoStream>, isDownloadMode: Boolean,
-    dominantColor: Color, onBack: () -> Unit, onSelect: (VideoStream) -> Unit
-) {
-    val displayStreams = remember(streams, isDownloadMode) {
-        if (isDownloadMode && streams.size > 1) streams.filter { !(it.resolution.equals("Auto", true) || it.quality.contains("Auto", true)) } else streams
-    }
-
-    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, modifier = Modifier.offset(x = (-12).dp).size(24.dp)) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = Color.White)
-            }
-            Spacer(modifier = Modifier.width(4.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = serverName, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(dominantColor.copy(alpha = 0.2f)).padding(horizontal = 4.dp, vertical = 2.dp)) {
-                        Text(text = if (isDub) "DUB" else "SUB", color = dominantColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-                Spacer(modifier = Modifier.height(2.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.VerifiedUser, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(12.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(text = if (streams.firstOrNull()?.format == "MP4") "Direct MP4 Provider" else "Adaptive HLS Server", color = Color(0xFF10B981), fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                }
-            }
-            Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(dominantColor), contentAlignment = Alignment.Center) {
-                Icon(imageVector = if (isDownloadMode) Icons.Rounded.Download else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
-            }
-        }
-        Spacer(modifier = Modifier.height(24.dp))
-        Text("Select Resolution", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(12.dp))
-
-        LazyColumn(contentPadding = PaddingValues(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(displayStreams) { stream ->
-                val resLabel = stream.resolution ?: "HD"
-                val meta = getResolutionMetaData(resLabel)
-                val sizeStr = stream.sizeInBytes?.let { formatBytes(it, isEstimated = stream.format == "HLS") } ?: "--"
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(IslandCardBg).clickable { onSelect(stream) }.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(IslandItemBg).padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
-                        Text(text = resLabel, color = dominantColor, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(text = meta.first, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(text = meta.second, color = TextMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = sizeStr, color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -799,23 +741,4 @@ private fun StreamTab(title: String, icon: ImageVector, isSelected: Boolean, dom
         Spacer(modifier = Modifier.width(4.dp))
         Text(text = title, color = contentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
-}
-
-private fun getResolutionMetaData(res: String): Pair<String, String> {
-    val r = res.lowercase()
-    return when {
-        r.contains("1080") -> Pair("Full HD", "Best for large screens")
-        r.contains("720") -> Pair("HD", "Balanced quality & size")
-        r.contains("480") -> Pair("SD", "Good for mobile data")
-        r.contains("360") -> Pair("SD", "Smaller size, faster loading")
-        r.contains("240") || r.contains("144") -> Pair("Low", "Minimum data usage")
-        r.contains("auto") -> Pair("Adaptive", "Adjusts to network")
-        else -> Pair("Standard", "Default server quality")
-    }
-}
-
-private fun formatBytes(bytes: Long, isEstimated: Boolean): String {
-    val mb = bytes / (1024.0 * 1024.0)
-    val prefix = if (isEstimated) "~" else ""
-    return if (mb >= 1024.0) String.format(Locale.US, "$prefix%.2f GB", mb / 1024.0) else String.format(Locale.US, "$prefix%.0f MB", mb)
 }

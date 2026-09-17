@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil.imageLoader
+import com.zenx.yugen.play.data.local.AuthPreferences
 import com.zenx.yugen.play.data.local.PlayerPreferences
 import com.zenx.yugen.play.data.local.WatchHistoryDao
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -17,6 +18,7 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val watchHistoryDao: WatchHistoryDao,
     private val playerPreferences: PlayerPreferences,
+    private val authPreferences: AuthPreferences,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -26,6 +28,7 @@ class SettingsViewModel @Inject constructor(
     val autoPlayNext      = playerPreferences.autoPlayNext
     val preferDub         = playerPreferences.preferDub
     val maxParallelDownloads = playerPreferences.maxParallelDownloads
+    val authState         = authPreferences.authState
 
     // ── Setters ───────────────────────────────────────────────────────────────
 
@@ -33,6 +36,7 @@ class SettingsViewModel @Inject constructor(
     fun setAutoPlayNext(enabled: Boolean) = viewModelScope.launch { playerPreferences.setAutoPlayNext(enabled) }
     fun setPreferDub(enabled: Boolean)   = viewModelScope.launch { playerPreferences.setPreferDub(enabled) }
     fun setMaxParallelDownloads(count: Int) = viewModelScope.launch { playerPreferences.setMaxParallelDownloads(count) }
+    fun logout()                         = viewModelScope.launch { authPreferences.clearAuth() }
 
     // ── Existing ──────────────────────────────────────────────────────────────
 

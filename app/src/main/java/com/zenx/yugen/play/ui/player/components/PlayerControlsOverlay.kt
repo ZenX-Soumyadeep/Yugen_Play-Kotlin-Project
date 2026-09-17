@@ -35,6 +35,12 @@ import androidx.mediarouter.app.MediaRouteButton
 import com.google.android.gms.cast.framework.CastButtonFactory
 import com.zenx.yugen.play.domain.Episode
 import com.zenx.yugen.play.domain.SkipInterval
+import android.view.KeyEvent
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.onKeyEvent
 import com.zenx.yugen.play.ui.components.bounceClick
 
 private val AccentPurple = Color(0xFFC4C4FF)
@@ -113,7 +119,12 @@ fun PlayerControlsOverlay(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 GlassyIconButton(icon = Icons.Rounded.SkipPrevious, size = 48.dp, iconSize = 26.dp, onClick = onPreviousClick)
-                GlassyIconButton(icon = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, size = 64.dp, iconSize = 34.dp, onClick = onPlayPauseToggle)
+                GlassyIconButton(
+                    icon = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    size = 64.dp,
+                    iconSize = 34.dp,
+                    onClick = onPlayPauseToggle
+                )
                 GlassyIconButton(icon = Icons.Rounded.SkipNext, size = 48.dp, iconSize = 26.dp, onClick = onNextClick)
             }
 
@@ -362,9 +373,8 @@ private fun PlayerBottomBar(
             Row(
                 modifier = Modifier
                     .padding(bottom = 16.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(GlassCardBg)
-                    .border(1.dp, GlassBorder, RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(100.dp))
+                    .background(IconPurple)
                     .bounceClick { activeSkipInterval?.let { onSkipClick((it.endTime * 1000).toLong()) } }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -476,16 +486,37 @@ fun GlassyIconButton(
     iconSize: Dp = 22.dp,
     onClick: () -> Unit
 ) {
+    var isFocused by remember { mutableStateOf(false) }
+
     Box(
         modifier = modifier
             .size(size)
             .clip(RoundedCornerShape(14.dp))
-            .background(GlassCardBg)
-            .border(1.dp, GlassBorder, RoundedCornerShape(14.dp))
+            .background(if (isFocused) IconPurple.copy(alpha = 0.35f) else GlassCardBg)
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) IconPurple else GlassBorder,
+                shape = RoundedCornerShape(14.dp)
+            )
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .onKeyEvent { keyEvent ->
+                if (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                    keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER ||
+                    keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                ) {
+                    if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
+                        onClick()
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
             .bounceClick(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(iconSize))
+        Icon(imageVector = icon, contentDescription = null, tint = if (isFocused) Color.White else tint, modifier = Modifier.size(iconSize))
     }
 }
 
@@ -536,9 +567,32 @@ private fun ToolbarIcon(
     isCompact: Boolean = false,
     onClick: () -> Unit
 ) {
+    var isFocused by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .clip(CircleShape)
+            .background(if (isFocused) IconPurple.copy(alpha = 0.35f) else Color.Transparent)
+            .border(
+                width = if (isFocused) 1.5.dp else 0.dp,
+                color = if (isFocused) IconPurple else Color.Transparent,
+                shape = CircleShape
+            )
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .onKeyEvent { keyEvent ->
+                if (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                    keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER ||
+                    keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                ) {
+                    if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
+                        onClick()
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
             .bounceClick(onClick = onClick)
             .padding(
                 horizontal = if (isCompact) 2.dp else 4.dp,
@@ -548,7 +602,7 @@ private fun ToolbarIcon(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = Color.White,
+            tint = if (isFocused) Color.White else Color.White.copy(alpha = 0.85f),
             modifier = Modifier.size(if (isCompact) 20.dp else 24.dp)
         )
     }

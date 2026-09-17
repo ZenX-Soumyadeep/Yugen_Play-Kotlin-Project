@@ -243,30 +243,45 @@ class AnikotoProvider @Inject constructor(
 
             if (ajaxHtml.isNotEmpty()) {
                 val ajaxDoc = Jsoup.parse(ajaxHtml)
-                val epElements = ajaxDoc.select("div.episodes ul > li > a, a.ep-item, a[data-id], .ssl-item a, li a")
+                val epElements = ajaxDoc.select("div.episodes ul > li > a, a.ep-item, a[data-id], .ssl-item a")
 
                 epElements.forEach { epElement ->
-                    val epNum = epElement.attr("data-num")
+                    val rawNum = epElement.attr("data-num").ifEmpty {
+                        Regex("""(?:ep(?:isode)?\.?\s*)?(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+                            .find(epElement.text())?.groupValues?.get(1).orEmpty()
+                    }
                     val ids = epElement.attr("data-ids").ifEmpty { epElement.attr("data-id") }
-                    val tooltip = epElement.parent()?.attr("title").orEmpty()
+                    if (ids.isEmpty() && rawNum.isEmpty()) return@forEach
 
+                    val tooltip = epElement.parent()?.attr("title").orEmpty()
                     var title = epElement.parent()?.select("span.d-title")?.text().orEmpty()
                     if (title.isEmpty() && tooltip.isNotEmpty()) {
                         title = tooltip.substringBefore("Release:").substringBefore("Softsub").trim()
                     }
-                    if (title.isEmpty()) title = "Episode $epNum"
+                    if (title.isEmpty()) title = if (rawNum.isNotEmpty()) "Episode $rawNum" else "Episode"
 
-                    val compoundId = "$animeUrl~~~$ids~~~$epNum~~~$name"
-                    episodes.add(Episode(id = compoundId, title = title, number = epNum.toFloatOrNull() ?: 0f))
+                    val numFloat = rawNum.toFloatOrNull() ?: 0f
+                    val compoundId = "$animeUrl~~~$ids~~~$rawNum~~~$name"
+                    episodes.add(Episode(id = compoundId, title = title, number = numFloat))
                 }
             }
         }
 
-        if (episodes.isEmpty()) {
-            episodes.add(Episode(id = "$animeUrl~~~$animeId~~~1~~~$name", title = "Full Movie / Episode 1", number = 1f))
-        }
+        val sortedDeduped = episodes
+            .filter { it.number > 0f }
+            .distinctBy { it.number }
+            .sortedBy { it.number }
 
-        episodes.sortedBy { it.number }
+        if (sortedDeduped.isNotEmpty()) {
+            sortedDeduped
+        } else if (episodes.isNotEmpty()) {
+            episodes.distinctBy { it.id }.mapIndexed { idx, ep ->
+                val fallbackNum = (idx + 1).toFloat()
+                ep.copy(number = if (ep.number > 0f) ep.number else fallbackNum)
+            }.sortedBy { it.number }
+        } else {
+            listOf(Episode(id = "$animeUrl~~~$animeId~~~1~~~$name", title = "Full Movie / Episode 1", number = 1f))
+        }
     }
 
     override suspend fun extractStreams(episodeId: String, title: String): List<VideoStream> = withContext(Dispatchers.IO) {

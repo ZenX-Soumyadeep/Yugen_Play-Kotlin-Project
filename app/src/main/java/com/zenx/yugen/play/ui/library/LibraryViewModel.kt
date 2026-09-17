@@ -159,6 +159,10 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch { watchHistoryDao.deleteHistoryItem(episodeId) }
     }
 
+    fun clearAllHistory() {
+        viewModelScope.launch { watchHistoryDao.clearAllHistory() }
+    }
+
     fun deleteDownload(episodeId: String) {
         pendingDeletionIds.add(episodeId)
         _downloads.update { current -> current.filter { it.id != episodeId } }

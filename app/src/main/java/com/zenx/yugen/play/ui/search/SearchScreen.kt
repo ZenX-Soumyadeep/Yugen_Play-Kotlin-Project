@@ -129,12 +129,12 @@ fun SearchScreen(
                 modifier = Modifier
                     .weight(1f)
                     .defaultMinSize(minHeight = 52.dp),
-                placeholder = { Text("Search anime, movies, OVAs...", color = Color.Gray, fontSize = 13.5.sp) },
+                placeholder = { Text("Search anime, movies, OVAs...", color = Color.White.copy(alpha = 0.45f), fontSize = 13.5.sp) },
                 leadingIcon = {
                     Icon(
                         Icons.Default.Search,
                         contentDescription = null,
-                        tint = if (query.isNotBlank()) accentPurple else Color.Gray
+                        tint = if (query.isNotBlank()) accentPurple else Color.White.copy(alpha = 0.5f)
                     )
                 },
                 trailingIcon = {
@@ -323,7 +323,7 @@ fun SearchScreen(
                                             Icon(
                                                 Icons.Default.Close,
                                                 contentDescription = "Remove",
-                                                tint = Color.Gray,
+                                                tint = Color.White.copy(alpha = 0.6f),
                                                 modifier = Modifier
                                                     .size(14.dp)
                                                     .clickable { viewModel.deleteRecentSearch(searchItem) }
@@ -430,6 +430,7 @@ fun SearchScreen(
                                     }
                                 }
                             }
+                            Spacer(modifier = Modifier.height(115.dp))
                         }
                     }
                 }
@@ -483,7 +484,7 @@ fun SearchScreen(
                             Icon(
                                 Icons.Default.SearchOff,
                                 contentDescription = null,
-                                tint = Color.Gray,
+                                tint = Color.White.copy(alpha = 0.35f),
                                 modifier = Modifier.size(64.dp)
                             )
                             Spacer(modifier = Modifier.height(16.dp))
@@ -496,7 +497,7 @@ fun SearchScreen(
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = "Try adjusting your spelling or removing active filters.",
-                                color = Color.Gray,
+                                color = Color.White.copy(alpha = 0.65f),
                                 fontSize = 13.5.sp,
                                 textAlign = TextAlign.Center
                             )
@@ -504,7 +505,7 @@ fun SearchScreen(
                     } else {
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(3),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 90.dp, top = 6.dp),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 115.dp, top = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp),
                             modifier = Modifier.fillMaxSize()

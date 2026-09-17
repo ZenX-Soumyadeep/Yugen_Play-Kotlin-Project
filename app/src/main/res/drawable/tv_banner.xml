@@ -1,0 +1,48 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+
+    <!-- Background Gradient -->
+    <path
+        android:pathData="M0,0h320v180h-320z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="320"
+                android:endY="180"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF1A0B2E" />
+                <item android:offset="0.4" android:color="#FF10081E" />
+                <item android:offset="1.0" android:color="#FF09090B" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Play Icon Rounded Capsule -->
+    <path
+        android:fillColor="#FF8B5CF6"
+        android:pathData="M80,60 C96.57,60 110,73.43 110,90 C110,106.57 96.57,120 80,120 C63.43,120 50,106.57 50,90 C50,73.43 63.43,60 80,60 Z" />
+
+    <!-- Play Triangle Inside -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M74,77 L92,90 L74,103 Z" />
+
+    <!-- Stylized Branding Bars -->
+    <path
+        android:fillColor="#FF8B5CF6"
+        android:pathData="M130,76 h50 v6 h-50 z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M186,76 h40 v6 h-40 z" />
+    <path
+        android:fillColor="#FFA78BFA"
+        android:pathData="M130,90 h76 v4 h-76 z" />
+    <path
+        android:fillColor="#FF71717A"
+        android:pathData="M130,102 h54 v3 h-54 z" />
+</vector>

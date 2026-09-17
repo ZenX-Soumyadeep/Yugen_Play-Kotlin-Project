@@ -9,18 +9,12 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.FormatSize
-import androidx.compose.material.icons.rounded.Opacity
-import androidx.compose.material.icons.rounded.Palette
-import androidx.compose.material.icons.rounded.Speed
-import androidx.compose.material.icons.rounded.Style
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +23,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.view.KeyEvent
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.onKeyEvent
+import com.zenx.yugen.play.domain.VideoStream
 import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.components.tvFocusable
 import com.zenx.yugen.play.ui.player.PlayerUiState
@@ -115,84 +114,26 @@ private fun QualityPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel)
 
 @Composable
 private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
+    var showCustomization by remember { mutableStateOf(false) }
+
     PanelHeader("Subtitles") { viewModel.setSubtitleSheetVisibility(false) }
 
-    LazyColumn(contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-
-        // --- NEW: Customization Section ---
+    LazyColumn(
+        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
         item {
-            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-                Text("APPEARANCE", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Size Selector
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Rounded.FormatSize, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(20.dp).align(Alignment.CenterVertically))
-                    SegmentedButton("Small", state.subtitleSize == 0.040f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleSize(0.040f) }
-                    SegmentedButton("Normal", state.subtitleSize == 0.053f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleSize(0.053f) }
-                    SegmentedButton("Large", state.subtitleSize == 0.065f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleSize(0.065f) }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Edge Style
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Rounded.Style, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(20.dp).align(Alignment.CenterVertically))
-                    SegmentedButton("Shadow", state.subtitleEdgeStyle == 2, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(2) }
-                    SegmentedButton("Outline", state.subtitleEdgeStyle == 1, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(1) }
-                    SegmentedButton("Box", state.subtitleEdgeStyle == 0, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(0) }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Text Color Selector
-                val colorOptions = listOf(
-                    "White" to 0xFFFFFFFF,
-                    "Yellow" to 0xFFFFDD00,
-                    "Cyan" to 0xFF00E5FF,
-                    "Green" to 0xFF69FF47
-                )
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Palette, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
-                    colorOptions.forEach { (label, colorLong) ->
-                        val isSelected = state.subtitleTextColor == colorLong
-                        val swatch = Color(colorLong.toInt())
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(32.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(swatch.copy(alpha = if (isSelected) 1f else 0.35f))
-                                .border(1.5.dp, if (isSelected) Color.White else Color.Transparent, RoundedCornerShape(8.dp))
-                                .bounceClick { viewModel.setSubtitleTextColor(colorLong) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(label, color = if (isSelected) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Background Opacity
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Opacity, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
-                    SegmentedButton("None", state.subtitleBgOpacity == 0f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleBgOpacity(0f) }
-                    SegmentedButton("Light", state.subtitleBgOpacity == 0.4f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleBgOpacity(0.4f) }
-                    SegmentedButton("Dark", state.subtitleBgOpacity == 0.75f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleBgOpacity(0.75f) }
-                }
-            }
+            Text(
+                "SUBTITLE TRACKS",
+                color = Color.White.copy(alpha = 0.5f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(bottom = 2.dp)
+            )
         }
 
-        item {
-            HorizontalDivider(color = GlassBorder, modifier = Modifier.padding(vertical = 4.dp))
-        }
-
-        item {
-            Text("TRACKS", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 4.dp))
-        }
-
-        // --- Existing Track List ---
+        // Subtitle Track Selection (Primary Experience)
         item {
             PanelItem(title = "Off", isSelected = state.selectedSubtitleIndex == -1) { viewModel.selectSubtitleTrack(-1) }
         }
@@ -202,6 +143,121 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
                 isSelected = state.selectedSubtitleIndex == sub.index,
                 onClick = { viewModel.selectSubtitleTrack(sub.index) }
             )
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(6.dp))
+            HorizontalDivider(color = GlassBorder, modifier = Modifier.padding(vertical = 4.dp))
+        }
+
+        // Collapsible Appearance Customization
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { showCustomization = !showCustomization }
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.Style,
+                        contentDescription = null,
+                        tint = AccentPurple,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        "Subtitle Styling & Appearance",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Icon(
+                    imageVector = if (showCustomization) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.6f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        if (showCustomization) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.04f))
+                        .border(1.dp, GlassBorder, RoundedCornerShape(12.dp))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Size Selector
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Font Size", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SegmentedButton("Small", state.subtitleSize == 0.040f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleSize(0.040f) }
+                            SegmentedButton("Normal", state.subtitleSize == 0.053f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleSize(0.053f) }
+                            SegmentedButton("Large", state.subtitleSize == 0.065f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleSize(0.065f) }
+                        }
+                    }
+
+                    // Edge Style
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Edge Style", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SegmentedButton("Shadow", state.subtitleEdgeStyle == 2, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(2) }
+                            SegmentedButton("Outline", state.subtitleEdgeStyle == 1, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(1) }
+                            SegmentedButton("Box", state.subtitleEdgeStyle == 0, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(0) }
+                        }
+                    }
+
+                    // Text Color Selector
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Text Color", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        val colorOptions = listOf(
+                            "White" to 0xFFFFFFFF,
+                            "Yellow" to 0xFFFFDD00,
+                            "Cyan" to 0xFF00E5FF,
+                            "Green" to 0xFF69FF47
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            colorOptions.forEach { (label, colorLong) ->
+                                val isSelected = state.subtitleTextColor == colorLong
+                                val swatch = Color(colorLong.toInt())
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(30.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(swatch.copy(alpha = if (isSelected) 1f else 0.35f))
+                                        .border(1.5.dp, if (isSelected) Color.White else Color.Transparent, RoundedCornerShape(8.dp))
+                                        .bounceClick { viewModel.setSubtitleTextColor(colorLong) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(label, color = if (isSelected) Color.Black.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    // Background Opacity
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Background Box", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SegmentedButton("None", state.subtitleBgOpacity == 0f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleBgOpacity(0f) }
+                            SegmentedButton("Light", state.subtitleBgOpacity == 0.4f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleBgOpacity(0.4f) }
+                            SegmentedButton("Dark", state.subtitleBgOpacity == 0.75f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleBgOpacity(0.75f) }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -231,21 +287,148 @@ private fun SpeedPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
     }
 }
 
+private data class ServerGroupItem(
+    val serverName: String,
+    val isDub: Boolean,
+    val streams: List<VideoStream>,
+    val maxResolution: String?
+)
+
 @Composable
 private fun ServerPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
     PanelHeader("Switch Server") { viewModel.setServerSheetVisibility(false) }
-    LazyColumn(contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        items(state.streams) { stream ->
+
+    val activeIsDub = remember(state.activeStream) {
+        val s = state.activeStream
+        s?.quality?.contains("dub", ignoreCase = true) == true || s?.serverName?.contains("dub", ignoreCase = true) == true
+    }
+
+    val hasDub = remember(state.streams) {
+        state.streams.any { it.quality.contains("dub", ignoreCase = true) || it.serverName?.contains("dub", ignoreCase = true) == true }
+    }
+    val hasSub = remember(state.streams) {
+        state.streams.any { !it.quality.contains("dub", ignoreCase = true) && it.serverName?.contains("dub", ignoreCase = true) != true }
+    }
+
+    var isDubTabSelected by remember(activeIsDub, hasDub, hasSub) {
+        mutableStateOf(if (hasDub && hasSub) activeIsDub else hasDub && !hasSub)
+    }
+
+    val filteredStreams = remember(state.streams, isDubTabSelected, hasSub, hasDub) {
+        if (hasSub && hasDub) {
+            state.streams.filter {
+                val dub = it.quality.contains("dub", ignoreCase = true) || it.serverName?.contains("dub", ignoreCase = true) == true
+                dub == isDubTabSelected
+            }
+        } else {
+            state.streams
+        }
+    }
+
+    val serverGroups = remember(filteredStreams) {
+        filteredStreams.groupBy { stream ->
             val rawName = stream.serverName?.takeIf { it.isNotBlank() } ?: stream.quality
-            val cleanServerName = rawName.replace(Regex("\\[?(sub|dub)\\]?", RegexOption.IGNORE_CASE), "").trim().ifBlank { "Unknown Server" }
-            val badgeText = if (stream.quality.contains("dub", ignoreCase = true) || stream.serverName?.contains("dub", ignoreCase = true) == true) "DUB" else "SUB"
+            val cleanServerName = rawName
+                .replace(Regex("\\[?(sub|dub)\\]?", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("\\(.*\\)|\\[.*?\\]"), "")
+                .trim()
+                .ifBlank { "Server" }
+            val isDub = stream.quality.contains("dub", ignoreCase = true) || stream.serverName?.contains("dub", ignoreCase = true) == true
+            cleanServerName to isDub
+        }.map { (key, groupStreams) ->
+            val (cleanName, isDub) = key
+            val maxRes = groupStreams.mapNotNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() }.maxOrNull()
+            val resLabel = if (maxRes != null && maxRes > 0) "${maxRes}p" else null
+            ServerGroupItem(
+                serverName = cleanName,
+                isDub = isDub,
+                streams = groupStreams,
+                maxResolution = resLabel
+            )
+        }
+    }
+
+    val selectedGroupIndex = remember(serverGroups, state.activeStream) {
+        val currentStream = state.activeStream ?: return@remember -1
+        val byRef = serverGroups.indexOfFirst { group ->
+            group.streams.any { it === currentStream }
+        }
+        if (byRef != -1) return@remember byRef
+
+        val byUrl = serverGroups.indexOfFirst { group ->
+            group.streams.any { it.url == currentStream.url }
+        }
+        if (byUrl != -1) return@remember byUrl
+
+        val currentRaw = currentStream.serverName?.takeIf { it.isNotBlank() } ?: currentStream.quality
+        val currentClean = currentRaw
+            .replace(Regex("\\[?(sub|dub)\\]?", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\(.*\\)|\\[.*?\\]"), "")
+            .trim()
+        val currentIsDub = currentStream.quality.contains("dub", ignoreCase = true) || currentStream.serverName?.contains("dub", ignoreCase = true) == true
+
+        serverGroups.indexOfFirst { group ->
+            group.isDub == currentIsDub && group.serverName.equals(currentClean, ignoreCase = true)
+        }
+    }
+
+    LazyColumn(contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (hasSub && hasDub) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(ItemBg)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    SegmentedButton(
+                        title = "SUB",
+                        isSelected = !isDubTabSelected,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        isDubTabSelected = false
+                    }
+                    SegmentedButton(
+                        title = "DUB",
+                        isSelected = isDubTabSelected,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        isDubTabSelected = true
+                    }
+                }
+            }
+        }
+
+        itemsIndexed(serverGroups) { index, group ->
+            val badgeText = if (group.isDub) "DUB" else "SUB"
+            val subtitleText = when {
+                group.streams.any { it.format.equals("HLS", ignoreCase = true) } -> "Adaptive Resolution"
+                group.maxResolution != null -> "Up to ${group.maxResolution}"
+                else -> "Standard Stream"
+            }
+
+            val isSelected = (index == selectedGroupIndex)
 
             PanelItem(
-                title = cleanServerName,
-                subtitle = "Adaptive Resolution",
+                title = group.serverName,
+                subtitle = subtitleText,
                 badge = badgeText,
-                isSelected = state.activeStream == stream,
-                onClick = { viewModel.selectStream(stream) }
+                isSelected = isSelected,
+                onClick = {
+                    val matchingStream = if (state.selectedQualityHeight > 0) {
+                        group.streams.find { s ->
+                            val h = s.resolution?.filter { it.isDigit() }?.toIntOrNull()
+                                ?: Regex("(\\d{3,4})p?").find(s.quality)?.groupValues?.get(1)?.toIntOrNull()
+                            h == state.selectedQualityHeight
+                        }
+                    } else null
+                    val chosenStream = matchingStream
+                        ?: group.streams.maxByOrNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() ?: 0 }
+                        ?: group.streams.first()
+                    viewModel.selectStream(chosenStream)
+                }
             )
         }
     }
@@ -284,7 +467,6 @@ private fun SegmentedButton(
 
     Box(
         modifier = modifier
-            .tvFocusable(shape = RoundedCornerShape(8.dp))
             .clip(RoundedCornerShape(8.dp))
             .background(bg)
             .clickable(onClick = onClick)
@@ -310,7 +492,6 @@ private fun PanelItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .tvFocusable(shape = RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .background(bg)
             .border(1.dp, border, RoundedCornerShape(12.dp))

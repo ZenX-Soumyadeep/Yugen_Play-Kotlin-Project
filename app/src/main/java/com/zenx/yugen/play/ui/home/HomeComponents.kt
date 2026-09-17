@@ -1,31 +1,25 @@
 package com.zenx.yugen.play.ui.home
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,16 +28,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.zenx.yugen.play.domain.HeroUiModel
+import com.zenx.yugen.play.domain.HomeAnimeCardUiModel
 import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.components.premiumShimmerEffect
 import com.zenx.yugen.play.ui.components.subtleMarquee
@@ -56,12 +53,164 @@ private val cardBg = Color(0xFF141418)
 private val glassBorder = Color.White.copy(alpha = 0.12f)
 private val bgColor = Color(0xFF09090B)
 
+/**
+ * Anilili-inspired App Loading Indicator:
+ * Centered pulsing app brand icon with radiant breathing purple glow.
+ */
+@Composable
+fun AppLoadingIndicator(modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "AppLoadingPulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.88f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glowAlpha"
+    )
+
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        // Soft radiant outer halo
+        Box(
+            modifier = Modifier
+                .size(140.dp)
+                .graphicsLayer {
+                    scaleX = pulseScale * 1.15f
+                    scaleY = pulseScale * 1.15f
+                    alpha = glowAlpha * 0.4f
+                }
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(accentPurple.copy(alpha = 0.55f), Color.Transparent)
+                    )
+                )
+        )
+
+        // Pulsing Icon Capsule
+        Box(
+            modifier = Modifier
+                .size(76.dp)
+                .graphicsLayer {
+                    scaleX = pulseScale
+                    scaleY = pulseScale
+                }
+                .clip(RoundedCornerShape(22.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(Color(0xFF1E1B4B), Color(0xFF141418))
+                    )
+                )
+                .border(
+                    width = 1.5.dp,
+                    brush = Brush.linearGradient(
+                        listOf(accentPurple.copy(alpha = glowAlpha), accentViolet.copy(alpha = 0.4f))
+                    ),
+                    shape = RoundedCornerShape(22.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.PlayArrow,
+                contentDescription = "Loading",
+                tint = accentPurple,
+                modifier = Modifier.size(38.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Top Genre Filter Bar:
+ * Horizontally scrollable chip row ("All", "Action", "Adventure", etc.)
+ */
+@Composable
+fun TopGenreFilterBar(
+    onGenreClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val genres = remember {
+        listOf(
+            "All", "Action", "Adventure", "Comedy", "Drama", "Fantasy",
+            "Horror", "Mystery", "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller"
+        )
+    }
+    var selectedGenre by remember { mutableStateOf("All") }
+    val haptic = LocalHapticFeedback.current
+
+    LazyRow(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(genres) { genre ->
+            val isSelected = selectedGenre == genre
+            val chipBg by animateColorAsState(
+                targetValue = if (isSelected) accentPurple else Color.White.copy(alpha = 0.07f),
+                label = "chipBg"
+            )
+            val chipBorder by animateColorAsState(
+                targetValue = if (isSelected) accentPurple else Color.White.copy(alpha = 0.12f),
+                label = "chipBorder"
+            )
+            val textColor = if (isSelected) Color.White else Color(0xFFD1D5DB)
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(chipBg)
+                    .border(1.dp, chipBorder, RoundedCornerShape(20.dp))
+                    .bounceClick {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        selectedGenre = genre
+                        if (genre != "All") {
+                            onGenreClick(genre)
+                        }
+                    }
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = genre,
+                    color = textColor,
+                    fontSize = 12.5.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Hero Banner Carousel:
+ * Top 6 trending anime with live airing countdown badge, slide counter, centered title, metadata and genre pills.
+ */
 @Composable
 fun HeroCarousel(
     animeList: List<HeroUiModel>,
-    onAnimeClick: (String, String, String) -> Unit
+    onAnimeClick: (id: String, title: String, poster: String) -> Unit,
+    onGenreClick: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val pagerState = rememberPagerState(pageCount = { animeList.size })
+    val topList = remember(animeList) { animeList.take(6) }
+    if (topList.isEmpty()) return
+
+    val pagerState = rememberPagerState(pageCount = { topList.size })
     val context = LocalContext.current
 
     LaunchedEffect(pagerState.pageCount) {
@@ -76,32 +225,31 @@ fun HeroCarousel(
         }
     }
 
-    Box(modifier = Modifier.fillMaxWidth()) {
+    Box(modifier = modifier.fillMaxWidth().height(515.dp)) {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(280.dp),
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            pageSpacing = 12.dp
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(0.dp),
+            pageSpacing = 0.dp
         ) { page ->
-            val anime = animeList[page]
+            val anime = topList[page]
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
                         val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
-                        val scale = lerp(0.93f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
-                        val alphaVal = lerp(0.6f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
+                        val scale = lerp(0.96f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
+                        val alphaVal = lerp(0.7f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
                         scaleX = scale
                         scaleY = scale
                         alpha = alphaVal
                     }
-                    .clip(RoundedCornerShape(22.dp))
-                    .border(1.dp, glassBorder, RoundedCornerShape(22.dp))
-                    .bounceClick(scaleDown = 0.97f) { onAnimeClick(anime.id, anime.title, anime.posterUrl) }
+                    .bounceClick(scaleDown = 0.99f) {
+                        onAnimeClick(anime.id, anime.title, anime.posterUrl)
+                    }
             ) {
+                // Background Poster Image (Full-bleed covering the entire upper space)
                 AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(anime.posterUrl)
@@ -112,141 +260,191 @@ fun HeroCarousel(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Immersive Multi-Stage Gradient Overlay
+                // Multi-Stage Vignette Gradient Overlay - Seamlessly Fades and Mixes into Page Background
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
                             Brush.verticalGradient(
-                                0.0f to Color.Transparent,
-                                0.45f to Color.Black.copy(alpha = 0.35f),
-                                0.75f to Color.Black.copy(alpha = 0.85f),
-                                1.0f to Color.Black.copy(alpha = 0.98f)
+                                0.0f to Color(0xFF09090B).copy(alpha = 0.70f),
+                                0.18f to Color(0xFF09090B).copy(alpha = 0.28f),
+                                0.32f to Color.Transparent,
+                                0.55f to Color.Transparent,
+                                0.72f to Color(0xFF09090B).copy(alpha = 0.45f),
+                                0.88f to Color(0xFF09090B).copy(alpha = 0.86f),
+                                1.0f to Color(0xFF09090B)
                             )
                         )
                 )
 
-                Column(
+                // Top Badge Row: Airing Countdown on Left, Slide Counter on Right (Clearance below TopBar & Chips)
+                Row(
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(18.dp)
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = 114.dp, start = 16.dp, end = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Badge row
-                    Row(
-                        modifier = Modifier.padding(bottom = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    // Clean Airing Countdown Badge (Prevents duplicate EP 12)
+                    val rawCountdown = anime.airingCountdown.orEmpty().trim()
+                    val countdownBadge = remember(rawCountdown, anime.airingEpisode) {
+                        if (rawCountdown.startsWith("EP", ignoreCase = true)) {
+                            rawCountdown
+                        } else if (rawCountdown.isNotEmpty() && anime.airingEpisode != null) {
+                            "EP ${anime.airingEpisode} • $rawCountdown"
+                        } else {
+                            rawCountdown
+                        }
+                    }
+
+                    if (countdownBadge.isNotEmpty()) {
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(accentPurple.copy(alpha = 0.25f))
-                                .border(1.dp, accentPurple.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF141418).copy(alpha = 0.88f))
+                                .border(1.dp, accentPurple.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 9.dp, vertical = 4.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(accentPurple)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = countdownBadge,
+                                    color = accentViolet,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+                    } else if (anime.rating.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.Black.copy(alpha = 0.75f))
+                                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 9.dp, vertical = 4.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    Icons.Rounded.Whatshot,
+                                    Icons.Rounded.Star,
                                     contentDescription = null,
-                                    tint = accentPurple,
+                                    tint = Color(0xFFFBBF24),
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    "TRENDING NOW",
-                                    color = accentPurple,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    letterSpacing = 0.5.sp
+                                    text = "${anime.rating}%",
+                                    color = Color.White,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(accentPurple.copy(alpha = 0.25f))
+                                .border(1.dp, accentPurple.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                "TRENDING",
+                                color = accentPurple,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
                     }
 
-                    // Anime Title
+                    // Right Badge: Slide Counter (e.g. "1 / 6")
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Black.copy(alpha = 0.72f))
+                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 9.dp, vertical = 3.5.dp)
+                    ) {
+                        Text(
+                            text = "${page + 1} / ${topList.size}",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // Bottom Content: Title, Metadata, Genre Pills
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Centered Prominent Anime Title
                     Text(
                         text = anime.title,
                         color = Color.White,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .subtleMarquee()
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Black,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        lineHeight = 25.sp,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 8.dp)
                     )
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
-                    // Metadata row
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Rounded.Tv,
-                            contentDescription = null,
-                            tint = Color.LightGray,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            anime.episodeText,
-                            color = Color.LightGray,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("•", color = Color.DarkGray, fontSize = 12.sp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Icon(
-                            Icons.Rounded.DateRange,
-                            contentDescription = null,
-                            tint = Color.LightGray,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            anime.releaseDate,
-                            color = Color.LightGray,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                    // Sleek Metadata Row: TV • cc 12 • ★ 84 • 24 mins
+                    val metaList = remember(anime) {
+                        val items = mutableListOf<String>()
+                        items.add(anime.format)
+                        if (anime.episodes.isNotEmpty()) items.add("cc ${anime.episodes}")
+                        if (anime.rating.isNotEmpty()) items.add("★ ${anime.rating}")
+                        items.add(anime.duration)
+                        items.joinToString(" • ")
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = metaList,
+                        color = Color(0xFFD4D4D8),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center
+                    )
 
-                    // Description and Quick Watch button
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = anime.description,
-                            color = Color.LightGray.copy(alpha = 0.75f),
-                            fontSize = 12.sp,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            lineHeight = 16.sp,
-                            modifier = Modifier.weight(1f).padding(end = 12.dp)
-                        )
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(accentPurple)
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                    // Clickable Genre Tags Row
+                    if (anime.genres.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Rounded.PlayArrow,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    "Watch",
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                            anime.genres.take(3).forEach { genre ->
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color.White.copy(alpha = 0.12f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(12.dp))
+                                        .bounceClick { onGenreClick(genre) }
+                                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = genre,
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
                         }
                     }
@@ -254,228 +452,112 @@ fun HeroCarousel(
             }
         }
 
-        // Animated Page Indicator Pills
+        // Pager Dot Indicators (At the very bottom of the Hero Carousel)
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 12.dp),
+                .padding(bottom = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            repeat(animeList.size) { iteration ->
-                val isSelected = pagerState.currentPage == iteration
-                val targetWidth = if (isSelected) 20.dp else 6.dp
+            repeat(topList.size) { index ->
+                val isSelected = pagerState.currentPage == index
+                val targetWidth = if (isSelected) 18.dp else 6.dp
                 val animatedWidth by animateDpAsState(
                     targetValue = targetWidth,
                     animationSpec = tween(durationMillis = 300),
-                    label = "HeroDotWidth"
+                    label = "heroDot"
                 )
-                val color = if (isSelected) accentPurple else Color.White.copy(alpha = 0.3f)
+                val dotColor = if (isSelected) accentPurple else Color.White.copy(alpha = 0.3f)
 
                 Box(
                     modifier = Modifier
                         .height(4.dp)
                         .width(animatedWidth)
                         .clip(CircleShape)
-                        .background(color)
+                        .background(dotColor)
                 )
             }
         }
-    }
-    Spacer(modifier = Modifier.height(24.dp))
-}
 
-@Composable
-fun TrendingSection(
-    animeList: List<TrendingUiModel>,
-    onAnimeClick: (String, String, String) -> Unit,
-    onViewAllClick: () -> Unit
-) {
-    val context = LocalContext.current
-
-    SectionHeader(title = "Trending Now", onViewAllClick = onViewAllClick)
-
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        itemsIndexed(animeList) { index, anime ->
-            val rankNumber = index + 1
-            val cardBorder = when (rankNumber) {
-                1 -> accentPurple.copy(alpha = 0.6f)
-                2 -> Color(0xFF94A3B8).copy(alpha = 0.5f)
-                3 -> Color(0xFFD97706).copy(alpha = 0.5f)
-                else -> glassBorder
-            }
-
-            Box(
-                modifier = Modifier
-                    .width(138.dp)
-                    .aspectRatio(0.66f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .border(1.dp, cardBorder, RoundedCornerShape(16.dp))
-                    .bounceClick { onAnimeClick(anime.id, anime.title, anime.posterUrl) }
-            ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(anime.posterUrl)
-                        .crossfade(300)
-                        .build(),
-                    contentDescription = anime.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                // Bottom vignette
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.95f)),
-                                startY = 120f
-                            )
-                        )
-                )
-
-                // Distinct Rank Medal
-                val medalBg = when (rankNumber) {
-                    1 -> Brush.linearGradient(listOf(Color(0xFFFF512F), Color(0xFFDD2476)))
-                    2 -> Brush.linearGradient(listOf(Color(0xFF64748B), Color(0xFF94A3B8)))
-                    3 -> Brush.linearGradient(listOf(Color(0xFFB45309), Color(0xFFD97706)))
-                    else -> Brush.linearGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Black.copy(alpha = 0.7f)))
-                }
-
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(medalBg)
-                        .border(
-                            1.dp,
-                            if (rankNumber <= 3) Color.White.copy(alpha = 0.3f) else glassBorder,
-                            RoundedCornerShape(6.dp)
-                        )
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                ) {
-                    Text(
-                        text = "#$rankNumber",
-                        color = Color.White,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 12.sp
-                    )
-                }
-
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(10.dp)
-                ) {
-                    Text(
-                        text = anime.title,
-                        color = Color.White,
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .subtleMarquee()
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = anime.subtitle,
-                        color = Color.LightGray.copy(alpha = 0.75f),
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Row(
-                        modifier = Modifier.padding(top = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Rounded.Star,
-                            contentDescription = null,
-                            tint = Color(0xFFFBBF24),
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = anime.score,
-                            color = Color.White,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
+        // Stationary Top Overlay over the Carousel: Genre Filter Chips
+        // (Sits over the anime poster without sliding when pages change)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+        ) {
+            // Space reserved for the floating YUGEN Top Bar
+            Spacer(modifier = Modifier.height(58.dp))
+            Spacer(modifier = Modifier.height(6.dp))
+            TopGenreFilterBar(onGenreClick = onGenreClick)
         }
     }
-    Spacer(modifier = Modifier.height(24.dp))
 }
 
+/**
+ * Continue Watching Section:
+ * 16:9 widescreen card with info button, dismiss (x) button, center play button, and fluid watch progress bar.
+ */
 @Composable
 fun ContinueWatchingSection(
     historyList: List<ContinueWatchingUiModel>,
-    onAnimeClick: (String, String, String) -> Unit,
-    onHistoryClick: (String, String, String) -> Unit,
-    onDeleteHistoryItem: (String) -> Unit = {},
-    onClearAllHistory: () -> Unit = {}
+    onAnimeClick: (id: String, title: String, poster: String) -> Unit,
+    onHistoryClick: (episodeId: String, title: String, poster: String) -> Unit,
+    onDeleteHistoryItem: (episodeId: String) -> Unit,
+    onClearAllHistory: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    if (historyList.isEmpty()) return
+
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-
     var itemToDelete by remember { mutableStateOf<ContinueWatchingUiModel?>(null) }
     var showClearAllDialog by remember { mutableStateOf(false) }
 
-    val dialogBg = Color(0xFF141416)
-    val accentRed = Color(0xFFEF4444)
+    Column(modifier = modifier.fillMaxWidth().padding(top = 16.dp)) {
+        // Section Header
+        SectionHeader(
+            title = "Continue Watching",
+            actionText = "Clear All",
+            actionColor = Color(0xFFEF4444).copy(alpha = 0.9f),
+            actionIcon = Icons.Rounded.DeleteSweep,
+            onViewAllClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                showClearAllDialog = true
+            }
+        )
 
-    SectionHeader(
-        title = "Continue Watching",
-        actionText = "Clear All",
-        actionColor = accentRed.copy(alpha = 0.9f),
-        actionIcon = Icons.Rounded.DeleteSweep,
-        onViewAllClick = {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            showClearAllDialog = true
-        }
-    )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.padding(top = 8.dp)
+        ) {
+            items(historyList, key = { it.episodeId }) { history ->
+                val animatedProgress by animateFloatAsState(
+                    targetValue = history.progress.coerceIn(0f, 1f),
+                    animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+                    label = "cwProgress"
+                )
 
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        items(historyList, key = { it.episodeId }) { history ->
-            val animatedProgress by animateFloatAsState(
-                targetValue = history.progress.coerceIn(0f, 1f),
-                animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
-                label = "CWProgress"
-            )
-
-            Column(
-                modifier = Modifier
-                    .width(220.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(cardBg)
-                    .border(1.dp, glassBorder, RoundedCornerShape(14.dp))
-                    .bounceClick(
-                        onLongClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            itemToDelete = history
-                        }
-                    ) {
-                        if (history.isCloudSync) onAnimeClick(history.episodeId.split("_").getOrNull(2) ?: "", history.animeTitle, history.posterUrl)
-                        else onHistoryClick(history.episodeId, history.animeTitle, history.posterUrl)
-                    }
-            ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
-                        .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
+                        .width(240.dp)
+                        .height(138.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(cardBg)
+                        .border(1.dp, glassBorder, RoundedCornerShape(16.dp))
+                        .bounceClick {
+                            if (history.isCloudSync) {
+                                val mediaId = history.mediaId ?: history.episodeId.split("_").getOrNull(2) ?: ""
+                                onAnimeClick(mediaId, history.animeTitle, history.posterUrl)
+                            } else {
+                                onHistoryClick(history.episodeId, history.animeTitle, history.posterUrl)
+                            }
+                        }
                 ) {
+                    // Backdrop Image
                     AsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(history.posterUrl)
@@ -485,110 +567,142 @@ fun ContinueWatchingSection(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
+
+                    // Dark Vignette
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.35f))
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.Black.copy(alpha = 0.5f),
+                                        Color.Black.copy(alpha = 0.25f),
+                                        Color.Black.copy(alpha = 0.9f)
+                                    )
+                                )
+                            )
                     )
 
-                    // Play Button Overlay
+                    // Top Row: Info (i) on left, Dismiss (X) on right
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .padding(8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Info Button
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.65f))
+                                .border(0.8.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                            .bounceClick {
+                                val mediaId = history.mediaId ?: history.episodeId.split("_").getOrNull(2) ?: ""
+                                onAnimeClick(mediaId, history.animeTitle, history.posterUrl)
+                            },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Filled.Info,
+                                contentDescription = "Info",
+                                tint = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+
+                        // Dismiss (x) Button
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.65f))
+                                .border(0.8.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                            .bounceClick {
+                                itemToDelete = history
+                            },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.Close,
+                                contentDescription = "Dismiss",
+                                tint = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    }
+
+                    // Center: Play Button
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .size(38.dp)
+                            .size(42.dp)
                             .clip(CircleShape)
-                            .border(1.dp, Color.White.copy(alpha = 0.4f), CircleShape)
-                            .background(Color.Black.copy(alpha = 0.5f)),
+                            .background(Color.Black.copy(alpha = 0.65f))
+                            .border(1.2.dp, accentPurple, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             Icons.Rounded.PlayArrow,
                             contentDescription = "Play",
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
+                            tint = accentPurple,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
 
-                    // Cloud Sync Badge
-                    if (history.isCloudSync) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(8.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(Color(0xFF0284C7).copy(alpha = 0.85f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                    // Bottom info: Anime Title & Subtitle + Progress bar
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.BottomStart)
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = history.animeTitle,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            modifier = Modifier.subtleMarquee()
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Rounded.CloudSync,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(11.dp)
-                                )
-                                Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = history.subtitle,
+                                color = accentViolet,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            if (history.timeLeft.isNotEmpty()) {
                                 Text(
-                                    "AniList",
-                                    color = Color.White,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold
+                                    text = history.timeLeft,
+                                    color = Color.Gray,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
                     }
-                }
 
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = history.animeTitle,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.5.sp,
-                        maxLines = 1,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .subtleMarquee()
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = history.subtitle,
-                            color = Color.LightGray,
-                            fontSize = 11.5.sp
-                        )
-                        if (history.timeLeft.isNotEmpty()) {
-                            Text(
-                                text = history.timeLeft,
-                                color = Color.Gray,
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Fluid Watch Progress Line
+                    // Sleek progress line along very bottom edge
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(3.5.dp)
-                            .clip(CircleShape)
-                            .background(Color.DarkGray.copy(alpha = 0.6f))
+                            .height(3.dp)
+                            .align(Alignment.BottomCenter)
+                            .background(Color.White.copy(alpha = 0.15f))
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .fillMaxWidth(animatedProgress)
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(accentPurple, accentViolet)
-                                    )
-                                )
+                                .background(accentPurple)
                         )
                     }
                 }
@@ -596,13 +710,12 @@ fun ContinueWatchingSection(
         }
     }
 
+    // Delete single item confirmation dialog
     if (itemToDelete != null) {
         AlertDialog(
             onDismissRequest = { itemToDelete = null },
-            containerColor = dialogBg,
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("Remove from History?", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("Remove '${itemToDelete?.animeTitle}' from your continue watching list?", color = Color.LightGray) },
+            title = { Text("Remove from History", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = { Text("Remove \"${itemToDelete?.animeTitle}\" from Continue Watching?", color = Color.LightGray) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -610,251 +723,511 @@ fun ContinueWatchingSection(
                         itemToDelete = null
                     }
                 ) {
-                    Text("Remove", color = accentRed, fontWeight = FontWeight.Bold)
+                    Text("Remove", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { itemToDelete = null }) {
-                    Text("Cancel", color = Color.White)
+                    Text("Cancel", color = Color.Gray)
                 }
-            }
+            },
+            containerColor = Color(0xFF141418),
+            shape = RoundedCornerShape(16.dp)
         )
     }
 
+    // Clear all history confirmation dialog
     if (showClearAllDialog) {
         AlertDialog(
             onDismissRequest = { showClearAllDialog = false },
-            containerColor = dialogBg,
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("Clear Continue Watching?", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to remove all episodes from your continue watching list?", color = Color.LightGray) },
+            title = { Text("Clear Watch History", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to clear all Continue Watching history?", color = Color.LightGray) },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        showClearAllDialog = false
                         onClearAllHistory()
+                        showClearAllDialog = false
                     }
                 ) {
-                    Text("Clear All", color = accentRed, fontWeight = FontWeight.Bold)
+                    Text("Clear All", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearAllDialog = false }) {
-                    Text("Cancel", color = Color.White)
+                    Text("Cancel", color = Color.Gray)
                 }
-            }
+            },
+            containerColor = Color(0xFF141418),
+            shape = RoundedCornerShape(16.dp)
         )
     }
-
-    Spacer(modifier = Modifier.height(24.dp))
 }
 
+/**
+ * Category Tabs Row:
+ * 4 segmented tabs: NEWEST, POPULAR, TRENDING, TOP RATED.
+ */
 @Composable
-fun AiringSection(
-    animeList: List<AiringUiModel>,
-    onAnimeClick: (String, String, String) -> Unit,
-    onAiringViewAll: () -> Unit
+fun CategoryTabsRow(
+    selectedCategory: HomeCategory,
+    onCategorySelected: (HomeCategory) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+    val categories = remember { HomeCategory.entries }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        categories.forEach { category ->
+            val isSelected = selectedCategory == category
+            val tabBg by animateColorAsState(
+                targetValue = if (isSelected) accentPurple else Color.White.copy(alpha = 0.05f),
+                label = "tabBg"
+            )
+            val tabBorder by animateColorAsState(
+                targetValue = if (isSelected) accentPurple else Color.White.copy(alpha = 0.09f),
+                label = "tabBorder"
+            )
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(tabBg)
+                    .border(1.dp, tabBorder, RoundedCornerShape(14.dp))
+                    .bounceClick {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onCategorySelected(category)
+                    }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = category.title,
+                    color = if (isSelected) Color.White else Color(0xFF9CA3AF),
+                    fontSize = 11.5.sp,
+                    fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Helper to split title into Line 1 (static) and Line 2 (subtle marquee for long titles).
+ */
+fun splitTitleTwoLines(title: String): Pair<String, String?> {
+    val trimmed = title.trim()
+    if (trimmed.length <= 16) {
+        return Pair(trimmed, null)
+    }
+    val candidate = trimmed.take(18)
+    val lastSpace = candidate.lastIndexOf(' ')
+    return if (lastSpace in 7..17) {
+        val l1 = trimmed.substring(0, lastSpace).trim()
+        val l2 = trimmed.substring(lastSpace).trim()
+        Pair(l1, if (l2.isNotEmpty()) l2 else null)
+    } else {
+        val l1 = trimmed.take(15)
+        val l2 = trimmed.substring(15).trim()
+        Pair(l1, if (l2.isNotEmpty()) l2 else null)
+    }
+}
+
+/**
+ * Title with Line 1 Static and Line 2 Marquee scrolling.
+ */
+@Composable
+fun SplitTwoLineTitle(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    val (line1, line2) = remember(title) { splitTitleTwoLines(title) }
+    Column(modifier = modifier) {
+        Text(
+            text = line1,
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Clip
+        )
+        if (line2 != null) {
+            Text(
+                text = line2,
+                color = Color.White.copy(alpha = 0.92f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                modifier = Modifier.subtleMarquee()
+            )
+        } else {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+/**
+ * 3-Column Anime Grid Card:
+ * Poster with single rating badge (★ 84%), two-line title (line 1 static, line 2 marquee), and 3 sleek metadata tags (Type • Year • Episodes).
+ */
+@Composable
+fun AnimeGridCard(
+    anime: HomeAnimeCardUiModel,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
 
-    SectionHeader(title = "Airing This Week", onViewAllClick = onAiringViewAll)
-
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(13.dp)
+    Column(
+        modifier = modifier
+            .bounceClick { onClick() }
     ) {
-        items(animeList) { anime ->
-            Column(
-                modifier = Modifier
-                    .width(132.dp)
-                    .bounceClick { onAnimeClick(anime.id, anime.title, anime.posterUrl) }
-            ) {
+        // Poster Image Container
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.68f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF1E1E24))
+                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(anime.posterUrl)
+                    .crossfade(300)
+                    .build(),
+                contentDescription = anime.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Single Rating Badge at Top Right
+            if (anime.score.isNotEmpty()) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(0.68f)
-                        .clip(RoundedCornerShape(14.dp))
-                        .border(1.dp, glassBorder, RoundedCornerShape(14.dp))
+                        .align(Alignment.TopEnd)
+                        .padding(5.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.Black.copy(alpha = 0.72f))
+                        .border(0.8.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 4.5.dp, vertical = 2.dp)
                 ) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(anime.posterUrl)
-                            .crossfade(300)
-                            .build(),
-                        contentDescription = anime.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    // Bottom scrim
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
-                                    startY = 140f
-                                )
-                            )
-                    )
-
-                    // Episode badge
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(6.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Color.Black.copy(alpha = 0.75f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Rounded.Star,
+                            contentDescription = null,
+                            tint = Color(0xFFFBBF24),
+                            modifier = Modifier.size(10.dp)
+                        )
+                        Spacer(modifier = Modifier.width(2.5.dp))
                         Text(
-                            anime.subtitle,
+                            text = anime.score,
                             color = Color.White,
-                            fontSize = 10.sp,
+                            fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = anime.title,
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
+            // DUB Badge if available
+            if (anime.isDub) {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .subtleMarquee()
-                )
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Rounded.Schedule,
-                        contentDescription = null,
-                        tint = accentPurple,
-                        modifier = Modifier.size(12.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
+                        .align(Alignment.TopStart)
+                        .padding(5.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(accentPurple.copy(alpha = 0.9f))
+                        .padding(horizontal = 4.dp, vertical = 1.5.dp)
+                ) {
                     Text(
-                        text = anime.timeStatus,
-                        color = accentPurple,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                        text = "DUB",
+                        color = Color.White,
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.Black
                     )
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Two-Line Title (Line 1 static, Line 2 marquee)
+        SplitTwoLineTitle(title = anime.title)
+
+        Spacer(modifier = Modifier.height(3.dp))
+
+        // Sleek Metadata Tags: Type • Year • Episodes
+        val metaString = remember(anime) {
+            val parts = mutableListOf<String>()
+            if (anime.format.isNotBlank()) parts.add(anime.format)
+            if (anime.year.isNotBlank()) parts.add(anime.year)
+            if (anime.episodes.isNotBlank()) parts.add("${anime.episodes} EP")
+            if (parts.isEmpty()) "TV" else parts.joinToString(" • ")
+        }
+
+        Text(
+            text = metaString,
+            color = Color(0xFF9CA3AF),
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.Normal,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
-    Spacer(modifier = Modifier.height(24.dp))
 }
 
+/**
+ * Load More Button for Category List
+ */
+@Composable
+fun LoadMoreButton(
+    category: HomeCategory,
+    isLoading: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White.copy(alpha = 0.06f))
+            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+            .bounceClick { if (!isLoading) onClick() }
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (isLoading) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = accentPurple
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Loading...",
+                    color = accentViolet,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Load More ${category.title} Anime",
+                    color = accentViolet,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = accentViolet,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Movies Section:
+ * Header with "Movies" and "⊞ Expand" button. Shows 3 cards initially, expands to 18+ on click.
+ */
+@Composable
+fun MoviesSection(
+    movies: List<HomeAnimeCardUiModel>,
+    isExpanded: Boolean,
+    onExpandClick: () -> Unit,
+    onAnimeClick: (id: String, title: String, poster: String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (movies.isEmpty()) return
+
+    val displayedMovies = if (isExpanded) movies else movies.take(3)
+
+    Column(modifier = modifier.fillMaxWidth().padding(top = 16.dp)) {
+        // Section Header with Expand / Collapse Button
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Movies",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.White.copy(alpha = 0.08f))
+                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                    .bounceClick { onExpandClick() }
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            ) {
+                Text(
+                    text = if (isExpanded) "⊟ Collapse" else "⊞ Expand",
+                    color = accentViolet,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // 3-Column Movie Cards
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            displayedMovies.chunked(3).forEach { rowMovies ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    rowMovies.forEach { movie ->
+                        AnimeGridCard(
+                            anime = movie,
+                            onClick = { onAnimeClick(movie.id, movie.title, movie.posterUrl) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    repeat(3 - rowMovies.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Reusable Section Header with optional action
+ */
 @Composable
 fun SectionHeader(
     title: String,
-    accentColor: Color = accentPurple,
-    actionText: String = "View All",
-    actionColor: Color = accentColor,
-    actionIcon: ImageVector? = Icons.Rounded.ChevronRight,
+    modifier: Modifier = Modifier,
+    actionText: String? = null,
+    actionColor: Color = accentPurple,
+    actionIcon: ImageVector? = null,
     onViewAllClick: (() -> Unit)? = null
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .width(3.5.dp)
-                    .height(18.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(accentColor, accentViolet)
-                        )
-                    )
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = title,
-                color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.3.sp
-            )
-        }
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.ExtraBold
+        )
 
-        if (onViewAllClick != null) {
+        if (actionText != null && onViewAllClick != null) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
                     .bounceClick { onViewAllClick() }
-                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                if (actionIcon != null) {
+                    Icon(actionIcon, contentDescription = null, tint = actionColor, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
                 Text(
                     text = actionText,
                     color = actionColor,
-                    fontSize = 12.5.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
-                if (actionIcon != null) {
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Icon(
-                        imageVector = actionIcon,
-                        contentDescription = null,
-                        tint = actionColor,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
             }
         }
     }
 }
 
+/**
+ * Skeleton Loader for Home Screen
+ */
 @Composable
 fun HomeSkeleton() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(bgColor)
-            .padding(top = 120.dp)
+            .statusBarsPadding()
+            .padding(16.dp)
     ) {
+        // Hero Skeleton
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .height(280.dp)
+                .height(340.dp)
                 .clip(RoundedCornerShape(22.dp))
                 .premiumShimmerEffect()
         )
-        Spacer(modifier = Modifier.height(24.dp))
-        Box(
-            modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .width(160.dp)
-                .height(22.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .premiumShimmerEffect()
-        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Tabs Skeleton
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            repeat(3) {
+            repeat(4) {
                 Box(
                     modifier = Modifier
-                        .width(138.dp)
-                        .aspectRatio(0.66f)
-                        .clip(RoundedCornerShape(16.dp))
+                        .weight(1f)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .premiumShimmerEffect()
                 )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // 3 Cards Skeleton
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            repeat(3) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(0.68f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .premiumShimmerEffect()
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.8f)
+                            .height(14.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .premiumShimmerEffect()
+                    )
+                }
             }
         }
     }

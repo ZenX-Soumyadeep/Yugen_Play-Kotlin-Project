@@ -13,8 +13,8 @@ android {
         applicationId = "com.zenx.yugen.play"
         minSdk = 29
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.2.0"
+        versionCode = 1
+        versionName = "1.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -104,4 +104,7 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     implementation(libs.androidx.security.crypto)
+
+    // QR Code Generation for TV Phone Sync
+    implementation("com.google.zxing:core:3.5.3")
 }

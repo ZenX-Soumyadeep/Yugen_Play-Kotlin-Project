@@ -1,6 +1,6 @@
 package com.zenx.yugen.play.ui.components
 
-import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,6 +38,7 @@ fun NotificationsSheet(
     onDismiss: () -> Unit,
     onConnectAniListClick: () -> Unit,
     onDeleteNotification: (Int) -> Unit,
+    onClearAllNotifications: () -> Unit = {},
     onAnimeClick: (id: String, title: String, posterUrl: String) -> Unit
 ) {
     val context = LocalContext.current
@@ -52,7 +54,7 @@ fun NotificationsSheet(
         onDismissRequest = onDismiss,
         containerColor = sheetBg,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        dragHandle = { BottomSheetDefaults.DragHandle(color = Color.Gray.copy(alpha = 0.4f)) }
+        dragHandle = { BottomSheetDefaults.DragHandle(color = Color.White.copy(alpha = 0.35f)) }
     ) {
         Column(
             modifier = Modifier
@@ -92,12 +94,45 @@ fun NotificationsSheet(
                 }
 
                 if (notifications.isNotEmpty()) {
-                    Text(
-                        text = "Swipe to delete",
-                        color = Color.Gray,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Swipe to delete",
+                            color = Color.White.copy(alpha = 0.55f),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Surface(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onClearAllNotifications()
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFEF4444).copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.25f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DeleteSweep,
+                                    contentDescription = "Clear All",
+                                    tint = Color(0xFFEF4444),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "Clear All",
+                                    color = Color(0xFFEF4444),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -166,7 +201,7 @@ fun NotificationsSheet(
                             Spacer(modifier = Modifier.height(16.dp))
                             Text("You're all caught up", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text("No unread alerts from your AniList subscriptions.", color = Color.Gray, fontSize = 13.sp, textAlign = TextAlign.Center)
+                            Text("No unread alerts from your AniList subscriptions.", color = Color.White.copy(alpha = 0.65f), fontSize = 13.sp, textAlign = TextAlign.Center)
                         }
                     }
                 }
@@ -288,7 +323,7 @@ fun NotificationsSheet(
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Remove",
-                                    tint = Color.Gray,
+                                    tint = Color.White.copy(alpha = 0.55f),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }

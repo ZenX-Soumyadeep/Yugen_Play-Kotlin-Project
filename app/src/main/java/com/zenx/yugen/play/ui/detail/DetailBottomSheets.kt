@@ -22,6 +22,11 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,6 +38,7 @@ import com.zenx.yugen.play.domain.Resource
 import com.zenx.yugen.play.ui.components.bounceClick
 
 private val accentPurple = Color(0xFF8B5CF6)
+private val accentCyan = Color(0xFF06B6D4)
 private val sheetContainerBg = Color(0xFF141418)
 private val glassBg = Color.White.copy(alpha = 0.06f)
 private val glassBorder = Color.White.copy(alpha = 0.12f)
@@ -115,14 +121,14 @@ fun MappingBottomSheet(viewModel: DetailViewModel, activeProvider: String) {
                 value = mappingSearchQuery,
                 onValueChange = viewModel::searchProviderForMapping,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Search title on $activeProvider...", color = Color.Gray, fontSize = 14.sp) },
+                placeholder = { Text("Search title on $activeProvider...", color = Color.White.copy(alpha = 0.45f), fontSize = 14.sp) },
                 leadingIcon = {
                     Icon(Icons.Rounded.Search, contentDescription = null, tint = accentPurple, modifier = Modifier.size(20.dp))
                 },
                 trailingIcon = {
                     if (mappingSearchQuery.isNotEmpty()) {
                         IconButton(onClick = { viewModel.searchProviderForMapping("") }) {
-                            Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Color.Gray, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(18.dp))
                         }
                     }
                 },
@@ -164,7 +170,7 @@ fun MappingBottomSheet(viewModel: DetailViewModel, activeProvider: String) {
                         ) {
                             Text(
                                 "No matches found on ${activeProvider.uppercase()}.\nTry a shorter or simpler title keyword.",
-                                color = Color.Gray,
+                                color = Color.White.copy(alpha = 0.65f),
                                 fontSize = 13.sp,
                                 textAlign = TextAlign.Center,
                                 lineHeight = 18.sp
@@ -404,10 +410,26 @@ fun BatchDownloadBottomSheet(
         }
     }
 
+    val stopNestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                return available
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                return available
+            }
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = { viewModel.hideBatchDownloadSheet() },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        modifier = Modifier.fillMaxHeight(0.85f),
+        sheetGesturesEnabled = false,
         containerColor = sheetContainerBg,
         tonalElevation = 8.dp,
         dragHandle = { BottomSheetDefaults.DragHandle(color = Color.DarkGray) }
@@ -415,7 +437,7 @@ fun BatchDownloadBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight()
+                .fillMaxHeight(0.85f)
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 28.dp)
         ) {
@@ -553,7 +575,8 @@ fun BatchDownloadBottomSheet(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .weight(1f)
+                    .nestedScroll(stopNestedScrollConnection),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 items(allEpisodes, key = { it.id }) { ep ->
@@ -593,7 +616,7 @@ fun BatchDownloadBottomSheet(
                                     },
                                     colors = CheckboxDefaults.colors(
                                         checkedColor = accentPurple,
-                                        uncheckedColor = Color.Gray,
+                                        uncheckedColor = Color.White.copy(alpha = 0.35f),
                                         checkmarkColor = Color.White
                                     ),
                                     modifier = Modifier.size(20.dp)
@@ -624,17 +647,42 @@ fun BatchDownloadBottomSheet(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "EP ${ep.number} • ${ep.title}",
-                                color = if (isDownloaded) Color.Gray else Color.White,
+                                color = if (isDownloaded) Color.White.copy(alpha = 0.5f) else Color.White,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            Text(
-                                text = if (isDownloaded) "Already downloaded" else if (isDownloading) "Currently downloading" else ep.duration,
-                                color = if (isDownloaded) Color(0xFF10B981) else Color.Gray,
-                                fontSize = 11.sp
-                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                // Resolution Badge
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(accentCyan.copy(alpha = 0.15f))
+                                        .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                ) {
+                                    Text("1080p", color = accentCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                                // Size Tag
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color.White.copy(alpha = 0.08f))
+                                        .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                ) {
+                                    Text("~220 MB", color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                                }
+
+                                Text(
+                                    text = if (isDownloaded) "Downloaded" else if (isDownloading) "Downloading" else ep.duration,
+                                    color = if (isDownloaded) Color(0xFF10B981) else if (isDownloading) accentPurple else Color.White.copy(alpha = 0.55f),
+                                    fontSize = 11.sp
+                                )
+                            }
                         }
                     }
                 }

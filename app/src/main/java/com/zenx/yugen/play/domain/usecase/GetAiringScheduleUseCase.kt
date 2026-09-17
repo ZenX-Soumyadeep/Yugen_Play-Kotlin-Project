@@ -50,6 +50,8 @@ class GetAiringScheduleUseCase @Inject constructor(
                         popularity
                         countryOfOrigin
                         isAdult
+                        format
+                        startDate { year }
                         title { romaji english }
                         coverImage { extraLarge large }
                       }
@@ -79,7 +81,7 @@ class GetAiringScheduleUseCase @Inject constructor(
                     try {
                         val responseBody = client.newCall(request).await().use { response ->
                             if (!response.isSuccessful) return@async emptyList<AiringAnimeItem>()
-                            response.body?.string().orEmpty()
+                            response.body.string()
                         }
 
                         if (responseBody.isBlank()) return@async emptyList()
@@ -95,13 +97,14 @@ class GetAiringScheduleUseCase @Inject constructor(
                             val scheduleNode = schedules.optJSONObject(i) ?: continue
                             val mediaNode = scheduleNode.optJSONObject("media") ?: continue
 
-                            val origin = mediaNode.optString("countryOfOrigin", "")
                             val isAdult = mediaNode.optBoolean("isAdult", false)
-                            if (origin != "JP" || isAdult) continue
+                            if (isAdult) continue
 
                             val episodeNumber = scheduleNode.optInt("episode", 0)
                             val airingAt = scheduleNode.optLong("airingAt", 0L)
                             val popularity = mediaNode.optInt("popularity", 0)
+                            val format = mediaNode.optString("format", "TV").replace("_", " ")
+                            val year = mediaNode.optJSONObject("startDate")?.optInt("year")?.takeIf { it > 0 }
 
                             val titleNode = mediaNode.optJSONObject("title")
                             val title = titleNode?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
@@ -110,6 +113,7 @@ class GetAiringScheduleUseCase @Inject constructor(
                             val coverNode = mediaNode.optJSONObject("coverImage")
                             val posterUrl = coverNode?.optString("extraLarge")?.takeIf { it.isNotBlank() }
                                 ?: coverNode?.optString("large") ?: ""
+                            val countryOfOrigin = mediaNode.optString("countryOfOrigin", "JP")
 
                             pageList.add(
                                 AiringAnimeItem(
@@ -118,7 +122,10 @@ class GetAiringScheduleUseCase @Inject constructor(
                                     posterUrl = posterUrl,
                                     episode = episodeNumber,
                                     popularity = popularity,
-                                    airingAt = airingAt
+                                    airingAt = airingAt,
+                                    format = format,
+                                    year = year,
+                                    countryOfOrigin = countryOfOrigin
                                 )
                             )
                         }

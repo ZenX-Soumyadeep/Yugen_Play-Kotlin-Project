@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -41,12 +42,13 @@ class PlayerPreferences @Inject constructor(
         // --- App & Update ---
         val KEY_LAST_SEEN_VERSION    = stringPreferencesKey("last_seen_version")
         val KEY_MAX_PARALLEL_DOWNLOADS = intPreferencesKey("max_parallel_downloads")
+        val KEY_DISMISSED_NOTIFICATION_IDS = stringSetPreferencesKey("dismissed_notification_ids")
 
         // --- Defaults ---
-        const val DEFAULT_SUBTITLE_SIZE       = 0.053f
-        const val DEFAULT_SUBTITLE_EDGE_STYLE = 2             // DROP_SHADOW
-        const val DEFAULT_SUBTITLE_TEXT_COLOR = 0xFFFFFFFFL
-        const val DEFAULT_SUBTITLE_BG_OPACITY = 0f            // Transparent
+        const val DEFAULT_SUBTITLE_SIZE       = 0.053f        // Normal
+        const val DEFAULT_SUBTITLE_EDGE_STYLE = 0             // Box
+        const val DEFAULT_SUBTITLE_TEXT_COLOR = 0xFFFFFFFFL   // White
+        const val DEFAULT_SUBTITLE_BG_OPACITY = 0.4f          // Light (semi-transparent box)
         const val DEFAULT_PLAYBACK_SPEED      = 1.0f
         const val DEFAULT_SEEK_DURATION_SEC   = 10             // seconds
         const val DEFAULT_AUTO_PLAY_NEXT      = true
@@ -99,6 +101,10 @@ class PlayerPreferences @Inject constructor(
         it[KEY_MAX_PARALLEL_DOWNLOADS] ?: 1
     }
 
+    val dismissedNotificationIds: Flow<Set<String>> = dataStore.data.map {
+        it[KEY_DISMISSED_NOTIFICATION_IDS] ?: emptySet()
+    }
+
     // ── Setters ───────────────────────────────────────────────────────────────
 
     suspend fun setSubtitleSize(value: Float)       = dataStore.edit { it[KEY_SUBTITLE_SIZE] = value }
@@ -111,4 +117,28 @@ class PlayerPreferences @Inject constructor(
     suspend fun setPreferDub(value: Boolean)        = dataStore.edit { it[KEY_PREFER_DUB] = value }
     suspend fun setLastSeenVersion(value: String)   = dataStore.edit { it[KEY_LAST_SEEN_VERSION] = value }
     suspend fun setMaxParallelDownloads(value: Int) = dataStore.edit { it[KEY_MAX_PARALLEL_DOWNLOADS] = value }
+
+    suspend fun addDismissedNotificationId(id: String) {
+        dataStore.edit { prefs ->
+            val current = prefs[KEY_DISMISSED_NOTIFICATION_IDS] ?: emptySet()
+            val combined = current + id
+            val trimmed = if (combined.size > 500) combined.toList().takeLast(500).toSet() else combined
+            prefs[KEY_DISMISSED_NOTIFICATION_IDS] = trimmed
+        }
+    }
+
+    suspend fun addDismissedNotificationIds(ids: Collection<String>) {
+        dataStore.edit { prefs ->
+            val current = prefs[KEY_DISMISSED_NOTIFICATION_IDS] ?: emptySet()
+            val combined = current + ids
+            val trimmed = if (combined.size > 500) combined.toList().takeLast(500).toSet() else combined
+            prefs[KEY_DISMISSED_NOTIFICATION_IDS] = trimmed
+        }
+    }
+
+    suspend fun clearDismissedNotificationIds() {
+        dataStore.edit { prefs ->
+            prefs.remove(KEY_DISMISSED_NOTIFICATION_IDS)
+        }
+    }
 }

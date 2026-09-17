@@ -1,19 +1,28 @@
 # Android & Gradle
 *.iml
-.gradle
+.gradle/
 /local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
 local.properties
+/build/
+/release/
+*/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+
+# Android Studio / IntelliJ
+.idea/
+
+# Kotlin compiler cache
+.kotlin/
+
+# Agent tools & skills
+.agents/
+skills-lock.json
+
+# OS artifacts
+.DS_Store
+Thumbs.db
 
 # Secrets & Keystores
 *.jks

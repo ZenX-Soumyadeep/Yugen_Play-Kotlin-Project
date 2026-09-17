@@ -19,6 +19,23 @@ import okhttp3.Request
 import org.json.JSONObject
 import javax.inject.Inject
 
+import java.io.File
+import java.io.FileOutputStream
+import androidx.core.content.FileProvider
+
+sealed interface AppDownloadState {
+    data object Idle : AppDownloadState
+    data class Downloading(
+        val progress: Float,
+        val downloadedBytes: Long,
+        val totalBytes: Long,
+        val speedBytesPerSec: Long
+    ) : AppDownloadState
+    data class ReadyToInstall(val apkFile: File) : AppDownloadState
+    data object Installing : AppDownloadState
+    data class Failed(val error: String) : AppDownloadState
+}
+
 data class AppUpdateInfo(
     val version: String,
     val releaseNotes: String,
@@ -35,6 +52,11 @@ class UpdateViewModel @Inject constructor(
 
     private val _updateInfo = MutableStateFlow<AppUpdateInfo?>(null)
     val updateInfo: StateFlow<AppUpdateInfo?> = _updateInfo.asStateFlow()
+
+    private val _downloadState = MutableStateFlow<AppDownloadState>(AppDownloadState.Idle)
+    val downloadState: StateFlow<AppDownloadState> = _downloadState.asStateFlow()
+
+    private var activeDownloadJob: kotlinx.coroutines.Job? = null
 
     companion object {
         private var cachedUpdateInfo: AppUpdateInfo? = null
@@ -63,7 +85,7 @@ class UpdateViewModel @Inject constructor(
 
                 val body = okHttpClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) return@launch
-                    response.body?.string() ?: return@launch
+                    response.body.string()
                 }
 
                 val json = JSONObject(body)
@@ -127,6 +149,108 @@ class UpdateViewModel @Inject constructor(
         if (currentIsPreRelease && !latestIsPreRelease) return true
 
         return false
+    }
+
+    fun downloadAndInstallApk(downloadUrl: String) {
+        if (_downloadState.value is AppDownloadState.Downloading) return
+        activeDownloadJob?.cancel()
+
+        activeDownloadJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                _downloadState.value = AppDownloadState.Downloading(0f, 0L, 0L, 0L)
+
+                val request = Request.Builder()
+                    .url(downloadUrl)
+                    .build()
+
+                val response = okHttpClient.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    _downloadState.value = AppDownloadState.Failed("Server responded with code ${response.code}")
+                    return@launch
+                }
+
+                val body = response.body
+
+                val totalBytes = body.contentLength()
+                val updatesDir = File(context.getExternalFilesDir(null), "updates").apply { mkdirs() }
+                val apkFile = File(updatesDir, "YugenPlay-update.apk")
+                if (apkFile.exists()) apkFile.delete()
+
+                var downloadedBytes = 0L
+                var lastUpdateTime = System.currentTimeMillis()
+                var bytesSinceLastUpdate = 0L
+                var currentSpeed = 0L
+
+                body.byteStream().use { input ->
+                    FileOutputStream(apkFile).use { output ->
+                        val buffer = ByteArray(8 * 1024)
+                        var bytesRead: Int
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            downloadedBytes += bytesRead
+                            bytesSinceLastUpdate += bytesRead
+
+                            val now = System.currentTimeMillis()
+                            val elapsed = now - lastUpdateTime
+                            if (elapsed >= 250L) {
+                                currentSpeed = (bytesSinceLastUpdate * 1000L) / elapsed.coerceAtLeast(1L)
+                                lastUpdateTime = now
+                                bytesSinceLastUpdate = 0L
+
+                                val progress = if (totalBytes > 0) downloadedBytes.toFloat() / totalBytes else 0f
+                                _downloadState.value = AppDownloadState.Downloading(
+                                    progress = progress,
+                                    downloadedBytes = downloadedBytes,
+                                    totalBytes = totalBytes,
+                                    speedBytesPerSec = currentSpeed
+                                )
+                            }
+                        }
+                        output.flush()
+                    }
+                }
+
+                _downloadState.value = AppDownloadState.ReadyToInstall(apkFile)
+                installApk(apkFile)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) {
+                    _downloadState.value = AppDownloadState.Idle
+                } else {
+                    Log.e(tag, "Failed to download update APK", e)
+                    _downloadState.value = AppDownloadState.Failed(e.localizedMessage ?: "Download failed")
+                }
+            }
+        }
+    }
+
+    fun installApk(file: File) {
+        try {
+            _downloadState.value = AppDownloadState.Installing
+            val uri: Uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to launch package installer", e)
+            _downloadState.value = AppDownloadState.Failed("Installer failed: ${e.localizedMessage}")
+        }
+    }
+
+    fun cancelDownload() {
+        activeDownloadJob?.cancel()
+        activeDownloadJob = null
+        _downloadState.value = AppDownloadState.Idle
+    }
+
+    fun resetDownloadState() {
+        _downloadState.value = AppDownloadState.Idle
     }
 
     fun triggerUpdateDownload(url: String) {

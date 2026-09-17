@@ -131,7 +131,7 @@ fun DownloadsScreen(
 
                     if (groupedDownloads.isNotEmpty()) {
                         IconButton(onClick = { showClearDialog = true }) {
-                            Icon(Icons.Default.DeleteOutline, contentDescription = "Clear All", tint = Color.White.copy(alpha = 0.6f))
+                            Icon(Icons.Rounded.DeleteSweep, contentDescription = "Clear All", tint = DangerRed.copy(alpha = 0.85f))
                         }
                     }
                 },
@@ -303,50 +303,25 @@ private fun AnimeDownloadGroupItem(
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        val groupDismissState = rememberSwipeToDismissBoxState(
-            confirmValueChange = { dismissValue ->
-                if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
-                    showGroupDeleteDialog = true
-                    false
-                } else false
-            }
-        )
-
-        SwipeToDismissBox(
-            state = groupDismissState,
-            enableDismissFromStartToEnd = false,
-            backgroundContent = {
-                val color by animateColorAsState(
-                    targetValue = if (groupDismissState.targetValue == SwipeToDismissBoxValue.EndToStart) DangerRed.copy(alpha = 0.85f) else Color.Transparent,
-                    label = "GroupSwipeColor"
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(color)
-                        .padding(horizontal = 24.dp),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete Group", tint = Color.White)
-                }
-            }
-        ) {
-            // Group Header
-            Row(
+        // Group Header
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .background(CardSurface)
-                .border(1.dp, if (group.activeDownloadsCount > 0) AccentPurple.copy(alpha = 0.4f) else GlassBorder, RoundedCornerShape(12.dp))
+                .border(
+                    1.dp,
+                    if (group.activeDownloadsCount > 0) AccentPurple.copy(alpha = 0.45f) else GlassBorder,
+                    RoundedCornerShape(14.dp)
+                )
                 .clickable { expanded = !expanded }
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(Color.Black.copy(alpha = 0.5f))
             ) {
                 AsyncImage(
@@ -362,41 +337,64 @@ private fun AnimeDownloadGroupItem(
                     text = group.animeTitle,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
+                    fontSize = 14.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    StatusPill(
+                        text = "${group.episodes.size} Episodes",
+                        bgColor = AccentPurple.copy(alpha = 0.18f),
+                        textColor = AccentPurple
+                    )
+                    if (group.totalBytes > 0L) {
+                        StatusPill(
+                            text = Formatter.formatFileSize(context, group.totalBytes),
+                            bgColor = Color.White.copy(alpha = 0.1f),
+                            textColor = Color.White.copy(alpha = 0.85f)
+                        )
+                    }
                     if (group.activeDownloadsCount > 0) {
-                        CircularProgressIndicator(
-                            color = AccentCyan,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Downloading ${group.activeDownloadsCount} episodes",
-                            color = AccentCyan,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    } else {
-                        Text(
-                            text = "${group.episodes.size} Episodes • ${Formatter.formatFileSize(context, group.totalBytes)}",
-                            color = Color.White.copy(alpha = 0.5f),
-                            fontSize = 12.sp
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                color = AccentCyan,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(10.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            StatusPill(
+                                text = "${group.activeDownloadsCount} Active",
+                                bgColor = AccentCyan.copy(alpha = 0.2f),
+                                textColor = AccentCyan
+                            )
+                        }
                     }
                 }
             }
+
+            // Group Actions: Delete Group & Expand/Collapse Chevron
+            IconButton(
+                onClick = { showGroupDeleteDialog = true },
+                modifier = Modifier.size(34.dp)
+            ) {
                 Icon(
-                    imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.5f),
-                    modifier = Modifier.size(24.dp)
+                    imageVector = Icons.Rounded.DeleteOutline,
+                    contentDescription = "Delete All Episodes in Anime",
+                    tint = DangerRed.copy(alpha = 0.85f),
+                    modifier = Modifier.size(20.dp)
                 )
             }
+
+            Icon(
+                imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.size(24.dp)
+            )
         }
 
         // Expanded Episodes
@@ -586,10 +584,22 @@ private fun DownloadCard(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     // Status Pill
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         when (item.state) {
                             DownloadState.COMPLETED -> {
                                 StatusPill("Completed", AccentPurple.copy(alpha = 0.2f), AccentPurple)
+                                val sizeBytes = if (item.downloadedBytes > 0L) item.downloadedBytes else item.totalBytes
+                                if (sizeBytes > 0L) {
+                                    StatusPill(
+                                        text = Formatter.formatFileSize(context, sizeBytes),
+                                        bgColor = Color.White.copy(alpha = 0.1f),
+                                        textColor = Color.White.copy(alpha = 0.9f)
+                                    )
+                                }
+                                StatusPill("1080p", AccentCyan.copy(alpha = 0.18f), AccentCyan)
                             }
                             DownloadState.DOWNLOADING -> {
                                 Row(verticalAlignment = Alignment.CenterVertically) {

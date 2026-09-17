@@ -1,22 +1,29 @@
 package com.zenx.yugen.play.ui.home
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -36,6 +43,8 @@ import com.zenx.yugen.play.ui.updater.UpdateViewModel
 @Composable
 fun HomeScreen(
     onSearchClick: () -> Unit,
+    onCalendarClick: () -> Unit = {},
+    onGenreClick: (String) -> Unit = {},
     onAnimeClick: (id: String, title: String, posterUrl: String) -> Unit,
     onHistoryClick: (episodeId: String, title: String, posterUrl: String) -> Unit,
     onProfileClick: () -> Unit,
@@ -52,17 +61,43 @@ fun HomeScreen(
     val isAuthenticating by authViewModel.isAuthenticating.collectAsStateWithLifecycle()
     val loginError by authViewModel.loginError.collectAsStateWithLifecycle()
     val updateInfo by updateViewModel.updateInfo.collectAsStateWithLifecycle()
+    val downloadState by updateViewModel.downloadState.collectAsStateWithLifecycle()
 
     val notifications by viewModel.notifications.collectAsStateWithLifecycle()
     val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
     val shouldShowWhatsNew by viewModel.shouldShowWhatsNew.collectAsStateWithLifecycle()
 
     var showAuthDialog by remember { mutableStateOf(false) }
-    var showUpdateDialog by remember { mutableStateOf(false) }
+    var showUpdateDialog by rememberSaveable { mutableStateOf(false) }
+    var hasPromptedUpdateOnLaunch by rememberSaveable { mutableStateOf(false) }
     var showNotificationsSheet by remember { mutableStateOf(false) }
+
+    // Automatic update check on mobile first launch
+    LaunchedEffect(updateInfo) {
+        if (updateInfo != null && !hasPromptedUpdateOnLaunch) {
+            hasPromptedUpdateOnLaunch = true
+            showUpdateDialog = true
+        }
+    }
 
     val bgColor = Color(0xFF09090B)
     val accentPurple = Color(0xFF8B5CF6)
+
+    // Smooth Scroll Hide / Reveal for Top Bar
+    var isTopBarVisible by remember { mutableStateOf(true) }
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                if (delta < -12f && isTopBarVisible) {
+                    isTopBarVisible = false
+                } else if (delta > 12f && !isTopBarVisible) {
+                    isTopBarVisible = true
+                }
+                return Offset.Zero
+            }
+        }
+    }
 
     if (showAuthDialog) {
         AnilistLoginDialog(
@@ -82,8 +117,12 @@ fun HomeScreen(
     if (showUpdateDialog && updateInfo != null) {
         UpdateDialog(
             updateInfo = updateInfo!!,
+            downloadState = downloadState,
             onDismiss = { showUpdateDialog = false },
-            onUpdateClick = { updateViewModel.triggerUpdateDownload(updateInfo!!.downloadUrl) }
+            onStartDownload = { url -> updateViewModel.downloadAndInstallApk(url) },
+            onInstallApk = { file -> updateViewModel.installApk(file) },
+            onCancelDownload = { updateViewModel.cancelDownload() },
+            onResetDownloadState = { updateViewModel.resetDownloadState() }
         )
     }
 
@@ -99,6 +138,9 @@ fun HomeScreen(
             onDeleteNotification = { notifId ->
                 viewModel.deleteNotification(notifId)
             },
+            onClearAllNotifications = {
+                viewModel.clearAllNotifications()
+            },
             onAnimeClick = { animeId, title, poster ->
                 onAnimeClick(animeId, title, poster)
             }
@@ -111,8 +153,12 @@ fun HomeScreen(
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(bgColor)) {
-
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgColor)
+            .nestedScroll(nestedScrollConnection)
+    ) {
         // Subtle Ambient Top Gradient Glow
         Box(
             modifier = Modifier
@@ -126,7 +172,9 @@ fun HomeScreen(
         )
 
         when (val state = uiState) {
-            is HomeUiState.Loading -> HomeSkeleton()
+            is HomeUiState.Loading -> {
+                AppLoadingIndicator()
+            }
             is HomeUiState.Error -> {
                 Column(
                     modifier = Modifier
@@ -159,7 +207,7 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = state.message,
-                        color = Color.Gray,
+                        color = Color.White.copy(alpha = 0.65f),
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center,
                         lineHeight = 18.sp
@@ -199,14 +247,32 @@ fun HomeScreen(
                 ) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 110.dp, bottom = 120.dp)
+                        contentPadding = PaddingValues(top = 0.dp, bottom = 120.dp)
                     ) {
+                        // 1. Hero Carousel (Full-bleed covering the entire upper space with stationary TopGenreFilterBar overlay)
                         if (state.heroAnime.isNotEmpty()) {
-                            item { HeroCarousel(state.heroAnime, onAnimeClick) }
+                            item {
+                                HeroCarousel(
+                                    animeList = state.heroAnime,
+                                    onAnimeClick = onAnimeClick,
+                                    onGenreClick = onGenreClick
+                                )
+                            }
+                        } else {
+                            item {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .statusBarsPadding()
+                                        .padding(top = 64.dp)
+                                ) {
+                                    TopGenreFilterBar(onGenreClick = onGenreClick)
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                }
+                            }
                         }
-                        if (state.trendingAnime.isNotEmpty()) {
-                            item { TrendingSection(state.trendingAnime, onAnimeClick, onTrendingViewAll) }
-                        }
+
+                        // 3. Continue Watching (16:9 widescreen card)
                         if (state.watchHistory.isNotEmpty()) {
                             item {
                                 ContinueWatchingSection(
@@ -218,70 +284,108 @@ fun HomeScreen(
                                 )
                             }
                         }
-                        if (state.airingThisWeek.isNotEmpty()) {
-                            item { AiringSection(state.airingThisWeek, onAnimeClick, onAiringViewAll) }
+
+                        // 4. Category Tabs Row (NEWEST, POPULAR, TRENDING, TOP RATED)
+                        item {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            CategoryTabsRow(
+                                selectedCategory = state.activeCategory,
+                                onCategorySelected = { viewModel.selectCategory(it) }
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
+
+                        // 5. 3-Column Anime Grid
+                        val chunkedAnime = state.categoryAnime.chunked(3)
+                        items(chunkedAnime) { rowAnime ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                rowAnime.forEach { anime ->
+                                    AnimeGridCard(
+                                        anime = anime,
+                                        onClick = { onAnimeClick(anime.id, anime.title, anime.posterUrl) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                repeat(3 - rowAnime.size) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+
+                        // 6. Load More Category Button
+                        if (state.categoryAnime.isNotEmpty()) {
+                            item {
+                                LoadMoreButton(
+                                    category = state.activeCategory,
+                                    isLoading = state.isLoadingMore,
+                                    onClick = { viewModel.loadMoreCurrentCategory() }
+                                )
+                            }
+                        }
+
+                        // 7. Movies Section (3 initial cards + Expand / Collapse)
+                        if (state.movies.isNotEmpty()) {
+                            item {
+                                MoviesSection(
+                                    movies = state.movies,
+                                    isExpanded = state.isMoviesExpanded,
+                                    onExpandClick = { viewModel.toggleMoviesExpanded() },
+                                    onAnimeClick = onAnimeClick
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        IsolatedTopBar(
-            authState = authState,
-            updateInfo = updateInfo,
-            unreadCount = unreadCount,
-            onUpdateClick = { showUpdateDialog = true },
-            onSearchClick = onSearchClick,
-            onProfileClick = onProfileClick,
-            onAuthClick = { showAuthDialog = true },
-            onSettingsClick = onSettingsClick,
-            onNotificationsClick = {
-                showNotificationsSheet = true
-                if (unreadCount > 0) {
-                    viewModel.markNotificationsAsRead()
-                }
-            },
+        // Scroll Hide / Reveal Top Bar
+        AnimatedVisibility(
+            visible = isTopBarVisible,
+            enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(250)) + fadeIn(tween(180)),
+            exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(250)) + fadeOut(tween(180)),
             modifier = Modifier.align(Alignment.TopCenter)
-        )
-    }
-}
-
-@Composable
-private fun IsolatedTopBar(
-    authState: AuthState,
-    updateInfo: AppUpdateInfo?,
-    unreadCount: Int,
-    onUpdateClick: () -> Unit,
-    onSearchClick: () -> Unit,
-    onProfileClick: () -> Unit,
-    onAuthClick: () -> Unit,
-    onSettingsClick: () -> Unit,
-    onNotificationsClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color(0xFF09090B).copy(alpha = 0.95f),
-                        Color(0xFF09090B).copy(alpha = 0.6f),
-                        Color.Transparent
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color(0xFF09090B).copy(alpha = 0.85f),
+                                Color(0xFF09090B).copy(alpha = 0.40f),
+                                Color.Transparent
+                            )
+                        )
                     )
+            ) {
+                HomeAnililiTopBar(
+                    unreadNotificationCount = unreadCount,
+                    isUpdateAvailable = updateInfo != null,
+                    avatarUrl = authState.avatarUrl,
+                    isAuthenticated = authState.isAuthenticated,
+                    onProfileClick = {
+                        if (authState.isAuthenticated) {
+                            onProfileClick()
+                        } else {
+                            showAuthDialog = true
+                        }
+                    },
+                    onUpdateClick = { showUpdateDialog = true },
+                    onNotificationsClick = {
+                        showNotificationsSheet = true
+                        if (unreadCount > 0) {
+                            viewModel.markNotificationsAsRead()
+                        }
+                    },
+                    onCalendarClick = onCalendarClick
                 )
-            )
-    ) {
-        HomeFloatingTopBar(
-            avatarUrl = authState.avatarUrl,
-            isAuthenticated = authState.isAuthenticated,
-            isUpdateAvailable = updateInfo != null,
-            unreadNotificationCount = unreadCount,
-            onUpdateClick = onUpdateClick,
-            onSearchClick = onSearchClick,
-            onProfileClick = { if (authState.isAuthenticated) onProfileClick() else onAuthClick() },
-            onSettingsClick = onSettingsClick,
-            onNotificationsClick = onNotificationsClick
-        )
+            }
+        }
     }
 }

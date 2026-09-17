@@ -28,7 +28,188 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import androidx.compose.material.icons.filled.CalendarMonth
 import com.zenx.yugen.play.ui.components.bounceClick
+
+@Composable
+fun HomeAnililiTopBar(
+    unreadNotificationCount: Int = 0,
+    isUpdateAvailable: Boolean = false,
+    avatarUrl: String? = null,
+    isAuthenticated: Boolean = false,
+    onProfileClick: () -> Unit = {},
+    onUpdateClick: () -> Unit = {},
+    onNotificationsClick: () -> Unit,
+    onCalendarClick: () -> Unit,
+    onSearchClick: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val accentPurple = Color(0xFF8B5CF6)
+    val accentViolet = Color(0xFFA78BFA)
+    val glassBorder = Color.White.copy(alpha = 0.14f)
+    val iconBg = Color(0xFF1E1E24).copy(alpha = 0.78f)
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Left: Avatar Icon for AniList Login + "YUGEN PLAY" Rounded Pill
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Avatar / Profile Icon Button
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(iconBg)
+                    .border(1.dp, glassBorder, CircleShape)
+                    .bounceClick { onProfileClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                if (isAuthenticated && !avatarUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(avatarUrl)
+                            .crossfade(300)
+                            .build(),
+                        contentDescription = "Profile",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                    // Online green status indicator
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF10B981))
+                            .border(1.2.dp, Color(0xFF141418), CircleShape)
+                    )
+                } else {
+                    Icon(
+                        Icons.Rounded.Person,
+                        contentDescription = "AniList Login",
+                        tint = Color.White.copy(alpha = 0.90f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // Stylish App Brand Name: "YUGEN PLAY"
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "YUGEN",
+                    color = accentPurple,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.4.sp
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "PLAY",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.4.sp
+                )
+            }
+
+            if (isUpdateAvailable) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(accentPurple.copy(alpha = 0.2f))
+                        .border(1.dp, accentPurple.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .bounceClick { onUpdateClick() }
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.Download,
+                        contentDescription = "Update",
+                        tint = accentPurple,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+            }
+        }
+
+        // Right Action Icons: Notifications, Calendar
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // 1. Notification Bell
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(iconBg)
+                    .border(1.dp, glassBorder, CircleShape)
+                    .bounceClick { onNotificationsClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    if (unreadNotificationCount > 0) Icons.Rounded.Notifications else Icons.Rounded.NotificationsNone,
+                    contentDescription = "Notifications",
+                    tint = if (unreadNotificationCount > 0) accentViolet else Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+
+                if (unreadNotificationCount > 0) {
+                    val countStr = if (unreadNotificationCount > 99) "99+" else unreadNotificationCount.toString()
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 2.dp, y = (-2).dp)
+                            .defaultMinSize(minWidth = 17.dp, minHeight = 17.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEF4444))
+                            .border(1.5.dp, Color(0xFF141418), CircleShape)
+                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = countStr,
+                            color = Color.White,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+
+            // 2. Calendar / Schedule Icon
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(iconBg)
+                    .border(1.dp, glassBorder, CircleShape)
+                    .bounceClick { onCalendarClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.CalendarMonth,
+                    contentDescription = "Schedule",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
 
 @Composable
 fun HomeFloatingTopBar(

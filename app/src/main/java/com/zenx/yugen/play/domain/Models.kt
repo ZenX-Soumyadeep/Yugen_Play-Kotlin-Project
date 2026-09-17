@@ -14,8 +14,43 @@ data class AiringAnimeItem(
     val posterUrl: String,
     val episode: Int,
     val popularity: Int,
-    val airingAt: Long
+    val airingAt: Long,
+    val format: String? = null,
+    val year: Int? = null,
+    val countryOfOrigin: String = "JP"
 )
+
+data class HomeAnimeCardUiModel(
+    val id: String,
+    val title: String,
+    val posterUrl: String,
+    val rating: String,
+    val type: String,
+    val year: String,
+    val episodes: String,
+    val isDub: Boolean = false
+) {
+    val score: String get() = rating
+    val format: String get() = type
+}
+
+data class HeroUiModel(
+    val id: String,
+    val title: String,
+    val bannerUrl: String,
+    val posterUrl: String,
+    val format: String = "TV",
+    val episodeText: String = "",
+    val score: String = "80",
+    val duration: String = "24 mins",
+    val airingCountdown: String? = null,
+    val genres: List<String> = emptyList(),
+    val description: String = ""
+) {
+    val rating: String get() = score
+    val episodes: String get() = episodeText
+    val airingEpisode: String? get() = if (airingCountdown != null) episodeText else null
+}
 
 // --- Auth & Profile Models ---
 data class AnilistUser(
