@@ -58,6 +58,8 @@ import com.zenx.yugen.play.util.CdnHostRewriter
 import com.zenx.yugen.play.worker.AnilistSyncWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import com.zenx.yugen.play.di.ApplicationScope
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -108,6 +110,7 @@ sealed interface PlayerUiState {
         val selectedSubtitleIndex: Int,
         val qualities: List<VideoQualityUiModel>,
         val selectedQualityHeight: Int,
+        val currentPlayingHeight: Int = 0,
         val playbackSpeed: Float,
         val resizeMode: VideoResizeMode = VideoResizeMode.FIT,
         val isPlaying: Boolean,
@@ -157,14 +160,15 @@ class PlayerViewModel @Inject constructor(
     private val downloadManager: DownloadManager,
     private val downloadCache: Cache,
     private val playerEngine: PlayerEngine,
-    private val castSessionManager: CastSessionManager
+    private val castSessionManager: CastSessionManager,
+    @ApplicationScope private val externalScope: CoroutineScope
 ) : ViewModel() {
 
     private val tag = "YUGEN_PLAYER"
 
-    private var currentEpisodeId: String = checkNotNull(savedStateHandle["episodeId"])
+    private var currentEpisodeId: String = savedStateHandle.get<String>("episodeId") ?: ""
     private val animeUrl: String = savedStateHandle["animeUrl"] ?: ""
-    private val animeTitle: String = checkNotNull(savedStateHandle["title"])
+    private val animeTitle: String = savedStateHandle.get<String>("title") ?: ""
     private val posterUrl: String = savedStateHandle["poster"] ?: ""
     private val activeProviderName: String = savedStateHandle.get<String>("provider")?.takeIf { it.isNotBlank() }
         ?: providerRegistry.getDefaultProvider().name
@@ -214,6 +218,7 @@ class PlayerViewModel @Inject constructor(
 
     @Volatile
     private var cachedPlaybackState: Int = Player.STATE_IDLE
+    private var cachedVideoHeight: Int = 0
 
     private var savedSubtitleSize: Float = PlayerPreferences.DEFAULT_SUBTITLE_SIZE
     private var savedSubtitleEdgeStyle: Int = PlayerPreferences.DEFAULT_SUBTITLE_EDGE_STYLE
@@ -332,8 +337,17 @@ class PlayerViewModel @Inject constructor(
             if (isPlaying) startProgressTracker() else stopProgressTracker()
         }
 
+        override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+            if (videoSize.height > 0) {
+                cachedVideoHeight = videoSize.height
+                updateReadyState { it.copy(currentPlayingHeight = videoSize.height) }
+            }
+        }
+
         override fun onTracksChanged(tracks: Tracks) {
             cachedTracks = tracks
+            val vHeight = getActivePlayer().videoSize.height.takeIf { it > 0 } ?: cachedVideoHeight
+            if (vHeight > 0) cachedVideoHeight = vHeight
             val state = _uiState.value as? PlayerUiState.Ready
             val availableQualities = buildAvailableQualities(
                 activeStream = state?.activeStream,
@@ -342,7 +356,7 @@ class PlayerViewModel @Inject constructor(
                 isOffline = false
             )
             cachedQualities = availableQualities
-            updateReadyState { it.copy(qualities = availableQualities) }
+            updateReadyState { it.copy(qualities = availableQualities, currentPlayingHeight = cachedVideoHeight) }
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -443,7 +457,12 @@ class PlayerViewModel @Inject constructor(
                 }
             )
         }
-        loadEpisodesAndPlay(currentEpisodeId)
+
+        if (currentEpisodeId.isBlank()) {
+            _uiState.value = PlayerUiState.Error("Missing episode identifier.")
+        } else {
+            loadEpisodesAndPlay(currentEpisodeId)
+        }
 
         // Load saved preferences and apply them to cache and Ready state.
         viewModelScope.launch {
@@ -908,6 +927,7 @@ class PlayerViewModel @Inject constructor(
                                 subtitles = safeUiSubtitles,
                                 selectedSubtitleIndex = defaultIndex,
                                 qualities = liveQualities, selectedQualityHeight = -1,
+                                currentPlayingHeight = cachedVideoHeight,
                                 playbackSpeed = savedPlaybackSpeed, isPlaying = liveIsPlaying, isBuffering = liveBuffering,
                                 currentPosition = _playbackProgress.value.currentPosition,
                                 bufferedPosition = _playbackProgress.value.bufferedPosition,
@@ -987,8 +1007,9 @@ class PlayerViewModel @Inject constructor(
 
                 val currentSec = pos / 1000.0
 
-                val activeSkip = skipIntervals.find { it.type in listOf("op", "mixed-op", "recap") && currentSec in it.startTime..it.endTime }
                 val activeEd = skipIntervals.find { it.type in listOf("ed", "mixed-ed") && currentSec in it.startTime..it.endTime }
+                val activeSkip = skipIntervals.find { it.type in listOf("op", "mixed-op", "recap") && currentSec in it.startTime..it.endTime }
+                    ?: (if ((_uiState.value as? PlayerUiState.Ready)?.autoPlayCountdown == null) activeEd else null)
 
                 if (activeEd != null) {
                     triggerOutroCountdown()
@@ -1035,7 +1056,7 @@ class PlayerViewModel @Inject constructor(
 
             autoPlayJob?.cancel()
             autoPlayJob = viewModelScope.launch {
-                for (sec in 5 downTo 1) {
+                for (sec in 6 downTo 1) {
                     if (castSessionManager.castPlayer?.isCastSessionAvailable == true) {
                         cancelAutoPlayCountdown()
                         return@launch
@@ -1288,6 +1309,7 @@ class PlayerViewModel @Inject constructor(
             subtitles = safeUiSubtitles,
             selectedSubtitleIndex = defaultIndex,
             qualities = liveQualities, selectedQualityHeight = -1,
+            currentPlayingHeight = cachedVideoHeight,
             playbackSpeed = savedPlaybackSpeed, isPlaying = liveIsPlaying, isBuffering = liveBuffering,
             currentPosition = _playbackProgress.value.currentPosition,
             bufferedPosition = _playbackProgress.value.bufferedPosition,
@@ -1311,7 +1333,7 @@ class PlayerViewModel @Inject constructor(
         val epNum = currentEpisodeNumberInt.get()
 
         if (position >= 15_000L && duration > 0) {
-            viewModelScope.launch {
+            externalScope.launch {
                 withContext(NonCancellable + Dispatchers.IO) {
                     saveProgressMutex.withLock {
                         val isNearEnd = (position.toDouble() / duration.toDouble()) >= 0.85

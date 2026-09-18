@@ -4,8 +4,13 @@ import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -45,8 +50,13 @@ import androidx.media3.common.text.Cue
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.Job
+import com.zenx.yugen.play.domain.Episode
+import com.zenx.yugen.play.domain.SkipInterval
 import com.zenx.yugen.play.domain.VideoStream
+import com.zenx.yugen.play.ui.home.AppLoadingIndicator
 import com.zenx.yugen.play.ui.player.PlayerPlaybackProgress
 import com.zenx.yugen.play.ui.player.PlayerUiState
 import com.zenx.yugen.play.ui.player.PlayerViewModel
@@ -83,6 +93,11 @@ fun TvPlayerScreen(
     val containerFocusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
 
+    // Quick seek HUD state
+    var quickSeekTargetPosition by remember { mutableStateOf<Long?>(null) }
+    var quickSeekDeltaSec by remember { mutableStateOf(0) }
+    var quickSeekJob by remember { mutableStateOf<Job?>(null) }
+
     // Side sheet states
     var showServerSheet by remember { mutableStateOf(false) }
     var showQualitySheet by remember { mutableStateOf(false) }
@@ -92,10 +107,10 @@ fun TvPlayerScreen(
     val isAnyPanelVisible = showServerSheet || showQualitySheet || showSubtitleSheet || showSpeedSheet
     val readyState = uiState as? PlayerUiState.Ready
 
-    // Clock string
+    // Clock string (12-hour AM/PM format)
     var currentTimeString by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
-        val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+        val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
         while (true) {
             currentTimeString = sdf.format(Date())
             delay(30000)
@@ -105,6 +120,9 @@ fun TvPlayerScreen(
     // Back key handling
     BackHandler {
         when {
+            readyState?.autoPlayCountdown != null -> {
+                viewModel.cancelAutoPlayCountdown()
+            }
             isAnyPanelVisible -> {
                 showServerSheet = false
                 showQualitySheet = false
@@ -167,6 +185,10 @@ fun TvPlayerScreen(
                 if (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK &&
                     keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP
                 ) {
+                    if (readyState?.autoPlayCountdown != null) {
+                        viewModel.cancelAutoPlayCountdown()
+                        return@onPreviewKeyEvent true
+                    }
                     if (isAnyPanelVisible) {
                         showServerSheet = false
                         showQualitySheet = false
@@ -192,11 +214,11 @@ fun TvPlayerScreen(
             }
             .onKeyEvent { keyEvent ->
                 if (isAnyPanelVisible) return@onKeyEvent false
-                if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
-                    val seekStepMs = (readyState?.seekDurationSec ?: 10) * 1000L
-                    val keyCode = keyEvent.nativeKeyEvent.keyCode
+                val keyCode = keyEvent.nativeKeyEvent.keyCode
+                val action = keyEvent.nativeKeyEvent.action
 
-                    if (showControls) {
+                if (showControls) {
+                    if (action == KeyEvent.ACTION_UP) {
                         when (keyCode) {
                             KeyEvent.KEYCODE_DPAD_UP,
                             KeyEvent.KEYCODE_DPAD_DOWN,
@@ -212,11 +234,11 @@ fun TvPlayerScreen(
                                 true
                             }
                             KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                                viewModel.seekRelative(-seekStepMs)
+                                viewModel.seekRelative(-10000L)
                                 true
                             }
                             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                                viewModel.seekRelative(seekStepMs)
+                                viewModel.seekRelative(10000L)
                                 true
                             }
                             KeyEvent.KEYCODE_MEDIA_NEXT -> {
@@ -229,25 +251,76 @@ fun TvPlayerScreen(
                             }
                             else -> false
                         }
-                    } else {
-                        // When controls are hidden
+                    } else false
+                } else {
+                    // When controls are hidden
+                    val remoteSeekStepSec = readyState?.seekDurationSec?.takeIf { it > 0 } ?: 30
+
+                    if (action == KeyEvent.ACTION_DOWN) {
                         when (keyCode) {
                             KeyEvent.KEYCODE_DPAD_LEFT,
                             KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                                viewModel.seekRelative(-seekStepMs)
+                                val currentTarget = quickSeekTargetPosition ?: playbackProgress.currentPosition
+                                val duration = playbackProgress.duration.coerceAtLeast(0L)
+                                val nextDelta = -remoteSeekStepSec
+                                val newDelta = (if (quickSeekTargetPosition != null) quickSeekDeltaSec else 0) + nextDelta
+                                val newPos = (currentTarget + nextDelta * 1000L).coerceIn(0L, duration)
+
+                                quickSeekDeltaSec = newDelta
+                                quickSeekTargetPosition = newPos
+
+                                quickSeekJob?.cancel()
+                                quickSeekJob = coroutineScope.launch {
+                                    delay(400)
+                                    viewModel.seekTo(newPos)
+                                    delay(1200)
+                                    quickSeekTargetPosition = null
+                                    quickSeekDeltaSec = 0
+                                }
                                 true
                             }
                             KeyEvent.KEYCODE_DPAD_RIGHT,
                             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                                viewModel.seekRelative(seekStepMs)
+                                val currentTarget = quickSeekTargetPosition ?: playbackProgress.currentPosition
+                                val duration = playbackProgress.duration.coerceAtLeast(0L)
+                                val nextDelta = remoteSeekStepSec
+                                val newDelta = (if (quickSeekTargetPosition != null) quickSeekDeltaSec else 0) + nextDelta
+                                val newPos = (currentTarget + nextDelta * 1000L).coerceIn(0L, duration)
+
+                                quickSeekDeltaSec = newDelta
+                                quickSeekTargetPosition = newPos
+
+                                quickSeekJob?.cancel()
+                                quickSeekJob = coroutineScope.launch {
+                                    delay(400)
+                                    viewModel.seekTo(newPos)
+                                    delay(1200)
+                                    quickSeekTargetPosition = null
+                                    quickSeekDeltaSec = 0
+                                }
                                 true
                             }
+                            else -> false
+                        }
+                    } else if (action == KeyEvent.ACTION_UP) {
+                        when (keyCode) {
+                            KeyEvent.KEYCODE_DPAD_LEFT,
+                            KeyEvent.KEYCODE_DPAD_RIGHT,
+                            KeyEvent.KEYCODE_MEDIA_REWIND,
+                            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> true
+
                             KeyEvent.KEYCODE_DPAD_CENTER,
                             KeyEvent.KEYCODE_ENTER,
                             KeyEvent.KEYCODE_NUMPAD_ENTER,
                             KeyEvent.KEYCODE_SPACE,
                             KeyEvent.KEYCODE_DPAD_UP,
                             KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                if (quickSeekTargetPosition != null) {
+                                    quickSeekJob?.cancel()
+                                    quickSeekTargetPosition?.let { viewModel.seekTo(it) }
+                                    quickSeekTargetPosition = null
+                                    quickSeekDeltaSec = 0
+                                }
                                 showControls = true
                                 coroutineScope.launch {
                                     delay(60)
@@ -258,6 +331,12 @@ fun TvPlayerScreen(
                                 true
                             }
                             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                                if (quickSeekTargetPosition != null) {
+                                    quickSeekJob?.cancel()
+                                    quickSeekTargetPosition?.let { viewModel.seekTo(it) }
+                                    quickSeekTargetPosition = null
+                                    quickSeekDeltaSec = 0
+                                }
                                 viewModel.togglePlayPause()
                                 true
                             }
@@ -271,8 +350,8 @@ fun TvPlayerScreen(
                             }
                             else -> false
                         }
-                    }
-                } else false
+                    } else false
+                }
             }
     ) {
         // Video Surface
@@ -322,6 +401,16 @@ fun TvPlayerScreen(
                         setApplyEmbeddedStyles(false)
                         setApplyEmbeddedFontSizes(false)
                         setBottomPaddingFraction(subtitleElevationFraction)
+                        setStyle(
+                            CaptionStyleCompat(
+                                android.graphics.Color.WHITE,
+                                android.graphics.Color.argb(90, 0, 0, 0),
+                                android.graphics.Color.TRANSPARENT,
+                                CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
+                                android.graphics.Color.BLACK,
+                                null
+                            )
+                        )
                     }
                     playerViewRef = this
                 }
@@ -339,6 +428,26 @@ fun TvPlayerScreen(
                         setApplyEmbeddedFontSizes(false)
                         setBottomPaddingFraction(subtitleElevationFraction)
                         setFractionalTextSize(state.subtitleSize)
+
+                        val textArgb = state.subtitleTextColor.toInt()
+                        val bgAlpha = ((state.subtitleBgOpacity.coerceIn(0f, 1f)) * 255).toInt().coerceIn(0, 150)
+                        val bgColor = android.graphics.Color.argb(bgAlpha, 0, 0, 0)
+                        val edgeColor = when (state.subtitleEdgeStyle) {
+                            1 -> android.graphics.Color.BLACK
+                            2 -> android.graphics.Color.parseColor("#80000000")
+                            else -> android.graphics.Color.TRANSPARENT
+                        }
+
+                        setStyle(
+                            CaptionStyleCompat(
+                                textArgb,
+                                bgColor,
+                                android.graphics.Color.TRANSPARENT,
+                                @Suppress("WrongConstant") state.subtitleEdgeStyle,
+                                edgeColor,
+                                null
+                            )
+                        )
                     }
                 }
             },
@@ -350,19 +459,15 @@ fun TvPlayerScreen(
         when (val state = uiState) {
             is PlayerUiState.Loading -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = AccentPurple, strokeWidth = 3.dp)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "Loading stream...",
-                            color = Color.White.copy(alpha = 0.8f),
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
+                    AppLoadingIndicator()
                 }
             }
             is PlayerUiState.Error -> {
+                val errorRetryFocusRequester = remember { FocusRequester() }
+                LaunchedEffect(Unit) {
+                    delay(200)
+                    try { errorRetryFocusRequester.requestFocus() } catch (_: Exception) {}
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -389,6 +494,7 @@ fun TvPlayerScreen(
                         Spacer(modifier = Modifier.height(24.dp))
                         Row(
                             modifier = Modifier
+                                .focusRequester(errorRetryFocusRequester)
                                 .tvButtonFocusable(
                                     onClick = { viewModel.retryPlayback() },
                                     shape = RoundedCornerShape(12.dp),
@@ -407,12 +513,14 @@ fun TvPlayerScreen(
                 }
             }
             is PlayerUiState.Ready -> {
-                if (state.isBuffering) {
-                    CircularProgressIndicator(
-                        color = AccentPurple,
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
+                // Buffering loading indicator
+                AnimatedVisibility(
+                    visible = state.isBuffering,
+                    enter = fadeIn(tween(250)),
+                    exit = fadeOut(tween(250)),
+                    modifier = Modifier.align(Alignment.Center)
+                ) {
+                    AppLoadingIndicator(modifier = Modifier.size(110.dp))
                 }
 
                 // TV Controls Overlay
@@ -445,6 +553,42 @@ fun TvPlayerScreen(
                         onOpenSubtitleSheet = { showSubtitleSheet = true },
                         onOpenSpeedSheet = { showSpeedSheet = true },
                         onCycleResize = { viewModel.cycleResizeMode() }
+                    )
+                }
+
+                // Outro Auto-Play Popup ("Play next episode in 6 sec")
+                TvAutoPlayOutroOverlay(
+                    nextEpisode = state.nextEpisode,
+                    countdown = state.autoPlayCountdown,
+                    onPlayNext = {
+                        viewModel.cancelAutoPlayCountdown()
+                        viewModel.playNextEpisode()
+                    },
+                    onDismiss = { viewModel.cancelAutoPlayCountdown() },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = if (showControls) 130.dp else 48.dp, end = 48.dp)
+                )
+
+                // Skip Intro / Outro Popup
+                if (state.autoPlayCountdown == null) {
+                    TvSkipIntroOverlay(
+                        activeSkipInterval = playbackProgress.activeSkipInterval,
+                        onSkipClick = { targetMs -> viewModel.seekTo(targetMs) },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(bottom = if (showControls) 130.dp else 48.dp, end = 48.dp)
+                    )
+                }
+
+                // Quick Seek HUD (only visible when seeking and controls are hidden)
+                if (!showControls && quickSeekTargetPosition != null) {
+                    TvQuickSeekOverlay(
+                        targetPosition = quickSeekTargetPosition!!,
+                        duration = playbackProgress.duration,
+                        bufferedPosition = playbackProgress.bufferedPosition,
+                        deltaSec = quickSeekDeltaSec,
+                        modifier = Modifier.align(Alignment.BottomCenter)
                     )
                 }
 
@@ -588,9 +732,20 @@ private fun TvPlayerOverlay(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    val epNumber = state.episodes.find { it.id == state.currentEpisodeId }?.number ?: "1"
+                    val currentEp = state.episodes.find { it.id == state.currentEpisodeId }
+                    val epNumber = currentEp?.formattedNumber ?: "1"
+                    val rawEpTitle = state.episodeTitle.trim()
+                    val isRedundant = rawEpTitle.isBlank() ||
+                            rawEpTitle.equals("Stream", ignoreCase = true) ||
+                            rawEpTitle.matches(Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?$", RegexOption.IGNORE_CASE))
+                    val episodeSubtitle = if (isRedundant) {
+                        "Episode $epNumber"
+                    } else {
+                        val stripped = rawEpTitle.replace(Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?\\s*[:\\-•]\\s*", RegexOption.IGNORE_CASE), "").trim()
+                        if (stripped.isNotBlank() && !stripped.matches(Regex("^\\d+(\\.0+)?$"))) "Episode $epNumber • $stripped" else "Episode $epNumber"
+                    }
                     Text(
-                        text = "Episode $epNumber • ${state.episodeTitle.ifBlank { "Stream" }}",
+                        text = episodeSubtitle,
                         color = Color.White.copy(alpha = 0.7f),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
@@ -757,28 +912,6 @@ private fun TvPlayerOverlay(
             }
         }
 
-        // Skip Intro / Outro Pill
-        playbackProgress.activeSkipInterval?.let { skip ->
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(bottom = 110.dp)
-                    .tvButtonFocusable(
-                        onClick = { onSkipIntroClick((skip.endTime * 1000).toLong()) },
-                        shape = RoundedCornerShape(100.dp),
-                        focusedBackgroundColor = AccentPurple,
-                        unfocusedBackgroundColor = Color(0xFFF59E0B),
-                        focusedBorderColor = Color.White
-                    )
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Rounded.FastForward, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Skip ${skip.type}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-
         // --- BOTTOM BAR ---
         Column(
             modifier = Modifier
@@ -802,20 +935,70 @@ private fun TvPlayerOverlay(
                     (playbackProgress.currentPosition.toFloat() / playbackProgress.duration.toFloat()).coerceIn(0f, 1f)
                 } else 0f
 
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color.White.copy(alpha = 0.2f))
-                ) {
+                val bufferedProgress = if (playbackProgress.duration > 0) {
+                    (playbackProgress.bufferedPosition.toFloat() / playbackProgress.duration.toFloat()).coerceIn(0f, 1f)
+                } else 0f
+
+                BoxWithConstraints(modifier = Modifier.weight(1f)) {
+                    val barWidth = maxWidth
+                    // Progress Track
                     Box(
                         modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(progress)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(AccentPurple)
-                    )
+                            .fillMaxWidth()
+                            .height(10.dp)
+                            .clip(RoundedCornerShape(5.dp))
+                            .background(Color.White.copy(alpha = 0.16f))
+                    ) {
+                        // 1. Buffered segment with gradient
+                        if (bufferedProgress > 0f) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(bufferedProgress)
+                                    .clip(RoundedCornerShape(5.dp))
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(
+                                                Color.White.copy(alpha = 0.22f),
+                                                Color.White.copy(alpha = 0.45f)
+                                            )
+                                        )
+                                    )
+                            )
+                        }
+
+                        // 2. Intro and Outro segment markers on track
+                        if (playbackProgress.duration > 0) {
+                            state.skipIntervals.forEach { skip ->
+                                val isOutro = skip.type.contains("ed", ignoreCase = true)
+                                val intervalColor = if (isOutro) Color(0xFF38BDF8) else Color(0xFFF59E0B)
+                                val startRatio = (skip.startTime * 1000.0 / playbackProgress.duration).coerceIn(0.0, 1.0).toFloat()
+                                val endRatio = (skip.endTime * 1000.0 / playbackProgress.duration).coerceIn(0.0, 1.0).toFloat()
+                                val segWidth = (barWidth * (endRatio - startRatio)).coerceAtLeast(3.dp)
+
+                                Box(
+                                    modifier = Modifier
+                                        .offset(x = barWidth * startRatio)
+                                        .width(segWidth)
+                                        .fillMaxHeight()
+                                        .background(intervalColor.copy(alpha = 0.85f))
+                                )
+                            }
+                        }
+
+                        // 3. Active played progress
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(progress)
+                                .clip(RoundedCornerShape(5.dp))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(Color(0xFF7C3AED), Color(0xFFA78BFA))
+                                    )
+                                )
+                        )
+                    }
                 }
 
                 Text(
@@ -849,7 +1032,12 @@ private fun TvPlayerOverlay(
                     )
 
                     // Quality
-                    val qLabel = if (state.selectedQualityHeight == -1) "Auto" else "${state.selectedQualityHeight}p"
+                    val qLabel = if (state.selectedQualityHeight == -1) {
+                        val h = if (state.currentPlayingHeight > 0) "${state.currentPlayingHeight}p" else "1080p"
+                        "$h • Auto"
+                    } else {
+                        "${state.selectedQualityHeight}p"
+                    }
                     TvActionPill(
                         icon = Icons.Rounded.HighQuality,
                         label = "Quality",
@@ -1005,8 +1193,12 @@ private fun TvServerSidePanel(
         }
     }
 
-    val selectedGroupIndex = remember(serverGroups, state.activeStream) {
+    val selectedGroupIndex = remember(serverGroups, state.activeStream, isDubTab, activeIsDub, hasSub, hasDub) {
         val currentStream = state.activeStream ?: return@remember -1
+        if (hasSub && hasDub && isDubTab != activeIsDub) {
+            return@remember -1
+        }
+
         val byRef = serverGroups.indexOfFirst { group ->
             group.streams.any { it === currentStream }
         }
@@ -1023,7 +1215,7 @@ private fun TvServerSidePanel(
             .replace(Regex("\\(.*\\)|\\[.*?\\]"), "")
             .trim()
             .ifBlank { "Server" }
-        serverGroups.indexOfFirst { it.serverName.equals(currentClean, ignoreCase = true) }
+        serverGroups.indexOfFirst { it.isDub == activeIsDub && it.serverName.equals(currentClean, ignoreCase = true) }
     }
 
     val panelFocusRequester = remember { FocusRequester() }
@@ -1241,17 +1433,35 @@ private fun TvQualitySidePanel(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            val concreteQualities = remember(state.qualities) {
+                val list = state.qualities.filter { it.height > 0 }
+                if (list.isEmpty()) state.qualities else list
+            }
+
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(state.qualities) { quality ->
-                    val isSelected = quality.height == state.selectedQualityHeight
+                items(concreteQualities) { quality ->
+                    val isAutoMode = state.selectedQualityHeight == -1
+                    val isAutoResolution = isAutoMode && (
+                        quality.height == state.currentPlayingHeight ||
+                        (state.currentPlayingHeight <= 0 && quality == concreteQualities.firstOrNull())
+                    )
+                    val isManualMatch = !isAutoMode && quality.height == state.selectedQualityHeight
+                    val isSelected = isAutoResolution || isManualMatch
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .tvButtonFocusable(
-                                onClick = { onSelectQuality(quality.height) },
+                                onClick = {
+                                    if (isManualMatch) {
+                                        onSelectQuality(-1) // toggle back to auto
+                                    } else {
+                                        onSelectQuality(quality.height)
+                                    }
+                                },
                                 shape = RoundedCornerShape(12.dp),
                                 focusedBackgroundColor = AccentPurple,
                                 unfocusedBackgroundColor = if (isSelected) AccentPurple.copy(alpha = 0.25f) else ItemBg,
@@ -1261,12 +1471,33 @@ private fun TvQualitySidePanel(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
-                            text = quality.label,
-                            color = Color.White,
-                            fontSize = 14.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = quality.label,
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                            if (isAutoResolution) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(AccentPurple)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "AUTO",
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Black,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                            }
+                        }
                         if (isSelected) {
                             Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(20.dp))
                         }
@@ -1532,5 +1763,267 @@ private fun formatTime(ms: Long): String {
         String.format(Locale.getDefault(), "%d:%02d:%02d", hours, minutes, seconds)
     } else {
         String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+    }
+}
+
+@Composable
+private fun TvAutoPlayOutroOverlay(
+    nextEpisode: Episode?,
+    countdown: Int?,
+    onPlayNext: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = countdown != null && nextEpisode != null,
+        enter = fadeIn(tween(300)) + slideInVertically(initialOffsetY = { it / 2 }, animationSpec = tween(300)),
+        exit = fadeOut(tween(300)) + slideOutVertically(targetOffsetY = { it / 2 }, animationSpec = tween(300)),
+        modifier = modifier
+    ) {
+        if (countdown != null && nextEpisode != null) {
+            val playFocusRequester = remember { FocusRequester() }
+            LaunchedEffect(Unit) {
+                delay(120)
+                try { playFocusRequester.requestFocus() } catch (_: Exception) {}
+            }
+
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color(0xFF14141E).copy(alpha = 0.95f))
+                    .border(1.5.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(18.dp))
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                Column(modifier = Modifier.widthIn(max = 240.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Rounded.Schedule,
+                            contentDescription = null,
+                            tint = AccentPurple,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Play next episode in $countdown sec",
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Episode ${nextEpisode.formattedNumber}: ${nextEpisode.title}",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Dismiss "X" Button
+                    Box(
+                        modifier = Modifier
+                            .tvButtonFocusable(
+                                onClick = onDismiss,
+                                shape = CircleShape,
+                                focusedBackgroundColor = Color.White.copy(alpha = 0.35f),
+                                unfocusedBackgroundColor = Color.White.copy(alpha = 0.12f),
+                                focusedBorderColor = Color.White
+                            )
+                            .size(38.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "Dismiss",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // Play Now Button
+                    Row(
+                        modifier = Modifier
+                            .focusRequester(playFocusRequester)
+                            .tvButtonFocusable(
+                                onClick = onPlayNext,
+                                shape = RoundedCornerShape(100.dp),
+                                focusedBackgroundColor = AccentPurple,
+                                unfocusedBackgroundColor = Color(0xFF7C3AED),
+                                focusedBorderColor = Color.White
+                            )
+                            .padding(horizontal = 18.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PlayArrow,
+                            contentDescription = "Play",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Play", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvSkipIntroOverlay(
+    activeSkipInterval: SkipInterval?,
+    onSkipClick: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = activeSkipInterval != null,
+        enter = fadeIn(tween(250)) + slideInHorizontally(initialOffsetX = { it / 2 }, animationSpec = tween(250)),
+        exit = fadeOut(tween(250)) + slideOutHorizontally(targetOffsetX = { it / 2 }, animationSpec = tween(250)),
+        modifier = modifier
+    ) {
+        if (activeSkipInterval != null) {
+            val isOutro = activeSkipInterval.type.contains("ed", ignoreCase = true)
+            val badgeColor = if (isOutro) Color(0xFF38BDF8) else Color(0xFFF59E0B)
+            val label = if (isOutro) "Skip Outro" else "Skip Intro"
+
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(100.dp))
+                    .background(Color(0xFF14141E).copy(alpha = 0.95f))
+                    .border(1.5.dp, badgeColor.copy(alpha = 0.75f), RoundedCornerShape(100.dp))
+                    .tvButtonFocusable(
+                        onClick = { onSkipClick((activeSkipInterval.endTime * 1000).toLong()) },
+                        shape = RoundedCornerShape(100.dp),
+                        focusedBackgroundColor = AccentPurple,
+                        unfocusedBackgroundColor = badgeColor.copy(alpha = 0.25f),
+                        focusedBorderColor = Color.White
+                    )
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(badgeColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.FastForward,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = label,
+                    color = Color.White,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvQuickSeekOverlay(
+    targetPosition: Long,
+    duration: Long,
+    bufferedPosition: Long,
+    deltaSec: Int,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = true,
+        enter = fadeIn(tween(160)) + slideInVertically(initialOffsetY = { it / 3 }, animationSpec = tween(160)),
+        exit = fadeOut(tween(200)) + slideOutVertically(targetOffsetY = { it / 3 }, animationSpec = tween(200)),
+        modifier = modifier
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(bottom = 52.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color(0xFF14141E).copy(alpha = 0.95f))
+                .border(1.5.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(18.dp))
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(min = 380.dp, max = 560.dp)
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val isForward = deltaSec >= 0
+                        Icon(
+                            imageVector = if (isForward) Icons.Rounded.FastForward else Icons.Rounded.FastRewind,
+                            contentDescription = null,
+                            tint = if (isForward) AccentPurple else Color(0xFFF59E0B),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (deltaSec > 0) "+${deltaSec}s" else "${deltaSec}s",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Text(
+                        text = "${formatTime(targetPosition)} / ${formatTime(duration)}",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                val progress = if (duration > 0) (targetPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f) else 0f
+                val buffProgress = if (duration > 0) (bufferedPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f) else 0f
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(7.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color.White.copy(alpha = 0.18f))
+                ) {
+                    if (buffProgress > 0f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(buffProgress)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color.White.copy(alpha = 0.35f))
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(progress)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(Color(0xFF7C3AED), Color(0xFFA78BFA))
+                                )
+                            )
+                    )
+                }
+            }
+        }
     }
 }

@@ -55,8 +55,6 @@ fun TvSearchScreen(
     modifier: Modifier = Modifier,
     viewModel: SearchViewModel = hiltViewModel()
 ) {
-    BackHandler { onBackClick() }
-
     val query by viewModel.searchQuery.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val recentSearches by viewModel.recentSearches.collectAsStateWithLifecycle()
@@ -67,11 +65,15 @@ fun TvSearchScreen(
     val searchFocusRequester = remember { FocusRequester() }
     var isSearchFocused by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        delay(200)
-        try {
-            searchFocusRequester.requestFocus()
-        } catch (_: Exception) {}
+    BackHandler {
+        if (isSearchFocused) {
+            focusManager.clearFocus()
+        } else if (query.isNotEmpty()) {
+            viewModel.onQueryChange("")
+            viewModel.clearAllFilters()
+        } else {
+            onBackClick()
+        }
     }
 
     Column(

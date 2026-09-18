@@ -36,7 +36,6 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.zenx.yugen.play.ui.detail.DetailViewModel
 import com.zenx.yugen.play.ui.detail.DetailsUiState
-import com.zenx.yugen.play.ui.detail.DownloadState
 import com.zenx.yugen.play.ui.detail.EpisodeUiModel
 import com.zenx.yugen.play.ui.tv.components.tvButtonFocusable
 import com.zenx.yugen.play.ui.tv.components.tvCardFocusable
@@ -60,7 +59,6 @@ fun TvDetailScreen(
     val context = LocalContext.current
 
     // Dialog visibilities
-    var showBatchDownloadDialog by remember { mutableStateOf(false) }
     var showFixTitleDialog by remember { mutableStateOf(false) }
     var showSourceDialog by remember { mutableStateOf(false) }
     var showAnilistDialog by remember { mutableStateOf(false) }
@@ -445,64 +443,6 @@ fun TvDetailScreen(
                                         )
                                     }
 
-                                    // 3. Batch Download Button (Opens Popup Dialog)
-                                    Row(
-                                        modifier = Modifier
-                                            .tvButtonFocusable(
-                                                onClick = { showBatchDownloadDialog = true },
-                                                shape = RoundedCornerShape(12.dp),
-                                                focusedBackgroundColor = Color.White.copy(alpha = 0.25f),
-                                                unfocusedBackgroundColor = Color.White.copy(alpha = 0.12f),
-                                                focusedBorderColor = Color(0xFFA78BFA)
-                                            )
-                                            .height(44.dp)
-                                            .padding(horizontal = 16.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.Download,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(17.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "Download",
-                                            color = Color.White,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-
-                                    // 4. Source Provider Button
-                                    Row(
-                                        modifier = Modifier
-                                            .tvButtonFocusable(
-                                                onClick = { showSourceDialog = true },
-                                                shape = RoundedCornerShape(12.dp),
-                                                focusedBackgroundColor = Color.White.copy(alpha = 0.25f),
-                                                unfocusedBackgroundColor = Color.White.copy(alpha = 0.12f),
-                                                focusedBorderColor = Color(0xFFA78BFA)
-                                            )
-                                            .height(44.dp)
-                                            .padding(horizontal = 16.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.Layers,
-                                            contentDescription = null,
-                                            tint = Color(0xFFA78BFA),
-                                            modifier = Modifier.size(17.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = state.activeProvider.uppercase(),
-                                            color = Color.White,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-
                                     // 5. Fix Title Match Button (Manual Selection)
                                     val isMapped = state.isMapped
                                     Row(
@@ -705,16 +645,29 @@ fun TvDetailScreen(
                         }
                     }
 
-                    // Top Right Quick Provider badge
-                    Box(
+                    // Top Right Quick Provider badge (Clickable to switch source)
+                    Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.White.copy(alpha = 0.10f))
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                            .tvButtonFocusable(
+                                onClick = { showSourceDialog = true },
+                                shape = RoundedCornerShape(8.dp),
+                                focusedBackgroundColor = Color(0xFF8B5CF6),
+                                unfocusedBackgroundColor = Color.White.copy(alpha = 0.12f),
+                                focusedBorderColor = Color.White
+                            )
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Layers,
+                            contentDescription = "Switch Source",
+                            tint = Color(0xFFA78BFA),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = state.activeProvider.uppercase(),
-                            color = Color(0xFFA78BFA),
+                            color = Color.White,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -722,19 +675,6 @@ fun TvDetailScreen(
                 }
 
                 // --- DIALOGS ---
-
-                // 1. Batch Download Dialog
-                if (showBatchDownloadDialog) {
-                    TvBatchDownloadDialog(
-                        allEpisodes = allEpisodes,
-                        defaultPreferDub = defaultPreferDub,
-                        onConfirm = { selectedEps, preferDub ->
-                            viewModel.batchDownloadEpisodes(selectedEps, preferDub)
-                            Toast.makeText(context, "Started download of ${selectedEps.size} episodes", Toast.LENGTH_SHORT).show()
-                        },
-                        onDismiss = { showBatchDownloadDialog = false }
-                    )
-                }
 
                 // 2. Fix Title Match Dialog
                 if (showFixTitleDialog) {
@@ -801,13 +741,13 @@ private fun TvEpisodeCard(
 
     Column(
         modifier = modifier
-            .width(210.dp)
+            .width(185.dp)
             .padding(vertical = 4.dp)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(118.dp)
+                .height(104.dp)
                 .tvCardFocusable(
                     onClick = onClick,
                     shape = shape,
@@ -856,24 +796,8 @@ private fun TvEpisodeCard(
                 )
             }
 
-            // Top Right Pill: Downloaded or Duration
-            if (episode.downloadState == DownloadState.COMPLETED) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(Color(0xFF10B981).copy(alpha = 0.9f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = "SAVED",
-                        color = Color.White,
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            } else if (episode.duration.isNotBlank()) {
+            // Top Right Pill: Duration
+            if (episode.duration.isNotBlank()) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)

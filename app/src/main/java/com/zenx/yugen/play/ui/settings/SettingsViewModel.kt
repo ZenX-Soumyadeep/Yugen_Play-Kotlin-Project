@@ -28,6 +28,8 @@ class SettingsViewModel @Inject constructor(
     val autoPlayNext      = playerPreferences.autoPlayNext
     val preferDub         = playerPreferences.preferDub
     val maxParallelDownloads = playerPreferences.maxParallelDownloads
+    val subtitleSize      = playerPreferences.subtitleSize
+    val subtitleBgOpacity = playerPreferences.subtitleBgOpacity
     val authState         = authPreferences.authState
 
     // ── Setters ───────────────────────────────────────────────────────────────
@@ -36,6 +38,8 @@ class SettingsViewModel @Inject constructor(
     fun setAutoPlayNext(enabled: Boolean) = viewModelScope.launch { playerPreferences.setAutoPlayNext(enabled) }
     fun setPreferDub(enabled: Boolean)   = viewModelScope.launch { playerPreferences.setPreferDub(enabled) }
     fun setMaxParallelDownloads(count: Int) = viewModelScope.launch { playerPreferences.setMaxParallelDownloads(count) }
+    fun setSubtitleSize(size: Float)     = viewModelScope.launch { playerPreferences.setSubtitleSize(size) }
+    fun setSubtitleBgOpacity(opacity: Float) = viewModelScope.launch { playerPreferences.setSubtitleBgOpacity(opacity) }
     fun logout()                         = viewModelScope.launch { authPreferences.clearAuth() }
 
     // ── Existing ──────────────────────────────────────────────────────────────

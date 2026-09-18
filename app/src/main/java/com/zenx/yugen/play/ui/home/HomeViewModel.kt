@@ -60,7 +60,8 @@ data class ContinueWatchingUiModel(
     val progress: Float,
     val timeLeft: String,
     val isCloudSync: Boolean,
-    val mediaId: String? = null
+    val mediaId: String? = null,
+    val isUpNext: Boolean = false
 )
 
 private data class CategoryFlowData(
@@ -290,6 +291,8 @@ class HomeViewModel @Inject constructor(
         dismissedCloudSyncIds.update { it + cloudIds }
     }
 
+    private val categoryPages = java.util.concurrent.ConcurrentHashMap<HomeCategory, Int>()
+
     fun selectCategory(category: HomeCategory) {
         if (_selectedCategory.value == category) return
         _selectedCategory.value = category
@@ -297,6 +300,7 @@ class HomeViewModel @Inject constructor(
         if (existing.isNullOrEmpty()) {
             viewModelScope.launch(Dispatchers.IO) {
                 val list = anilistService.fetchCategoryAnime(category.sortParam, page = 1, perPage = 18)
+                categoryPages[category] = 1
                 _categoryItems.update { it + (category to list) }
             }
         }
@@ -306,14 +310,14 @@ class HomeViewModel @Inject constructor(
         val cat = _selectedCategory.value
         if (_isLoadingMore.value) return
         val currentList = _categoryItems.value[cat].orEmpty()
-        val currentSize = currentList.size
-        val nextPage = (currentSize / 9) + 1
+        val nextPage = (categoryPages[cat] ?: 1) + 1
 
         viewModelScope.launch(Dispatchers.IO) {
             _isLoadingMore.value = true
             try {
-                val more = anilistService.fetchCategoryAnime(cat.sortParam, page = nextPage, perPage = 9)
+                val more = anilistService.fetchCategoryAnime(cat.sortParam, page = nextPage, perPage = 18)
                 if (more.isNotEmpty()) {
+                    categoryPages[cat] = nextPage
                     val existingIds = currentList.map { it.id }.toSet()
                     val filteredMore = more.filter { it.id !in existingIds }
                     _categoryItems.update { it + (cat to (currentList + filteredMore)) }
@@ -378,18 +382,26 @@ class HomeViewModel @Inject constructor(
                 favoriteDao.getAllFavorites(),
                 activeAnilistWatchingFlow
             ) { history, favorites, anilistWatching ->
-                val localNormalizedTitles = history.map { StringUtils.normalizeTitleForComparison(it.animeTitle) }.toSet()
-
                 val localContinueList = history
                     .filter { it.durationMs > 0L || it.progressMs > 0L }
                     .sortedByDescending { it.lastWatchedAt }
-                    .map { entity ->
+                    .mapNotNull { entity ->
                         val cleanEpNum = formatEpisodeNumber(entity.episodeId)
                         val progress = if (entity.durationMs > 0) {
                             (entity.progressMs.toFloat() / entity.durationMs.toFloat()).coerceIn(0f, 1f)
                         } else 0f
 
-                        val timeLeftStr = if (entity.durationMs > 0) {
+                        val isNearEnd = progress >= 0.80f
+                        val epInt = cleanEpNum.toIntOrNull()
+                        val subtitleText = if (isNearEnd && epInt != null) {
+                            "Up Next • Episode ${epInt + 1}"
+                        } else {
+                            "Episode $cleanEpNum"
+                        }
+                        val effectiveProgress = if (isNearEnd) 0f else progress
+                        val timeLeftStr = if (isNearEnd) {
+                            "Up Next"
+                        } else if (entity.durationMs > 0) {
                             val minsLeft = ((entity.durationMs - entity.progressMs) / 60000L).coerceAtLeast(1)
                             "${minsLeft}m left"
                         } else ""
@@ -397,14 +409,17 @@ class HomeViewModel @Inject constructor(
                         ContinueWatchingUiModel(
                             episodeId = entity.episodeId,
                             animeTitle = entity.animeTitle,
-                            subtitle = "Episode $cleanEpNum",
+                            subtitle = subtitleText,
                             posterUrl = entity.posterUrl,
-                            progress = progress,
+                            progress = effectiveProgress,
                             timeLeft = timeLeftStr,
                             isCloudSync = false,
-                            mediaId = null
+                            mediaId = null,
+                            isUpNext = isNearEnd
                         )
                     }
+
+                val localNormalizedTitles = localContinueList.map { StringUtils.normalizeTitleForComparison(it.animeTitle) }.toSet()
 
                 val cloudContinueList = anilistWatching
                     .filter { StringUtils.normalizeTitleForComparison(it.title) !in localNormalizedTitles }

@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -49,7 +48,6 @@ sealed class TvNavItem(val route: String, val title: String, val icon: ImageVect
     data object Search : TvNavItem("search", "Search", Icons.Filled.Search)
     data object Schedule : TvNavItem("calendar", "Schedule", Icons.Filled.DateRange)
     data object Library : TvNavItem("library", "Library", Icons.Filled.VideoLibrary)
-    data object Downloads : TvNavItem("downloads", "Downloads", Icons.Filled.Download)
     data object Settings : TvNavItem("settings", "Settings", Icons.Filled.Settings)
 }
 
@@ -58,7 +56,6 @@ val tvNavItems = listOf(
     TvNavItem.Search,
     TvNavItem.Schedule,
     TvNavItem.Library,
-    TvNavItem.Downloads,
     TvNavItem.Settings
 )
 

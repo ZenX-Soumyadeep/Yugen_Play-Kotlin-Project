@@ -23,6 +23,7 @@ import com.zenx.yugen.play.ui.tv.player.TvPlayerScreen
 import com.zenx.yugen.play.ui.tv.calendar.TvCalendarScreen
 import com.zenx.yugen.play.ui.tv.components.TvNavItem
 import com.zenx.yugen.play.ui.tv.components.TvNavigationRail
+import com.zenx.yugen.play.ui.tv.components.TvOpeningSplashOverlay
 import com.zenx.yugen.play.ui.tv.detail.TvDetailScreen
 import com.zenx.yugen.play.ui.tv.home.TvHomeScreen
 import com.zenx.yugen.play.ui.tv.library.TvLibraryScreen
@@ -37,7 +38,6 @@ import com.zenx.yugen.play.ui.tv.updater.TvUpdateDialog
 import com.zenx.yugen.play.ui.updater.UpdateViewModel
 import com.zenx.yugen.play.ui.auth.AuthViewModel
 import com.zenx.yugen.play.ui.tv.settings.TvSettingsScreen
-import com.zenx.yugen.play.ui.tv.downloads.TvDownloadsScreen
 import com.zenx.yugen.play.ui.tv.profile.TvProfileScreen
 
 private fun buildTvPlayerRoute(
@@ -74,6 +74,7 @@ fun TvMainScreen(
 
     var showUpdateDialog by rememberSaveable { mutableStateOf(false) }
     var hasPromptedUpdateOnLaunch by rememberSaveable { mutableStateOf(false) }
+    var showSplashOverlay by rememberSaveable { mutableStateOf(true) }
 
     // Automatic update check on TV first launch
     LaunchedEffect(updateInfo) {
@@ -97,7 +98,6 @@ fun TvMainScreen(
             currentRoute?.startsWith("search") == true -> "search"
             currentRoute?.startsWith("calendar") == true -> "calendar"
             currentRoute?.startsWith("library") == true -> "library"
-            currentRoute?.startsWith("downloads") == true -> "downloads"
             currentRoute?.startsWith("settings") == true -> "settings"
             currentRoute?.startsWith("profile") == true -> "profile"
             else -> "home"
@@ -235,24 +235,6 @@ fun TvMainScreen(
                     )
                 }
 
-                // --- DOWNLOADS ---
-                composable(TvNavItem.Downloads.route) {
-                    TvDownloadsScreen(
-                        onPlayEpisode = { episodeId, animeTitle, posterUrl ->
-                            navController.navigate(
-                                buildTvPlayerRoute(episodeId = episodeId, title = animeTitle, poster = posterUrl)
-                            )
-                        },
-                        onBrowseClick = {
-                            navController.navigate(TvNavItem.Home.route) {
-                                popUpTo("home") { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    )
-                }
-
                 // --- SETTINGS ---
                 composable(TvNavItem.Settings.route) {
                     TvSettingsScreen(
@@ -333,6 +315,12 @@ fun TvMainScreen(
             onInstallApk = { file -> updateViewModel.installApk(file) },
             onCancelDownload = { updateViewModel.cancelDownload() },
             onResetDownloadState = { updateViewModel.resetDownloadState() }
+        )
+    }
+
+    if (showSplashOverlay) {
+        TvOpeningSplashOverlay(
+            onSplashFinished = { showSplashOverlay = false }
         )
     }
 }

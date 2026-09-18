@@ -40,6 +40,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material.icons.rounded.DeleteOutline
+import com.zenx.yugen.play.ui.home.AppLoadingIndicator
 import com.zenx.yugen.play.domain.HeroUiModel
 import com.zenx.yugen.play.domain.HomeAnimeCardUiModel
 import com.zenx.yugen.play.ui.home.ContinueWatchingUiModel
@@ -79,7 +84,7 @@ fun TvHomeScreen(
         when (val state = uiState) {
             is HomeUiState.Loading -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color(0xFF8B5CF6), strokeWidth = 3.dp)
+                    AppLoadingIndicator()
                 }
             }
             is HomeUiState.Error -> {
@@ -96,6 +101,7 @@ fun TvHomeScreen(
                     state = state,
                     onAnimeClick = onAnimeClick,
                     onContinueWatchingClick = onContinueWatchingClick,
+                    onDeleteContinueWatching = { viewModel.deleteHistoryItem(it) },
                     onCategorySelect = { viewModel.selectCategory(it) }
                 )
             }
@@ -108,6 +114,7 @@ private fun TvHomeContent(
     state: HomeUiState.Success,
     onAnimeClick: (id: String, title: String, posterUrl: String) -> Unit,
     onContinueWatchingClick: (episodeId: String, title: String, poster: String) -> Unit,
+    onDeleteContinueWatching: (episodeId: String) -> Unit,
     onCategorySelect: (HomeCategory) -> Unit
 ) {
     val initialBillboard = remember(state.heroAnime) {
@@ -127,6 +134,7 @@ private fun TvHomeContent(
     }
 
     var activeBillboard by remember { mutableStateOf(initialBillboard) }
+    var itemToDelete by remember { mutableStateOf<ContinueWatchingUiModel?>(null) }
 
     // Synchronize initialBillboard if active is null
     LaunchedEffect(initialBillboard) {
@@ -140,6 +148,7 @@ private fun TvHomeContent(
     val watchNowFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
+        listState.scrollToItem(0, 0)
         delay(200)
         try {
             watchNowFocusRequester.requestFocus()
@@ -156,7 +165,7 @@ private fun TvHomeContent(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(390.dp)
+                    .height(315.dp)
             ) {
                 // Animated crossfade of billboard backdrop
                 AnimatedContent(
@@ -199,8 +208,8 @@ private fun TvHomeContent(
                                 .background(
                                     Brush.verticalGradient(
                                         0.0f to Color.Transparent,
-                                        0.60f to Color.Transparent,
-                                        0.88f to Color(0xFF09090C).copy(alpha = 0.85f),
+                                        0.55f to Color.Transparent,
+                                        0.85f to Color(0xFF09090C).copy(alpha = 0.85f),
                                         1.0f to Color(0xFF09090C)
                                     )
                                 )
@@ -214,7 +223,7 @@ private fun TvHomeContent(
                         modifier = Modifier
                             .fillMaxHeight()
                             .width(580.dp)
-                            .padding(start = 36.dp, top = 36.dp, bottom = 28.dp),
+                            .padding(start = 36.dp, top = 24.dp, bottom = 20.dp),
                         verticalArrangement = Arrangement.Bottom
                     ) {
                         // Airing Countdown Badge
@@ -232,21 +241,21 @@ private fun TvHomeContent(
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                         }
 
                         // Title
                         Text(
                             text = billboard.title,
                             color = Color.White,
-                            fontSize = 32.sp,
+                            fontSize = 24.sp,
                             fontWeight = FontWeight.Black,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            lineHeight = 38.sp
+                            lineHeight = 30.sp
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         // Metadata Row: Score, Format, Genres
                         Row(
@@ -298,18 +307,18 @@ private fun TvHomeContent(
 
                         // Synopsis preview
                         if (billboard.description.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = billboard.description,
                                 color = Color.White.copy(alpha = 0.75f),
-                                fontSize = 12.5.sp,
-                                maxLines = 3,
+                                fontSize = 12.sp,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
-                                lineHeight = 18.sp
+                                lineHeight = 16.sp
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(18.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
 
                         // Billboard Buttons
                         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -391,6 +400,9 @@ private fun TvHomeContent(
                             item = item,
                             onClick = {
                                 onContinueWatchingClick(item.episodeId, item.animeTitle, item.posterUrl)
+                            },
+                            onLongClick = {
+                                itemToDelete = item
                             },
                             onFocus = {
                                 activeBillboard = TvBillboardData(
@@ -542,6 +554,112 @@ private fun TvHomeContent(
                                 )
                             }
                         )
+                    }
+                }
+            }
+        }
+    }
+
+    // --- DELETE FROM CONTINUE WATCHING CONFIRMATION DIALOG ---
+    if (itemToDelete != null) {
+        val target = itemToDelete!!
+        val cancelFocusRequester = remember { FocusRequester() }
+        var canInteract by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            delay(300)
+            canInteract = true
+            try { cancelFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
+        Dialog(
+            onDismissRequest = { if (canInteract) itemToDelete = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.75f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    modifier = Modifier
+                        .width(440.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color(0xFF12121A))
+                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
+                        .padding(28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEF4444).copy(alpha = 0.15f))
+                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.3f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.DeleteOutline,
+                            contentDescription = null,
+                            tint = Color(0xFFEF4444),
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Remove from Continue Watching?",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Remove '${target.animeTitle}' from your continue watching? Your saved progress will be deleted.",
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 13.5.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(cancelFocusRequester)
+                                .tvButtonFocusable(
+                                    onClick = { if (canInteract) itemToDelete = null },
+                                    shape = RoundedCornerShape(12.dp),
+                                    focusedBackgroundColor = Color(0xFF8B5CF6),
+                                    unfocusedBackgroundColor = Color.White.copy(alpha = 0.1f),
+                                    focusedBorderColor = Color.White
+                                )
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Cancel", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .tvButtonFocusable(
+                                    onClick = {
+                                        if (canInteract) {
+                                            onDeleteContinueWatching(target.episodeId)
+                                            itemToDelete = null
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    focusedBackgroundColor = Color(0xFF7F1D1D),
+                                    unfocusedBackgroundColor = Color(0xFFEF4444).copy(alpha = 0.12f),
+                                    focusedBorderColor = Color(0xFFF87171)
+                                )
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Delete", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }

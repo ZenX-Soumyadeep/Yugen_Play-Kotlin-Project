@@ -6,6 +6,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,10 +27,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,13 +49,12 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-private data class TvScheduleTimeGroup(
+private data class TvDayTabItem(
     val id: String,
-    val title: String,
-    val timeBracket: String,
-    val icon: ImageVector,
-    val iconTint: Color,
-    val items: List<AiringAnimeItem>
+    val dayName: String,
+    val dateLabel: String,
+    val isToday: Boolean,
+    val offset: Int? // null = All Week
 )
 
 @Composable
@@ -66,30 +68,53 @@ fun TvCalendarScreen(
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    val daysOfWeek = remember { listOf("ALL", "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN") }
-    val todayName = remember {
-        val cal = Calendar.getInstance()
-        when (cal.get(Calendar.DAY_OF_WEEK)) {
-            Calendar.MONDAY -> "MON"
-            Calendar.TUESDAY -> "TUE"
-            Calendar.WEDNESDAY -> "WED"
-            Calendar.THURSDAY -> "THU"
-            Calendar.FRIDAY -> "FRI"
-            Calendar.SATURDAY -> "SAT"
-            Calendar.SUNDAY -> "SUN"
-            else -> ""
-        }
-    }
-    var selectedDay by remember { mutableStateOf(if (todayName.isNotBlank()) todayName else "ALL") }
-    // Default to true so Chinese Donghua are filtered out immediately by default
-    var hideChineseDonghua by rememberSaveable { mutableStateOf(true) }
-    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    // Day tabs: All Week + Yesterday (-1) to +6 days (matching phone screen)
+    val dayTabs = remember {
+        val dayFormat = SimpleDateFormat("EEE", Locale.getDefault())
+        val monthDayFormat = SimpleDateFormat("MMM d", Locale.getDefault())
 
-    val firstDayFocusRequester = remember { FocusRequester() }
+        val list = mutableListOf(
+            TvDayTabItem(
+                id = "ALL",
+                dayName = "All Week",
+                dateLabel = "7 Days",
+                isToday = false,
+                offset = null
+            )
+        )
+
+        (-1..6).forEach { offset ->
+            val cal = Calendar.getInstance()
+            cal.add(Calendar.DAY_OF_YEAR, offset)
+            val dayName = when (offset) {
+                -1 -> "Yesterday"
+                0 -> "Today"
+                1 -> "Tomorrow"
+                else -> dayFormat.format(cal.time)
+            }
+            list.add(
+                TvDayTabItem(
+                    id = "DAY_$offset",
+                    dayName = dayName,
+                    dateLabel = monthDayFormat.format(cal.time),
+                    isToday = offset == 0,
+                    offset = offset
+                )
+            )
+        }
+        list
+    }
+
+    // Default to "Today" (index 2: [ALL, Yesterday, Today])
+    var selectedTabId by remember { mutableStateOf("DAY_0") }
+    var hideChineseDonghua by rememberSaveable { mutableStateOf(true) }
+    val timeFormat = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
+
+    val todayFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         delay(200)
         try {
-            firstDayFocusRequester.requestFocus()
+            todayFocusRequester.requestFocus()
         } catch (_: Exception) {}
     }
 
@@ -99,12 +124,13 @@ fun TvCalendarScreen(
             .background(Color(0xFF09090C))
             .padding(horizontal = 36.dp, vertical = 24.dp)
     ) {
-        // --- 1. TOP HEADER & DAYS OF WEEK ---
+        // --- 1. TOP HEADER ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Back Button
             Row(
                 modifier = Modifier
                     .tvButtonFocusable(
@@ -122,14 +148,22 @@ fun TvCalendarScreen(
                 Text("Back", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
 
-            Text(
-                text = "Airing Schedule",
-                color = Color.White,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Black
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Airing Schedule",
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    text = "Airing anime & broadcast times",
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
 
-            // Chinese Donghua Filter Chip: defaults to hiding Chinese Donghua
+            // Chinese Donghua Filter Chip
             Box(
                 modifier = Modifier
                     .tvButtonFocusable(
@@ -157,38 +191,63 @@ fun TvCalendarScreen(
                     )
                 }
             }
+        }
 
-            Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(14.dp))
 
-            // Day Selector Pills
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(daysOfWeek) { day ->
-                    val isSelected = selectedDay == day
-                    val isToday = day == todayName
-                    val buttonModifier = if (day == selectedDay) {
-                        Modifier.focusRequester(firstDayFocusRequester)
-                    } else {
-                        Modifier
-                    }
+        // --- 2. DAY SELECTOR CARDS DIRECTLY UNDER TITLE ---
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(dayTabs, key = { it.id }) { tab ->
+                val isSelected = selectedTabId == tab.id
+                val tabModifier = if (tab.isToday) {
+                    Modifier.focusRequester(todayFocusRequester)
+                } else {
+                    Modifier
+                }
 
-                    Box(
-                        modifier = buttonModifier
-                            .tvButtonFocusable(
-                                onClick = { selectedDay = day },
-                                shape = RoundedCornerShape(100.dp),
-                                focusedBackgroundColor = Color(0xFF8B5CF6),
-                                unfocusedBackgroundColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
-                                focusedBorderColor = Color(0xFFA78BFA),
-                                unfocusedBorderColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.5f) else Color.Transparent
-                            )
-                            .padding(horizontal = 14.dp, vertical = 7.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = if (isToday) "$day • TODAY" else day,
-                                color = if (isSelected) Color.White else if (isToday) Color(0xFFA78BFA) else Color.White.copy(alpha = 0.7f),
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Medium
+                Box(
+                    modifier = tabModifier
+                        .width(82.dp)
+                        .tvButtonFocusable(
+                            onClick = { selectedTabId = tab.id },
+                            shape = RoundedCornerShape(12.dp),
+                            focusedBackgroundColor = Color(0xFF8B5CF6),
+                            unfocusedBackgroundColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.28f) else Color.White.copy(alpha = 0.08f),
+                            focusedBorderColor = Color.White,
+                            unfocusedBorderColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.6f) else Color.Transparent
+                        )
+                        .padding(vertical = 8.dp, horizontal = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = tab.dayName,
+                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.85f),
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = tab.dateLabel,
+                            color = if (isSelected) Color.White.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.55f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1
+                        )
+                        if (tab.isToday) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .width(14.dp)
+                                    .height(2.5.dp)
+                                    .clip(RoundedCornerShape(100.dp))
+                                    .background(if (isSelected) Color.White else Color(0xFF8B5CF6))
                             )
                         }
                     }
@@ -196,17 +255,17 @@ fun TvCalendarScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // --- 2. AIRING ITEMS ARRIVAL VIEW ---
+        // --- 3. AIRING SCHEDULE CONTENT ---
         when (val state = uiState) {
             is CalendarUiState.Loading -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Color(0xFF8B5CF6), strokeWidth = 3.dp)
                 }
             }
             is CalendarUiState.Error -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text(
                         text = "Schedule error: ${state.message}",
                         color = Color.White.copy(alpha = 0.7f),
@@ -215,67 +274,98 @@ fun TvCalendarScreen(
                 }
             }
             is CalendarUiState.Success -> {
-                // 1. Day filtering & Chinese Donghua filtering
-                val filteredData = remember(state.data, selectedDay, hideChineseDonghua) {
-                    val dayFiltered = if (selectedDay == "ALL") {
-                        state.data
-                    } else {
-                        val cal = Calendar.getInstance()
-                        state.data.filter { item ->
-                            cal.timeInMillis = item.airingAt * 1000L
-                            val dayOfWeek = when (cal.get(Calendar.DAY_OF_WEEK)) {
-                                Calendar.MONDAY -> "MON"
-                                Calendar.TUESDAY -> "TUE"
-                                Calendar.WEDNESDAY -> "WED"
-                                Calendar.THURSDAY -> "THU"
-                                Calendar.FRIDAY -> "FRI"
-                                Calendar.SATURDAY -> "SAT"
-                                Calendar.SUNDAY -> "SUN"
-                                else -> ""
-                            }
-                            dayOfWeek == selectedDay
-                        }
-                    }
+                val currentTab = dayTabs.firstOrNull { it.id == selectedTabId } ?: dayTabs.first()
 
+                // Filter data for donghua and selected day/week
+                val rawFiltered = remember(state.data, hideChineseDonghua) {
                     if (hideChineseDonghua) {
-                        dayFiltered.filter { item ->
+                        state.data.filter { item ->
                             val isChinese = item.countryOfOrigin.equals("CN", ignoreCase = true) ||
                                 (item.format.equals("ONA", ignoreCase = true) && !item.countryOfOrigin.equals("JP", ignoreCase = true)) ||
                                 (item.countryOfOrigin.isNotBlank() && !item.countryOfOrigin.equals("JP", ignoreCase = true) && !item.countryOfOrigin.equals("KR", ignoreCase = true))
                             !isChinese
                         }
                     } else {
-                        dayFiltered
+                        state.data
                     }
                 }
 
-                // 2. Chronological sorting by arrival time
-                val sortedData = remember(filteredData) {
-                    filteredData.sortedBy { it.airingAt }
-                }
+                if (currentTab.offset != null) {
+                    // Single Day view: filter items falling in target day
+                    val dayAnime = remember(rawFiltered, currentTab.offset) {
+                        val targetCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, currentTab.offset) }
+                        targetCal.set(Calendar.HOUR_OF_DAY, 0)
+                        targetCal.set(Calendar.MINUTE, 0)
+                        targetCal.set(Calendar.SECOND, 0)
+                        val startUnix = targetCal.timeInMillis / 1000L
+                        val endUnix = startUnix + 86399L
 
-                // 3. Categorization into Time-Of-Day Arrival slots
-                val timeGroups = remember(sortedData, selectedDay) {
-                    if (sortedData.isEmpty()) return@remember emptyList()
+                        rawFiltered
+                            .filter { it.airingAt in startUnix..endUnix }
+                            .sortedBy { it.airingAt }
+                    }
 
-                    val cal = Calendar.getInstance()
-
-                    if (selectedDay == "ALL") {
-                        // Group by Day of week
-                        val dayOrder = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
-                        val dayNames = mapOf(
-                            "MON" to "Monday",
-                            "TUE" to "Tuesday",
-                            "WED" to "Wednesday",
-                            "THU" to "Thursday",
-                            "FRI" to "Friday",
-                            "SAT" to "Saturday",
-                            "SUN" to "Sunday"
-                        )
+                    if (dayAnime.isEmpty()) {
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Schedule,
+                                    contentDescription = null,
+                                    tint = Color.White.copy(alpha = 0.25f),
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Text(
+                                    text = "No broadcasts scheduled for ${currentTab.dayName}",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Select another day to view upcoming broadcast releases.",
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 132.dp),
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            contentPadding = PaddingValues(bottom = 32.dp)
+                        ) {
+                            items(dayAnime, key = { "${it.id}_${it.episode}_${it.airingAt}" }) { item ->
+                                TvScheduleCard(
+                                    item = item,
+                                    timeFormat = timeFormat,
+                                    onClick = { onAnimeClick(item.id, item.title, item.posterUrl) }
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // "All Week" view: grouped cleanly by Day of Week
+                    val dayOrder = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+                    val dayNames = mapOf(
+                        "MON" to "Monday",
+                        "TUE" to "Tuesday",
+                        "WED" to "Wednesday",
+                        "THU" to "Thursday",
+                        "FRI" to "Friday",
+                        "SAT" to "Saturday",
+                        "SUN" to "Sunday"
+                    )
+                    val groupedByDay = remember(rawFiltered) {
+                        val cal = Calendar.getInstance()
+                        val sorted = rawFiltered.sortedBy { it.airingAt }
                         dayOrder.mapNotNull { dayKey ->
-                            val dayItems = sortedData.filter { item ->
+                            val items = sorted.filter { item ->
                                 cal.timeInMillis = item.airingAt * 1000L
-                                val dayOfWeek = when (cal.get(Calendar.DAY_OF_WEEK)) {
+                                val dow = when (cal.get(Calendar.DAY_OF_WEEK)) {
                                     Calendar.MONDAY -> "MON"
                                     Calendar.TUESDAY -> "TUE"
                                     Calendar.WEDNESDAY -> "WED"
@@ -285,183 +375,58 @@ fun TvCalendarScreen(
                                     Calendar.SUNDAY -> "SUN"
                                     else -> ""
                                 }
-                                dayOfWeek == dayKey
+                                dow == dayKey
                             }
-                            if (dayItems.isNotEmpty()) {
-                                TvScheduleTimeGroup(
-                                    id = dayKey,
-                                    title = dayNames[dayKey] ?: dayKey,
-                                    timeBracket = if (dayKey == todayName) "TODAY" else "This Week",
-                                    icon = Icons.Rounded.CalendarToday,
-                                    iconTint = if (dayKey == todayName) Color(0xFFA78BFA) else Color.White.copy(alpha = 0.8f),
-                                    items = dayItems
-                                )
-                            } else null
+                            if (items.isNotEmpty()) (dayNames[dayKey] ?: dayKey) to items else null
+                        }
+                    }
+
+                    if (groupedByDay.isEmpty()) {
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "No releases found for this week",
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = 15.sp
+                            )
                         }
                     } else {
-                        // Group by Arrival Time Brackets (Early Morning, Afternoon, Prime Time, Late Night)
-                        val morning = mutableListOf<AiringAnimeItem>()
-                        val afternoon = mutableListOf<AiringAnimeItem>()
-                        val primeTime = mutableListOf<AiringAnimeItem>()
-                        val lateNight = mutableListOf<AiringAnimeItem>()
-
-                        sortedData.forEach { item ->
-                            cal.timeInMillis = item.airingAt * 1000L
-                            val hour = cal.get(Calendar.HOUR_OF_DAY)
-                            when {
-                                hour < 12 -> morning.add(item)
-                                hour in 12..17 -> afternoon.add(item)
-                                hour in 18..21 -> primeTime.add(item)
-                                else -> lateNight.add(item)
-                            }
-                        }
-
-                        listOfNotNull(
-                            morning.takeIf { it.isNotEmpty() }?.let {
-                                TvScheduleTimeGroup(
-                                    id = "morning",
-                                    title = "Morning Broadcasts",
-                                    timeBracket = "00:00 – 11:59",
-                                    icon = Icons.Rounded.WbSunny,
-                                    iconTint = Color(0xFFFBBF24),
-                                    items = it
-                                )
-                            },
-                            afternoon.takeIf { it.isNotEmpty() }?.let {
-                                TvScheduleTimeGroup(
-                                    id = "afternoon",
-                                    title = "Afternoon Arrivals",
-                                    timeBracket = "12:00 – 17:59",
-                                    icon = Icons.Rounded.WbTwilight,
-                                    iconTint = Color(0xFFFB923C),
-                                    items = it
-                                )
-                            },
-                            primeTime.takeIf { it.isNotEmpty() }?.let {
-                                TvScheduleTimeGroup(
-                                    id = "primetime",
-                                    title = "Prime Time Releases",
-                                    timeBracket = "18:00 – 21:59",
-                                    icon = Icons.Rounded.Tv,
-                                    iconTint = Color(0xFF8B5CF6),
-                                    items = it
-                                )
-                            },
-                            lateNight.takeIf { it.isNotEmpty() }?.let {
-                                TvScheduleTimeGroup(
-                                    id = "latenight",
-                                    title = "Late Night Anime",
-                                    timeBracket = "22:00 – 23:59",
-                                    icon = Icons.Rounded.Bedtime,
-                                    iconTint = Color(0xFF60A5FA),
-                                    items = it
-                                )
-                            }
-                        )
-                    }
-                }
-
-                if (timeGroups.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        LazyColumn(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(22.dp),
+                            contentPadding = PaddingValues(bottom = 32.dp)
                         ) {
-                            Icon(
-                                Icons.Rounded.CalendarToday,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.25f),
-                                modifier = Modifier.size(48.dp)
-                            )
-                            Text(
-                                text = "No releases found for $selectedDay",
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = if (hideChineseDonghua) {
-                                    "Try toggling 'All (Incl. Donghua)' or select another day."
-                                } else {
-                                    "Select another day of the week to view scheduled broadcast releases."
-                                },
-                                color = Color.White.copy(alpha = 0.6f),
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(24.dp),
-                        contentPadding = PaddingValues(bottom = 32.dp)
-                    ) {
-                        items(timeGroups, key = { it.id }) { group ->
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                // Group Header
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .clip(CircleShape)
-                                            .background(group.iconTint.copy(alpha = 0.15f))
-                                            .border(1.dp, group.iconTint.copy(alpha = 0.3f), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(group.icon, contentDescription = null, tint = group.iconTint, modifier = Modifier.size(16.dp))
-                                    }
-
-                                    Spacer(modifier = Modifier.width(10.dp))
-
-                                    Text(
-                                        text = group.title,
-                                        color = Color.White,
-                                        fontSize = 17.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-
-                                    Spacer(modifier = Modifier.width(8.dp))
-
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(Color.White.copy(alpha = 0.08f))
-                                            .padding(horizontal = 8.dp, vertical = 2.5.dp)
+                            items(groupedByDay, key = { it.first }) { (dayTitle, items) ->
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = group.timeBracket,
-                                            color = Color.White.copy(alpha = 0.65f),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold
+                                            text = dayTitle,
+                                            color = Color.White,
+                                            fontSize = 17.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "• ${items.size} ${if (items.size == 1) "Show" else "Shows"}",
+                                            color = Color.White.copy(alpha = 0.45f),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium
                                         )
                                     }
 
-                                    Spacer(modifier = Modifier.width(8.dp))
-
-                                    Text(
-                                        text = "• ${group.items.size} ${if (group.items.size == 1) "Show" else "Shows"}",
-                                        color = Color.White.copy(alpha = 0.45f),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-
-                                // Group Horizontal Carousel
-                                LazyRow(
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                    contentPadding = PaddingValues(horizontal = 2.dp)
-                                ) {
-                                    items(group.items, key = { "${it.id}_${it.episode}_${it.airingAt}" }) { item ->
-                                        TvScheduleCard(
-                                            item = item,
-                                            timeFormat = timeFormat,
-                                            onClick = { onAnimeClick(item.id, item.title, item.posterUrl) }
-                                        )
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        contentPadding = PaddingValues(horizontal = 2.dp)
+                                    ) {
+                                        items(items, key = { "${it.id}_${it.episode}_${it.airingAt}" }) { item ->
+                                            TvScheduleCard(
+                                                item = item,
+                                                timeFormat = timeFormat,
+                                                onClick = { onAnimeClick(item.id, item.title, item.posterUrl) }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -484,21 +449,21 @@ private fun TvScheduleCard(
     val timeStr = remember(item.airingAt) {
         timeFormat.format(Date(item.airingAt * 1000L))
     }
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(12.dp)
 
     Column(
         modifier = modifier
-            .width(155.dp)
+            .width(132.dp)
             .padding(vertical = 4.dp)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(220.dp)
+                .height(188.dp)
                 .tvCardFocusable(
                     onClick = onClick,
                     shape = shape,
-                    focusedScale = 1.07f,
+                    focusedScale = 1.08f,
                     focusedBorderColor = Color(0xFF8B5CF6),
                     focusedBorderWidth = 3.dp
                 )
@@ -518,7 +483,7 @@ private fun TvScheduleCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(80.dp)
+                    .height(70.dp)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
@@ -531,24 +496,24 @@ private fun TvScheduleCard(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(8.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .padding(6.dp)
+                    .clip(RoundedCornerShape(5.dp))
                     .background(Color.Black.copy(alpha = 0.75f))
-                    .border(1.dp, Color(0xFFFBBF24).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                    .border(1.dp, Color(0xFFFBBF24).copy(alpha = 0.5f), RoundedCornerShape(5.dp))
+                    .padding(horizontal = 5.dp, vertical = 2.5.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Rounded.Schedule,
                         contentDescription = null,
                         tint = Color(0xFFFBBF24),
-                        modifier = Modifier.size(11.dp)
+                        modifier = Modifier.size(10.dp)
                     )
                     Spacer(modifier = Modifier.width(3.dp))
                     Text(
                         text = timeStr,
                         color = Color.White,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -558,15 +523,15 @@ private fun TvScheduleCard(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(8.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .padding(6.dp)
+                    .clip(RoundedCornerShape(5.dp))
                     .background(Color(0xFF8B5CF6))
-                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                    .padding(horizontal = 5.dp, vertical = 2.5.dp)
             ) {
                 Text(
                     text = "EP ${item.episode}",
                     color = Color.White,
-                    fontSize = 10.5.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Black
                 )
             }
@@ -580,25 +545,25 @@ private fun TvScheduleCard(
             Text(
                 text = formatTag,
                 color = Color.White.copy(alpha = 0.8f),
-                fontSize = 10.5.sp,
+                fontSize = 10.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(8.dp)
+                    .padding(6.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(7.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         // Title outside poster
         Text(
             text = item.title,
             color = Color.White,
-            fontSize = 13.sp,
+            fontSize = 12.5.sp,
             fontWeight = FontWeight.SemiBold,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            lineHeight = 17.sp,
+            lineHeight = 16.sp,
             modifier = Modifier.padding(horizontal = 2.dp)
         )
     }

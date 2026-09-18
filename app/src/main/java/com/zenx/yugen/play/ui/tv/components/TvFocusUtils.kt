@@ -73,13 +73,13 @@ fun Modifier.tvCardFocusable(
         }
         .then(
             if (isFocused) {
-                Modifier.shadow(16.dp, shape, ambientColor = Color(0xFF8B5CF6), spotColor = Color(0xFF8B5CF6))
+                Modifier.shadow(16.dp, shape, clip = false, ambientColor = Color(0xFF8B5CF6), spotColor = Color(0xFF8B5CF6))
             } else {
                 Modifier
             }
         )
-        .clip(shape)
         .border(BorderStroke(borderWidth, borderColor), shape)
+        .clip(shape)
         .onFocusChanged {
             isFocused = it.isFocused
             if (it.isFocused) {
@@ -137,6 +137,7 @@ fun Modifier.tvButtonFocusable(
     unfocusedBorderColor: Color = Color.Transparent
 ): Modifier = composed {
     var isFocused by remember { mutableStateOf(false) }
+    var isPressed by remember { mutableStateOf(false) }
 
     val scale by animateFloatAsState(
         targetValue = if (isFocused) focusedScale else 1.0f,
@@ -167,6 +168,9 @@ fun Modifier.tvButtonFocusable(
         .border(BorderStroke(if (isFocused) 2.dp else 0.dp, borderColor), shape)
         .onFocusChanged {
             isFocused = it.isFocused
+            if (!it.isFocused) {
+                isPressed = false
+            }
             if (it.isFocused) {
                 onFocus?.invoke()
             }
@@ -177,10 +181,22 @@ fun Modifier.tvButtonFocusable(
                 keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER ||
                 keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
             ) {
-                if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
-                    onClick()
+                when (keyEvent.nativeKeyEvent.action) {
+                    KeyEvent.ACTION_DOWN -> {
+                        if (keyEvent.nativeKeyEvent.repeatCount == 0) {
+                            isPressed = true
+                        }
+                        true
+                    }
+                    KeyEvent.ACTION_UP -> {
+                        if (isPressed) {
+                            isPressed = false
+                            onClick()
+                        }
+                        true
+                    }
+                    else -> false
                 }
-                true
             } else {
                 false
             }

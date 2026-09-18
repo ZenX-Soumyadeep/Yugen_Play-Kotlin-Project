@@ -501,12 +501,14 @@ fun TvLibraryScreen(
     if (itemToDeleteFromHistory != null) {
         val target = itemToDeleteFromHistory!!
         val cancelFocusRequester = remember { FocusRequester() }
+        var canInteract by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
-            delay(150)
+            delay(300)
+            canInteract = true
             try { cancelFocusRequester.requestFocus() } catch (_: Exception) {}
         }
         Dialog(
-            onDismissRequest = { itemToDeleteFromHistory = null },
+            onDismissRequest = { if (canInteract) itemToDeleteFromHistory = null },
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Box(
@@ -553,7 +555,7 @@ fun TvLibraryScreen(
                                 .weight(1f)
                                 .focusRequester(cancelFocusRequester)
                                 .tvButtonFocusable(
-                                    onClick = { itemToDeleteFromHistory = null },
+                                    onClick = { if (canInteract) itemToDeleteFromHistory = null },
                                     shape = RoundedCornerShape(12.dp),
                                     focusedBackgroundColor = Color(0xFF8B5CF6),
                                     unfocusedBackgroundColor = Color.White.copy(alpha = 0.1f),
@@ -569,18 +571,20 @@ fun TvLibraryScreen(
                                 .weight(1f)
                                 .tvButtonFocusable(
                                     onClick = {
-                                        viewModel.deleteHistoryItem(target.episodeId)
-                                        itemToDeleteFromHistory = null
+                                        if (canInteract) {
+                                            viewModel.deleteHistoryItem(target.episodeId)
+                                            itemToDeleteFromHistory = null
+                                        }
                                     },
                                     shape = RoundedCornerShape(12.dp),
-                                    focusedBackgroundColor = Color(0xFFEF4444),
-                                    unfocusedBackgroundColor = Color(0xFFEF4444).copy(alpha = 0.2f),
-                                    focusedBorderColor = Color.White
+                                    focusedBackgroundColor = Color(0xFF7F1D1D),
+                                    unfocusedBackgroundColor = Color(0xFFEF4444).copy(alpha = 0.12f),
+                                    focusedBorderColor = Color(0xFFF87171)
                                 )
                                 .padding(vertical = 12.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("Delete", color = Color(0xFFEF4444), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                            Text("Delete", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -592,12 +596,14 @@ fun TvLibraryScreen(
     if (itemToRemoveFromFavorites != null) {
         val target = itemToRemoveFromFavorites!!
         val cancelFocusRequester = remember { FocusRequester() }
+        var canInteract by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
-            delay(150)
+            delay(300)
+            canInteract = true
             try { cancelFocusRequester.requestFocus() } catch (_: Exception) {}
         }
         Dialog(
-            onDismissRequest = { itemToRemoveFromFavorites = null },
+            onDismissRequest = { if (canInteract) itemToRemoveFromFavorites = null },
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Box(
@@ -644,7 +650,7 @@ fun TvLibraryScreen(
                                 .weight(1f)
                                 .focusRequester(cancelFocusRequester)
                                 .tvButtonFocusable(
-                                    onClick = { itemToRemoveFromFavorites = null },
+                                    onClick = { if (canInteract) itemToRemoveFromFavorites = null },
                                     shape = RoundedCornerShape(12.dp),
                                     focusedBackgroundColor = Color(0xFF8B5CF6),
                                     unfocusedBackgroundColor = Color.White.copy(alpha = 0.1f),
@@ -660,18 +666,20 @@ fun TvLibraryScreen(
                                 .weight(1f)
                                 .tvButtonFocusable(
                                     onClick = {
-                                        viewModel.removeFavorite(target.title)
-                                        itemToRemoveFromFavorites = null
+                                        if (canInteract) {
+                                            viewModel.removeFavorite(target.title)
+                                            itemToRemoveFromFavorites = null
+                                        }
                                     },
                                     shape = RoundedCornerShape(12.dp),
-                                    focusedBackgroundColor = Color(0xFFEF4444),
-                                    unfocusedBackgroundColor = Color(0xFFEF4444).copy(alpha = 0.2f),
-                                    focusedBorderColor = Color.White
+                                    focusedBackgroundColor = Color(0xFF7F1D1D),
+                                    unfocusedBackgroundColor = Color(0xFFEF4444).copy(alpha = 0.12f),
+                                    focusedBorderColor = Color(0xFFF87171)
                                 )
                                 .padding(vertical = 12.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("Remove", color = Color(0xFFEF4444), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                            Text("Remove", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

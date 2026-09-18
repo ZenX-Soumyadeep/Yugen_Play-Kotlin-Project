@@ -36,17 +36,17 @@ fun TvAnimeCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(12.dp)
 
     Column(
         modifier = modifier
-            .width(150.dp)
-            .padding(vertical = 8.dp)
+            .width(132.dp)
+            .padding(vertical = 6.dp)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(215.dp)
+                .height(188.dp)
                 .tvCardFocusable(
                     onClick = onClick,
                     onLongClick = onLongClick,
@@ -174,17 +174,17 @@ fun TvContinueWatchingCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(12.dp)
 
     Column(
         modifier = modifier
-            .width(230.dp)
-            .padding(vertical = 8.dp)
+            .width(200.dp)
+            .padding(vertical = 6.dp)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(130.dp)
+                .height(114.dp)
                 .tvCardFocusable(
                     onClick = onClick,
                     onLongClick = onLongClick,
@@ -235,8 +235,24 @@ fun TvContinueWatchingCard(
                 )
             }
 
-            // Left badge: Time left or subtitle
-            if (item.timeLeft.isNotBlank()) {
+            // Left/Top badge: UP NEXT indicator or Time left
+            if (item.isUpNext) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFF8B5CF6))
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "UP NEXT",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            } else if (item.timeLeft.isNotBlank()) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)

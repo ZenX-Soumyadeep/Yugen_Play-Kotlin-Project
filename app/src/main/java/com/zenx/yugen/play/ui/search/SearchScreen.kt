@@ -1,5 +1,6 @@
 package com.zenx.yugen.play.ui.search
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -68,6 +69,19 @@ fun SearchScreen(
     val haptic = LocalHapticFeedback.current
 
     var showFilterSheet by remember { mutableStateOf(false) }
+
+    BackHandler {
+        if (showFilterSheet) {
+            showFilterSheet = false
+        } else if (query.isNotBlank() || selectedGenres.isNotEmpty() || selectedFormat != null || selectedSeason != null || selectedYear != null) {
+            viewModel.onQueryChange("")
+            viewModel.clearAllFilters()
+            focusManager.clearFocus()
+        } else {
+            focusManager.clearFocus()
+            onBackClick()
+        }
+    }
 
     val baseBackground = Color(0xFF09090B)
     val cardBg = Color(0xFF141416)

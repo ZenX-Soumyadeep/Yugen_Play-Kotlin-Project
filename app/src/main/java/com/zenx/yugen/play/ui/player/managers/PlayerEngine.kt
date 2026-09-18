@@ -27,7 +27,13 @@ class PlayerEngine @Inject constructor(
 
     init {
         val robustLoadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(15_000, 50_000, 1_500, 3_000)
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 60_000,
+                /* maxBufferMs = */ 180_000,
+                /* bufferForPlaybackMs = */ 2_500,
+                /* bufferForPlaybackAfterRebufferMs = */ 5_000
+            )
+            .setBackBuffer(/* backBufferDurationMs = */ 60_000, /* retainBackBufferFromKeyframe = */ true)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 

@@ -107,6 +107,10 @@ class TvAuthServer(
                 if (method.equals("GET", ignoreCase = true) && (path == "/" || path.startsWith("/?"))) {
                     sendHtmlResponse(writer)
                 } else if (method.equals("POST", ignoreCase = true) && path.startsWith("/submit-token")) {
+                    if (contentLength !in 1..16384) {
+                        sendJsonResponse(writer, 400, """{"success":false,"error":"Invalid payload size"}""")
+                        return
+                    }
                     val bodyBuilder = CharArray(contentLength)
                     var read = 0
                     while (read < contentLength) {

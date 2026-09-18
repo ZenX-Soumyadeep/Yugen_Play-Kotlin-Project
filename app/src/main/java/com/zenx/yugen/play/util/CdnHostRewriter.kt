@@ -18,7 +18,7 @@ import androidx.core.net.toUri
 object CdnHostRewriter {
 
     /** Live host that actually serves the media segments referenced by MegaPlay playlists. */
-    const val SEGMENT_CDN_HOST = "fetch.nexabloom.top"
+    const val SEGMENT_CDN_HOST = "ncdn.imgnex.top"
 
     /** Suffix shared by the stale segment hosts that MegaPlay playlists still reference. */
     private const val STALE_SEGMENT_HOST_SUFFIX = "akirax.buzz"

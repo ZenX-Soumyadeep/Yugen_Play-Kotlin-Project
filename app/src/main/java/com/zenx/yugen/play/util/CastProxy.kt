@@ -126,6 +126,13 @@ object CastProxy {
         return "http://$ip:$currentPort/proxy?url=$encoded"
     }
 
+    fun getLocalProxyUrl(originalUrl: String): String {
+        val currentPort = port
+        if (!isRunning || currentPort <= 0) return originalUrl
+        val encoded = URLEncoder.encode(originalUrl, "UTF-8")
+        return "http://127.0.0.1:$currentPort/proxy?url=$encoded"
+    }
+
     private fun readBoundedStream(input: InputStream, limit: Int): ByteArray? {
         val buffer = ByteArray(8192)
         val out = ByteArrayOutputStream()
@@ -185,9 +192,14 @@ object CastProxy {
                 val out = safeClient.getOutputStream()
 
                 if (targetUrl.startsWith("file://") || targetUrl.startsWith("file:")) {
-                    val filePath = targetUrl.removePrefix("file://").removePrefix("file:")
-                    val file = File(filePath)
-                    if (file.exists() && file.length() <= MAX_PAYLOAD_SIZE) {
+                    val rawPath = targetUrl.removePrefix("file://").removePrefix("file:")
+                    val file = File(rawPath).canonicalFile
+                    val isForbidden = file.path.contains("/databases/") ||
+                            file.path.contains("/shared_prefs/") ||
+                            file.name.endsWith(".db", ignoreCase = true) ||
+                            file.name.endsWith(".xml", ignoreCase = true)
+
+                    if (!isForbidden && file.exists() && file.isFile && file.length() <= MAX_PAYLOAD_SIZE) {
                         val bytes = file.readBytes()
                         out.write("HTTP/1.1 200 OK\r\n".toByteArray())
                         out.write("Content-Type: text/vtt; charset=utf-8\r\n".toByteArray())
@@ -196,7 +208,16 @@ object CastProxy {
                         out.write("Content-Length: ${bytes.size}\r\n\r\n".toByteArray())
                         out.write(bytes)
                         out.flush()
+                    } else {
+                        out.write("HTTP/1.1 403 Forbidden\r\n\r\n".toByteArray())
+                        out.flush()
                     }
+                    return
+                }
+
+                if (!targetUrl.startsWith("http://", ignoreCase = true) && !targetUrl.startsWith("https://", ignoreCase = true)) {
+                    out.write("HTTP/1.1 400 Bad Request\r\n\r\n".toByteArray())
+                    out.flush()
                     return
                 }
 

@@ -88,7 +88,7 @@ class VideoDownloadService : DownloadService(
     ): Notification {
         val contentIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("navigate_to", "downloads")
+            putExtra("NAV_ROUTE", "downloads")
         }
 
         val pendingIntent = PendingIntent.getActivity(

@@ -64,9 +64,11 @@ fun TvSettingsScreen(
     BackHandler { onBackClick() }
 
     val context = LocalContext.current
-    val seekDuration by viewModel.seekDurationSec.collectAsStateWithLifecycle(initialValue = 10)
+    val seekDuration by viewModel.seekDurationSec.collectAsStateWithLifecycle(initialValue = 30)
     val autoPlay by viewModel.autoPlayNext.collectAsStateWithLifecycle(initialValue = true)
     val preferDub by viewModel.preferDub.collectAsStateWithLifecycle(initialValue = false)
+    val subSize by viewModel.subtitleSize.collectAsStateWithLifecycle(initialValue = 0.053f)
+    val subBgOpacity by viewModel.subtitleBgOpacity.collectAsStateWithLifecycle(initialValue = 0.4f)
     val authState by authViewModel.authState.collectAsStateWithLifecycle()
 
     var selectedSection by remember { mutableStateOf(TvSettingsSection.PLAYBACK) }
@@ -176,7 +178,7 @@ fun TvSettingsScreen(
                 .weight(1f)
                 .fillMaxHeight(),
             verticalArrangement = Arrangement.spacedBy(20.dp),
-            contentPadding = PaddingValues(vertical = 12.dp)
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
         ) {
             when (selectedSection) {
                 TvSettingsSection.PLAYBACK -> {
@@ -214,8 +216,7 @@ fun TvSettingsScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color(0xFF14141B))
+                                .background(Color(0xFF14141B), RoundedCornerShape(14.dp))
                                 .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
                                 .padding(18.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -233,7 +234,7 @@ fun TvSettingsScreen(
                             )
 
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                listOf(5, 10, 15, 30).forEach { seconds ->
+                                listOf(10, 15, 30, 45, 60, 90).forEach { seconds ->
                                     val isSelected = seekDuration == seconds
                                     Box(
                                         modifier = Modifier
@@ -249,6 +250,113 @@ fun TvSettingsScreen(
                                     ) {
                                         Text(
                                             text = "${seconds}s",
+                                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f),
+                                            fontSize = 13.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Subtitle Size Card
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF14141B), RoundedCornerShape(14.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+                                .padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = "Subtitle Size",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Adjust the scale of subtitles displayed on your TV",
+                                color = Color.White.copy(alpha = 0.6f),
+                                fontSize = 12.5.sp
+                            )
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                listOf(
+                                    "Small" to 0.042f,
+                                    "Normal" to 0.053f,
+                                    "Large" to 0.065f,
+                                    "Huge" to 0.078f
+                                ).forEach { (label, size) ->
+                                    val isSelected = Math.abs(subSize - size) < 0.006f
+                                    Box(
+                                        modifier = Modifier
+                                            .tvButtonFocusable(
+                                                onClick = { viewModel.setSubtitleSize(size) },
+                                                shape = RoundedCornerShape(8.dp),
+                                                focusedBackgroundColor = Color(0xFF8B5CF6),
+                                                unfocusedBackgroundColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
+                                                focusedBorderColor = Color(0xFFA78BFA),
+                                                unfocusedBorderColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.6f) else Color.Transparent
+                                            )
+                                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f),
+                                            fontSize = 13.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Subtitle Background Opacity Card
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF14141B), RoundedCornerShape(14.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+                                .padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = "Subtitle Background",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Backdrop opacity behind subtitles for enhanced readability",
+                                color = Color.White.copy(alpha = 0.6f),
+                                fontSize = 12.5.sp
+                            )
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                listOf(
+                                    "None" to 0f,
+                                    "Subtle" to 0.35f,
+                                    "Solid" to 0.75f
+                                ).forEach { (label, opacity) ->
+                                    val isSelected = Math.abs(subBgOpacity - opacity) < 0.08f
+                                    Box(
+                                        modifier = Modifier
+                                            .tvButtonFocusable(
+                                                onClick = { viewModel.setSubtitleBgOpacity(opacity) },
+                                                shape = RoundedCornerShape(8.dp),
+                                                focusedBackgroundColor = Color(0xFF8B5CF6),
+                                                unfocusedBackgroundColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
+                                                focusedBorderColor = Color(0xFFA78BFA),
+                                                unfocusedBorderColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.6f) else Color.Transparent
+                                            )
+                                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = label,
                                             color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f),
                                             fontSize = 13.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
@@ -275,8 +383,7 @@ fun TvSettingsScreen(
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFF14141B))
+                                    .background(Color(0xFF14141B), RoundedCornerShape(14.dp))
                                     .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
                                     .padding(20.dp),
                                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -364,8 +471,7 @@ fun TvSettingsScreen(
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFF14141B))
+                                    .background(Color(0xFF14141B), RoundedCornerShape(14.dp))
                                     .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
                                     .padding(20.dp),
                                 verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -477,8 +583,7 @@ fun TvSettingsScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color(0xFF14141B))
+                                .background(Color(0xFF14141B), RoundedCornerShape(14.dp))
                                 .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
                                 .padding(24.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -548,15 +653,13 @@ private fun TvSettingToggleRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF14141B))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
             .tvButtonFocusable(
                 onClick = onToggle,
                 shape = RoundedCornerShape(14.dp),
                 focusedBackgroundColor = Color(0xFF1E1E28),
                 unfocusedBackgroundColor = Color(0xFF14141B),
-                focusedBorderColor = Color(0xFF8B5CF6)
+                focusedBorderColor = Color(0xFF8B5CF6),
+                unfocusedBorderColor = Color.White.copy(alpha = 0.08f)
             )
             .padding(18.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -600,8 +703,7 @@ private fun TvSettingActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF14141B))
+            .background(Color(0xFF14141B), RoundedCornerShape(14.dp))
             .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
             .padding(18.dp),
         horizontalArrangement = Arrangement.SpaceBetween,

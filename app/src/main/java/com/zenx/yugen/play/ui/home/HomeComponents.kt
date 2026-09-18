@@ -673,13 +673,37 @@ fun ContinueWatchingSection(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = history.subtitle,
-                                color = accentViolet,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f, fill = false)
+                            ) {
+                                if (history.isUpNext) {
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(end = 5.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(accentPurple)
+                                            .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                    ) {
+                                        Text(
+                                            text = "UP NEXT",
+                                            color = Color.White,
+                                            fontSize = 8.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = history.subtitle,
+                                    color = accentViolet,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                             if (history.timeLeft.isNotEmpty()) {
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = history.timeLeft,
                                     color = Color.Gray,

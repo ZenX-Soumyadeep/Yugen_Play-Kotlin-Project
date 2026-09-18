@@ -14,7 +14,7 @@ android {
         minSdk = 29
         targetSdk = 37
         versionCode = 1
-        versionName = "1.3.0"
+        versionName = "1.3.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -39,6 +39,7 @@ android {
         buildConfig = true
     }
 
+    //noinspection WrongGradleMethod
     ksp {
         arg("room.schemaLocation", "$projectDir/schemas")
     }
@@ -106,5 +107,5 @@ dependencies {
     implementation(libs.androidx.security.crypto)
 
     // QR Code Generation for TV Phone Sync
-    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.google.zxing:core:3.5.4")
 }

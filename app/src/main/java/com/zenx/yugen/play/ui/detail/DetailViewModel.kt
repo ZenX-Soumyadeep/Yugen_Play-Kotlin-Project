@@ -39,6 +39,7 @@ import com.zenx.yugen.play.domain.usecase.GetEpisodesUseCase
 import com.zenx.yugen.play.domain.usecase.GetVideoStreamsUseCase
 import com.zenx.yugen.play.service.DownloadTracker
 import com.zenx.yugen.play.service.VideoDownloadService
+import com.zenx.yugen.play.util.StringUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -138,8 +139,8 @@ class DetailViewModel @Inject constructor(
 
     private val animeId: String = savedStateHandle.get<String>("id") ?: ""
     val animeUrl: String = savedStateHandle.get<String>("url") ?: ""
-    val animeTitle: String = checkNotNull(savedStateHandle["title"])
-    val navPosterUrl: String = checkNotNull(savedStateHandle["poster"])
+    val animeTitle: String = savedStateHandle.get<String>("title") ?: ""
+    val navPosterUrl: String = savedStateHandle.get<String>("poster") ?: ""
 
     private val episodePrefixRegex = Regex("(?i)^Episode\\s*\\d+\\s*-\\s*")
     private val fallbackEpisodeRegex = Regex("(?i)^Episode\\s*\\d+$")
@@ -389,7 +390,12 @@ class DetailViewModel @Inject constructor(
                 combine(animeDetailsFlow, epFlow, userFlow) { details, epData, userData ->
                     if (details == null) return@combine DetailsUiState.Loading
 
-                    val isFav = userData.favorites.any { it.title == animeTitle }
+                    val isFav = userData.favorites.any { fav ->
+                        fav.title.equals(animeTitle, ignoreCase = true) ||
+                        (details.title.isNotBlank() && fav.title.equals(details.title, ignoreCase = true)) ||
+                        StringUtils.normalizeTitleForComparison(fav.title) == StringUtils.normalizeTitleForComparison(animeTitle) ||
+                        (details.title.isNotBlank() && StringUtils.normalizeTitleForComparison(fav.title) == StringUtils.normalizeTitleForComparison(details.title))
+                    }
                     val banner = details.bannerImage.takeIf { it.isNotBlank() } ?: navPosterUrl
                     val poster = details.posterImage.takeIf { it.isNotBlank() } ?: navPosterUrl
                     val scoreText = details.averageScore.let { if (it > 0) (it / 10.0).toString() else "N/A" }
@@ -711,7 +717,17 @@ class DetailViewModel @Inject constructor(
 
     fun toggleFavorite() {
         val currentState = _uiState.value as? DetailsUiState.Success ?: return
-        viewModelScope.launch { if (currentState.isFavorite) favoriteDao.removeFavorite(animeTitle) else favoriteDao.addFavorite(FavoriteEntity(title = animeTitle, posterUrl = currentState.posterUrl)) }
+        viewModelScope.launch {
+            if (currentState.isFavorite) {
+                favoriteDao.removeFavorite(animeTitle)
+                val altTitle = animeDetailsFlow.value?.title
+                if (!altTitle.isNullOrBlank() && altTitle != animeTitle) {
+                    favoriteDao.removeFavorite(altTitle)
+                }
+            } else {
+                favoriteDao.addFavorite(FavoriteEntity(title = animeTitle.ifBlank { currentState.title }, posterUrl = currentState.posterUrl))
+            }
+        }
     }
 
     fun updateAnilistStatus(status: String) {

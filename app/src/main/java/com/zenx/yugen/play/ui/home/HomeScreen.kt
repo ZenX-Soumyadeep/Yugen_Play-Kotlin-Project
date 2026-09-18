@@ -295,9 +295,11 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(6.dp))
                         }
 
-                        // 5. 3-Column Anime Grid
                         val chunkedAnime = state.categoryAnime.chunked(3)
-                        items(chunkedAnime) { rowAnime ->
+                        items(
+                            items = chunkedAnime,
+                            key = { row -> row.joinToString("-") { it.id } }
+                        ) { rowAnime ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()

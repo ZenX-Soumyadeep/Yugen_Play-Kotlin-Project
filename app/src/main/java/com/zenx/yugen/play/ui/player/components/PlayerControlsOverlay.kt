@@ -89,8 +89,17 @@ fun PlayerControlsOverlay(
     var showPlaylist by remember { mutableStateOf(false) }
 
     val currentEp = episodes.find { it.id == currentEpisodeId }
-    val epNum = currentEp?.number?.toInt() ?: 1
-    val formattedEpisodeString = "Episode $epNum: ${currentEp?.title ?: episodeTitle}"
+    val epNum = currentEp?.formattedNumber ?: "1"
+    val rawTitle = (currentEp?.title ?: episodeTitle).trim()
+    val isRedundant = rawTitle.isBlank() ||
+            rawTitle.equals("Stream", ignoreCase = true) ||
+            rawTitle.matches(Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?$", RegexOption.IGNORE_CASE))
+    val formattedEpisodeString = if (isRedundant) {
+        "Episode $epNum"
+    } else {
+        val stripped = rawTitle.replace(Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?\\s*[:\\-•]\\s*", RegexOption.IGNORE_CASE), "").trim()
+        if (stripped.isNotBlank() && !stripped.matches(Regex("^\\d+(\\.0+)?$"))) "Episode $epNum: $stripped" else "Episode $epNum"
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
 
@@ -158,7 +167,8 @@ fun PlayerControlsOverlay(
                                     .padding(16.dp)
                             ) {
                                 Column(verticalArrangement = Arrangement.Center) {
-                                    Text("Episode ${ep.number.toInt()}", color = if (isCurrent) IconPurple else Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    val epNumberText = if (ep.number % 1.0f == 0.0f) ep.number.toInt().toString() else ep.number.toString()
+                                    Text("Episode $epNumberText", color = if (isCurrent) IconPurple else Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(ep.title, color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }

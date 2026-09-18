@@ -10,7 +10,9 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -50,58 +52,68 @@ class PlayerPreferences @Inject constructor(
         const val DEFAULT_SUBTITLE_TEXT_COLOR = 0xFFFFFFFFL   // White
         const val DEFAULT_SUBTITLE_BG_OPACITY = 0.4f          // Light (semi-transparent box)
         const val DEFAULT_PLAYBACK_SPEED      = 1.0f
-        const val DEFAULT_SEEK_DURATION_SEC   = 10             // seconds
+        const val DEFAULT_SEEK_DURATION_SEC   = 30             // seconds
         const val DEFAULT_AUTO_PLAY_NEXT      = true
         const val DEFAULT_PREFER_DUB          = false
     }
 
+    // ── Safe Data Stream with IOException Fallback ───────────────────────────
+
+    private val safeData: Flow<Preferences> = dataStore.data.catch { exception ->
+        if (exception is java.io.IOException) {
+            emit(androidx.datastore.preferences.core.emptyPreferences())
+        } else {
+            throw exception
+        }
+    }
+
     // ── Subtitle ─────────────────────────────────────────────────────────────
 
-    val subtitleSize: Flow<Float> = dataStore.data.map {
+    val subtitleSize: Flow<Float> = safeData.map {
         it[KEY_SUBTITLE_SIZE] ?: DEFAULT_SUBTITLE_SIZE
     }
 
-    val subtitleEdgeStyle: Flow<Int> = dataStore.data.map {
+    val subtitleEdgeStyle: Flow<Int> = safeData.map {
         it[KEY_SUBTITLE_EDGE_STYLE] ?: DEFAULT_SUBTITLE_EDGE_STYLE
     }
 
-    val subtitleTextColor: Flow<Long> = dataStore.data.map {
+    val subtitleTextColor: Flow<Long> = safeData.map {
         it[KEY_SUBTITLE_TEXT_COLOR] ?: DEFAULT_SUBTITLE_TEXT_COLOR
     }
 
-    val subtitleBgOpacity: Flow<Float> = dataStore.data.map {
+    val subtitleBgOpacity: Flow<Float> = safeData.map {
         it[KEY_SUBTITLE_BG_OPACITY] ?: DEFAULT_SUBTITLE_BG_OPACITY
     }
 
     // ── Playback ─────────────────────────────────────────────────────────────
 
-    val playbackSpeed: Flow<Float> = dataStore.data.map {
+    val playbackSpeed: Flow<Float> = safeData.map {
         it[KEY_PLAYBACK_SPEED] ?: DEFAULT_PLAYBACK_SPEED
     }
 
-    val seekDurationSec: Flow<Int> = dataStore.data.map {
+    val seekDurationSec: Flow<Int> = safeData.map {
         it[KEY_SEEK_DURATION_SEC] ?: DEFAULT_SEEK_DURATION_SEC
     }
 
-    val autoPlayNext: Flow<Boolean> = dataStore.data.map {
+    val autoPlayNext: Flow<Boolean> = safeData.map {
         it[KEY_AUTO_PLAY_NEXT] ?: DEFAULT_AUTO_PLAY_NEXT
     }
 
     // ── Content ───────────────────────────────────────────────────────────────
 
-    val preferDub: Flow<Boolean> = dataStore.data.map {
+    val preferDub: Flow<Boolean> = safeData.map {
         it[KEY_PREFER_DUB] ?: DEFAULT_PREFER_DUB
     }
 
-    val lastSeenVersion: Flow<String> = dataStore.data.map {
+    val lastSeenVersion: Flow<String> = safeData.map {
         it[KEY_LAST_SEEN_VERSION] ?: ""
     }
 
-    val maxParallelDownloads: Flow<Int> = dataStore.data.map {
+    val maxParallelDownloads: Flow<Int> = safeData.map {
         it[KEY_MAX_PARALLEL_DOWNLOADS] ?: 1
     }
 
-    val dismissedNotificationIds: Flow<Set<String>> = dataStore.data.map {
+    val dismissedNotificationIds: Flow<Set<String>> = safeData.map {
         it[KEY_DISMISSED_NOTIFICATION_IDS] ?: emptySet()
     }
 
