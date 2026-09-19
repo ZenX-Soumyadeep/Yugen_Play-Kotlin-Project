@@ -24,20 +24,16 @@ object CdnHostRewriter {
     private const val STALE_SEGMENT_HOST_SUFFIX = "akirax.buzz"
 
     /**
-     * Returns [uri] unchanged, or an equivalent URI whose host points at [SEGMENT_CDN_HOST] when
-     * [uri] targets a stale `*.akirax.buzz` segment host.
+     * Returns [uri] unchanged.
+     *
+     * Note: MegaPlay streams segment files via its authoritative playlist host (e.g. `*.akirax.buzz`),
+     * which actively serves media segments with HTTP 200. Rewriting to `ncdn.imgnex.top` caused HTTP 404
+     * playback failures because `ncdn.imgnex.top` only hosts playlists, not the segment binaries.
      */
     fun rewriteSegmentHost(uri: Uri): Uri {
-        val host = uri.host.orEmpty()
-        if (!host.endsWith(STALE_SEGMENT_HOST_SUFFIX, ignoreCase = true)) return uri
-        return uri.buildUpon().authority(SEGMENT_CDN_HOST).build()
+        return uri
     }
 
     /** String overload used when rewriting playlist bodies (e.g. the cast relay). */
-    fun rewriteSegmentHost(url: String): String = try {
-        rewriteSegmentHost(url.toUri()).toString()
-    } catch (e: Exception) {
-        android.util.Log.w("CdnHostRewriter", "Failed to rewrite segment host for $url", e)
-        url
-    }
+    fun rewriteSegmentHost(url: String): String = url
 }

@@ -50,7 +50,7 @@ fun FloatingAnimatedBottomBar(
             .clip(RoundedCornerShape(100.dp))
             .background(glassPillBg)
             .border(1.dp, glassBorder, RoundedCornerShape(100.dp))
-            .padding(horizontal = 6.dp, vertical = 6.dp),
+            .padding(horizontal = 6.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -102,7 +102,7 @@ fun AnimatedBottomBarItem(
 
     Row(
         modifier = Modifier
-            .defaultMinSize(minHeight = 42.dp)
+            .defaultMinSize(minHeight = 52.dp)
             .clip(CircleShape)
             .background(backgroundColor)
             .border(1.dp, borderColor, CircleShape)
@@ -114,7 +114,7 @@ fun AnimatedBottomBarItem(
                     onClick()
                 }
             )
-            .padding(horizontal = if (isSelected) 14.dp else 11.dp, vertical = 9.dp),
+            .padding(horizontal = if (isSelected) 14.dp else 11.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -123,7 +123,7 @@ fun AnimatedBottomBarItem(
             contentDescription = item.label,
             tint = contentColor,
             modifier = Modifier
-                .size(22.dp)
+                .size(24.dp)
                 .graphicsLayer {
                     scaleX = iconScale
                     scaleY = iconScale

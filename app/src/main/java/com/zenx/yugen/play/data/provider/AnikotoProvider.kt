@@ -140,7 +140,36 @@ class AnikotoProvider @Inject constructor(
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
 
         val jsonText = String(cipher.doFinal(raw), Charsets.UTF_8)
-        return JSONObject(jsonText).optString("file", "")
+        var m3u8 = JSONObject(jsonText).optString("file", "")
+        if (m3u8.isNotBlank() && !m3u8.contains("token=")) {
+            m3u8 = appendMegaPlayToken(m3u8)
+        }
+        return m3u8
+    }
+
+    private val pathKeyRegex = Regex("""/([a-f0-9]{32})/([a-f0-9]{32})/""", RegexOption.IGNORE_CASE)
+    private val MEGAPLAY_TOKEN_SECRET = "MpCdnT0k3n!9f2K#xQ7vL5mR8wN1pY4s"
+
+    private fun appendMegaPlayToken(m3u8: String): String {
+        val match = pathKeyRegex.find(m3u8) ?: return m3u8
+        val pathKey = "${match.groupValues[1].lowercase()}/${match.groupValues[2].lowercase()}"
+        val expiry = (System.currentTimeMillis() / 1000) + 90
+        val payload = "$expiry|$pathKey"
+
+        return try {
+            val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+            mac.init(SecretKeySpec(MEGAPLAY_TOKEN_SECRET.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+            val signatureBytes = mac.doFinal(payload.toByteArray(Charsets.UTF_8))
+            val signature = Base64.encodeToString(signatureBytes, Base64.URL_SAFE or Base64.NO_WRAP).trimEnd('=')
+
+            val payloadB64 = Base64.encodeToString(payload.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP).trimEnd('=')
+            val token = "$payloadB64.$signature"
+
+            if (m3u8.contains("?")) "$m3u8&token=$token" else "$m3u8?token=$token"
+        } catch (e: Exception) {
+            Log.e(tag, "MegaPlay token generation failed: ${e.message}")
+            m3u8
+        }
     }
 
     override suspend fun search(query: String): List<SearchResult> = withContext(Dispatchers.IO) {
