@@ -3,9 +3,11 @@
 .gradle/
 /local.properties
 local.properties
-/build/
-/release/
+build/
 */build/
+release/
+app/release/
+*.apk
 /captures/
 .externalNativeBuild/
 .cxx/

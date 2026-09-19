@@ -45,6 +45,8 @@ class PlayerPreferences @Inject constructor(
         val KEY_LAST_SEEN_VERSION    = stringPreferencesKey("last_seen_version")
         val KEY_MAX_PARALLEL_DOWNLOADS = intPreferencesKey("max_parallel_downloads")
         val KEY_DISMISSED_NOTIFICATION_IDS = stringSetPreferencesKey("dismissed_notification_ids")
+        val KEY_CACHED_RELEASE_NOTES_VERSION = stringPreferencesKey("cached_release_notes_version")
+        val KEY_CACHED_RELEASE_NOTES_BODY = stringPreferencesKey("cached_release_notes_body")
 
         // --- Defaults ---
         const val DEFAULT_SUBTITLE_SIZE       = 0.053f        // Normal
@@ -117,6 +119,14 @@ class PlayerPreferences @Inject constructor(
         it[KEY_DISMISSED_NOTIFICATION_IDS] ?: emptySet()
     }
 
+    val cachedReleaseNotesVersion: Flow<String> = safeData.map {
+        it[KEY_CACHED_RELEASE_NOTES_VERSION] ?: ""
+    }
+
+    val cachedReleaseNotesBody: Flow<String> = safeData.map {
+        it[KEY_CACHED_RELEASE_NOTES_BODY] ?: ""
+    }
+
     // ── Setters ───────────────────────────────────────────────────────────────
 
     suspend fun setSubtitleSize(value: Float)       = dataStore.edit { it[KEY_SUBTITLE_SIZE] = value }
@@ -129,6 +139,13 @@ class PlayerPreferences @Inject constructor(
     suspend fun setPreferDub(value: Boolean)        = dataStore.edit { it[KEY_PREFER_DUB] = value }
     suspend fun setLastSeenVersion(value: String)   = dataStore.edit { it[KEY_LAST_SEEN_VERSION] = value }
     suspend fun setMaxParallelDownloads(value: Int) = dataStore.edit { it[KEY_MAX_PARALLEL_DOWNLOADS] = value }
+
+    suspend fun setCachedReleaseNotes(version: String, body: String) {
+        dataStore.edit { prefs ->
+            prefs[KEY_CACHED_RELEASE_NOTES_VERSION] = version
+            prefs[KEY_CACHED_RELEASE_NOTES_BODY] = body
+        }
+    }
 
     suspend fun addDismissedNotificationId(id: String) {
         dataStore.edit { prefs ->
