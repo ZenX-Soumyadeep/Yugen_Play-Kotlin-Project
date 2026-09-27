@@ -1,13 +1,14 @@
 package com.zenx.yugen.play.ui.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -19,17 +20,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -46,7 +47,8 @@ private val glassBorder = Color.White.copy(alpha = 0.12f)
 @Composable
 fun DetailBottomSheets(
     viewModel: DetailViewModel,
-    state: DetailsUiState.Success
+    state: DetailsUiState.Success,
+    onManageExtensionsClick: () -> Unit = {}
 ) {
     val isMappingSheetVisible by viewModel.isMappingSheetVisible.collectAsStateWithLifecycle()
     val isSourceSheetVisible by viewModel.isSourceSheetVisible.collectAsStateWithLifecycle()
@@ -58,7 +60,7 @@ fun DetailBottomSheets(
     }
 
     if (isSourceSheetVisible) {
-        SourceBottomSheet(viewModel, state.installedProviders, state.activeProvider)
+        SourceBottomSheet(viewModel, state.installedProviders, state.activeProvider, onManageExtensionsClick)
     }
 
     if (isAnilistSheetVisible) {
@@ -202,13 +204,14 @@ fun MappingBottomSheet(viewModel: DetailViewModel, activeProvider: String) {
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
+                                        // Added basicMarquee modifier to smoothly scroll long mapping titles
                                         Text(
                                             result.title,
                                             color = Color.White,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
+                                            maxLines = 1,
+                                            modifier = Modifier.basicMarquee()
                                         )
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Box(
@@ -239,7 +242,12 @@ fun MappingBottomSheet(viewModel: DetailViewModel, activeProvider: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SourceBottomSheet(viewModel: DetailViewModel, installedProviders: List<String>, activeProvider: String) {
+fun SourceBottomSheet(
+    viewModel: DetailViewModel,
+    installedProviders: List<String>,
+    activeProvider: String,
+    onManageExtensionsClick: () -> Unit = {}
+) {
     ModalBottomSheet(
         onDismissRequest = { viewModel.hideSourceSheet() },
         containerColor = sheetContainerBg,
@@ -645,13 +653,14 @@ fun BatchDownloadBottomSheet(
 
                         // Episode Title / Subtitle
                         Column(modifier = Modifier.weight(1f)) {
+                            // Added basicMarquee modifier here as well for long episode titles
                             Text(
                                 text = "EP ${ep.number} • ${ep.title}",
                                 color = if (isDownloaded) Color.White.copy(alpha = 0.5f) else Color.White,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                modifier = Modifier.basicMarquee()
                             )
                             Spacer(modifier = Modifier.height(3.dp))
                             Row(

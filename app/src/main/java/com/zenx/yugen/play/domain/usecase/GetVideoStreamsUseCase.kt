@@ -6,6 +6,8 @@ import com.zenx.yugen.play.domain.Resource
 import com.zenx.yugen.play.domain.VideoStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelChildren
 import javax.inject.Inject
 
 class GetVideoStreamsUseCase @Inject constructor(
@@ -18,14 +20,51 @@ class GetVideoStreamsUseCase @Inject constructor(
                 val sourceUrl = parsed.sourceUrl
 
                 // Route to the provider that generated this specific episode ID
-                val primaryProvider = providerRegistry.getAllProviders().firstOrNull { p ->
-                    p.baseUrl.isNotBlank() && sourceUrl.startsWith(p.baseUrl, ignoreCase = true)
-                } ?: providerRegistry.getDefaultProvider()
+                val primaryProvider = providerRegistry.getProvider(parsed.providerPayload)
+                    ?: providerRegistry.getProvider(parsed.animeTitle)
+                    ?: providerRegistry.getAllProviders().firstOrNull { p ->
+                        p.baseUrl.isNotBlank() && (
+                            sourceUrl.startsWith(p.baseUrl, ignoreCase = true) ||
+                            sourceUrl.contains(p.baseUrl.removePrefix("https://").removePrefix("http://"), ignoreCase = true)
+                        )
+                    } ?: providerRegistry.getDefaultProvider()
 
-                val rawStreams = try {
+                var rawStreams = try {
                     primaryProvider.extractStreams(episodeId, parsed.animeTitle)
                 } catch (e: Exception) {
-                    return@withContext Resource.Error("Stream extraction failed: ${e.localizedMessage ?: e.message}")
+                    emptyList()
+                }
+
+                if (rawStreams.isEmpty()) {
+                    val fallbackProviders = providerRegistry.getAllProviders().filter {
+                        it.name != primaryProvider.name && it.name != "None"
+                    }
+                    rawStreams = kotlinx.coroutines.coroutineScope {
+                        val channel = kotlinx.coroutines.channels.Channel<List<VideoStream>>()
+                        var activeJobs = 0
+                        fallbackProviders.forEach { fallback ->
+                            activeJobs++
+                            launch {
+                                val streams = try {
+                                    fallback.extractStreams(episodeId, parsed.animeTitle)
+                                } catch (_: Exception) {
+                                    emptyList()
+                                }
+                                channel.send(streams)
+                            }
+                        }
+
+                        var result: List<VideoStream> = emptyList()
+                        for (i in 0 until activeJobs) {
+                            val streams = channel.receive()
+                            if (streams.isNotEmpty()) {
+                                result = streams
+                                coroutineContext.cancelChildren()
+                                break
+                            }
+                        }
+                        result
+                    }
                 }
 
                 // Note: Cross-provider stream fallback has been removed.

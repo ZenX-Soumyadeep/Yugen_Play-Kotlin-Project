@@ -148,12 +148,11 @@ data class EpisodeId(
                 // Standard format: url~~~titleOrPayload~~~epNum
                 val epNum = parts[2].toFloatOrNull() ?: 1f
                 val secondPart = parts[1]
-                val isNumericPayload = secondPart.isNotEmpty() && secondPart.all { it.isDigit() || it == ',' || it == '-' }
                 return EpisodeId(
                     raw = rawId,
                     sourceUrl = parts[0],
-                    providerPayload = if (isNumericPayload) secondPart else "",
-                    animeTitle = if (!isNumericPayload) secondPart else "",
+                    providerPayload = secondPart,
+                    animeTitle = secondPart,
                     episodeNumber = epNum
                 )
             }
@@ -188,8 +187,8 @@ data class Episode(
 data class VideoStream(
     val quality: String,
     val url: String,
-    val headers: Map<String, String>,
-    val isM3U8: Boolean,
+    val headers: Map<String, String> = emptyMap(),
+    val isM3U8: Boolean = url.contains(".m3u8", ignoreCase = true),
     val subtitles: List<Subtitle> = emptyList(),
     val skipIntervals: List<SkipInterval> = emptyList(),
     val bitrate: Long? = null,

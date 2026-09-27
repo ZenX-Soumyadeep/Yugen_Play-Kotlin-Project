@@ -34,6 +34,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -61,16 +62,26 @@ fun TvSearchScreen(
     val selectedGenres by viewModel.selectedGenres.collectAsStateWithLifecycle()
     val selectedSort by viewModel.selectedSort.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     val searchFocusRequester = remember { FocusRequester() }
     var isSearchFocused by remember { mutableStateOf(false) }
+    var isKeyboardDismissed by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isSearchFocused) {
+        if (isSearchFocused) {
+            isKeyboardDismissed = false
+        }
+    }
 
     BackHandler {
-        if (isSearchFocused) {
-            focusManager.clearFocus()
+        if (isSearchFocused && !isKeyboardDismissed) {
+            keyboardController?.hide()
+            isKeyboardDismissed = true
         } else if (query.isNotEmpty()) {
             viewModel.onQueryChange("")
             viewModel.clearAllFilters()
+            isKeyboardDismissed = false
         } else {
             onBackClick()
         }

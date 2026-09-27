@@ -1,6 +1,5 @@
 package com.zenx.yugen.play.di
 
-import com.zenx.yugen.play.data.provider.AnikotoProvider
 import com.zenx.yugen.play.domain.AnimeProvider
 import com.zenx.yugen.play.domain.ProviderRegistry
 import dagger.Module
@@ -16,16 +15,17 @@ object ProviderModule {
     @Provides
     @Singleton
     fun provideProviderRegistry(
-        anikotoProvider: AnikotoProvider
+        @com.zenx.yugen.play.di.ProviderClient client: okhttp3.OkHttpClient
     ): ProviderRegistry {
-        return ProviderRegistry(listOf(anikotoProvider))
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        return ProviderRegistry(listOf(
+            com.zenx.yugen.play.data.provider.AnikotoProvider(client, json)
+        ))
     }
 
     @Provides
     @Singleton
     fun provideDefaultAnimeProvider(registry: ProviderRegistry): AnimeProvider {
-        return runCatching { registry.getDefaultProvider() }.getOrNull()
-            ?: registry.getAllProviders().firstOrNull()
-            ?: throw IllegalStateException("ProviderRegistry is empty. At least one AnimeProvider must be registered.")
+        return registry.getDefaultProvider()
     }
 }

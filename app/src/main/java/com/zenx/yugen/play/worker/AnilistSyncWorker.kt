@@ -14,7 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private const val TAG = "AnilistSyncWorker"
-private const val MAX_RETRY_ATTEMPTS = 3
+private const val MAX_TOTAL_ATTEMPTS = 3
 
 @HiltWorker
 class AnilistSyncWorker @AssistedInject constructor(
@@ -32,8 +32,8 @@ class AnilistSyncWorker @AssistedInject constructor(
             return@withContext Result.failure()
         }
 
-        if (runAttemptCount >= MAX_RETRY_ATTEMPTS) {
-            Log.e(TAG, "Sync retry limit ($MAX_RETRY_ATTEMPTS) reached; dropping batch.")
+        if (runAttemptCount >= MAX_TOTAL_ATTEMPTS) {
+            Log.e(TAG, "Sync retry limit ($MAX_TOTAL_ATTEMPTS) reached; dropping batch.")
             return@withContext Result.failure()
         }
 

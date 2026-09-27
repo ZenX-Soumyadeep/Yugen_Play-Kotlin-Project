@@ -629,30 +629,54 @@ private fun IslandStreamSelector(
     streams: List<VideoStream>, isDownloadMode: Boolean,
     dominantColor: Color, onDismiss: () -> Unit, onStreamSelected: (VideoStream) -> Unit
 ) {
-    val hasDub = remember(streams) { streams.any { it.quality.contains("dub", ignoreCase = true) } }
-    val hasSub = remember(streams) { streams.any { !it.quality.contains("dub", ignoreCase = true) } }
-    var isDubTabSelected by remember(hasDub, hasSub) { mutableStateOf(hasDub && !hasSub) }
-
-    val currentStreams = remember(streams, isDubTabSelected) { streams.filter { it.quality.contains("dub", ignoreCase = true) == isDubTabSelected } }
-    val serverGroups = remember(currentStreams) {
-        currentStreams.groupBy { stream ->
-            stream.serverName?.replace(Regex("\\[?(sub|dub)\\]?", RegexOption.IGNORE_CASE), "")?.trim()
-                ?: stream.quality.replace(Regex("\\(.*\\)|\\[.*?\\]"), "").trim().ifBlank { "Server" }
-        }
+    val serverGroups = remember(streams) {
+        streams.groupBy { stream ->
+            val rawName = stream.serverName?.takeIf { it.isNotBlank() } ?: stream.quality
+            rawName.replace(Regex("\\[?(sub|dub|hsub|hardsub|hdub)\\]?", RegexOption.IGNORE_CASE), "")
+                   .replace(Regex("\\(.*\\)|\\[.*?\\]"), "")
+                   .trim()
+                   .ifBlank { "Server" }
+        }.map { (cleanName, groupStreams) ->
+            val hasSub = groupStreams.any { 
+                val q = it.quality.uppercase()
+                val n = (it.serverName ?: "").uppercase()
+                !q.contains("DUB") && !n.contains("DUB") && !q.contains("HSUB") && !n.contains("HSUB") && !q.contains("HARDSUB") && !n.contains("HARDSUB")
+            }
+            val hasDub = groupStreams.any { 
+                val q = it.quality.uppercase()
+                val n = (it.serverName ?: "").uppercase()
+                (q.contains("DUB") || n.contains("DUB")) && !q.contains("HDUB") && !n.contains("HDUB") 
+            }
+            val hasHsub = groupStreams.any { 
+                val q = it.quality.uppercase()
+                val n = (it.serverName ?: "").uppercase()
+                q.contains("HSUB") || n.contains("HSUB") || q.contains("HARDSUB") || n.contains("HARDSUB")
+            }
+            val hasHdub = groupStreams.any { 
+                val q = it.quality.uppercase()
+                val n = (it.serverName ?: "").uppercase()
+                q.contains("HDUB") || n.contains("HDUB")
+            }
+            
+            val validBadges = mutableListOf<String>()
+            if (hasSub) validBadges.add("SUB")
+            if (hasDub) validBadges.add("DUB")
+            if (hasHsub) validBadges.add("HSUB")
+            if (hasHdub) validBadges.add("HDUB")
+            
+            val badge = if (validBadges.size > 1) "Multi" else validBadges.firstOrNull() ?: "SUB"
+            cleanName to Pair(badge, groupStreams)
+        }.toMap()
     }
 
     Box(modifier = Modifier.fillMaxWidth().heightIn(max = 450.dp).padding(top = 20.dp, bottom = 12.dp)) {
         IslandServerSelectionView(
-            hasSub = hasSub,
-            hasDub = hasDub,
-            isDubTabSelected = isDubTabSelected,
             isDownloadMode = isDownloadMode,
-            onTabChange = { isDubTabSelected = it },
             serverGroups = serverGroups,
             dominantColor = dominantColor,
             onClose = onDismiss,
             onServerClick = { serverName ->
-                val serverStreams = serverGroups[serverName] ?: emptyList()
+                val serverStreams = serverGroups[serverName]?.second ?: emptyList()
                 val chosenStream = serverStreams.maxByOrNull { s ->
                     s.resolution?.filter { it.isDigit() }?.toIntOrNull() ?: 0
                 } ?: serverStreams.firstOrNull()
@@ -666,8 +690,8 @@ private fun IslandStreamSelector(
 
 @Composable
 private fun IslandServerSelectionView(
-    hasSub: Boolean, hasDub: Boolean, isDubTabSelected: Boolean, isDownloadMode: Boolean,
-    onTabChange: (Boolean) -> Unit, serverGroups: Map<String, List<VideoStream>>,
+    isDownloadMode: Boolean,
+    serverGroups: Map<String, Pair<String, List<VideoStream>>>,
     dominantColor: Color, onClose: () -> Unit, onServerClick: (String) -> Unit
 ) {
     Column(modifier = Modifier.padding(horizontal = 20.dp)) {
@@ -679,22 +703,14 @@ private fun IslandServerSelectionView(
         }
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (hasSub || hasDub) {
-            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(IslandCardBg).padding(6.dp)) {
-                if (hasSub) StreamTab("SUB", Icons.Rounded.Translate, !isDubTabSelected, dominantColor, Modifier.weight(1f)) { onTabChange(false) }
-                if (hasDub) StreamTab("DUB", Icons.Rounded.Mic, isDubTabSelected, dominantColor, Modifier.weight(1f)) { onTabChange(true) }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
         if (serverGroups.isEmpty()) {
             Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) { Text("No servers available.", color = TextMuted) }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
-                itemsIndexed(serverGroups.entries.toList()) { index, (serverName, streams) ->
+                itemsIndexed(serverGroups.entries.toList()) { index, (serverName, data) ->
+                    val badge = data.first
+                    val streams = data.second
                     val isTopRecommended = index == 0
-                    val maxRes = streams.mapNotNull { it.resolution?.replace("p", "")?.toIntOrNull() }.maxOrNull() ?: 0
-                    val badge = when { maxRes >= 1080 -> "FHD"; maxRes >= 720 -> "HD"; maxRes > 0 -> "SD"; else -> "Auto" }
 
                     Row(
                         modifier = Modifier

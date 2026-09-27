@@ -187,7 +187,7 @@ class AnilistService @Inject constructor(
                 AnimeCardItem(
                     id = item.optString("id"),
                     title = title,
-                    posterUrl = item.optJSONObject("coverImage")?.optString("large").orEmpty(),
+                    posterUrl = item.optJSONObject("coverImage")?.optString("large").takeIf { it != "null" }.orEmpty(),
                     averageScore = score
                 )
             )
@@ -218,7 +218,7 @@ class AnilistService @Inject constructor(
             val images = item.optJSONObject("images")
             val poster = images?.optJSONObject("webp")?.optString("large_image_url")
                 ?: images?.optJSONObject("jpg")?.optString("large_image_url")
-                ?: images?.optJSONObject("jpg")?.optString("image_url").orEmpty()
+                ?: images?.optJSONObject("jpg")?.optString("image_url").takeIf { it != "null" }.orEmpty()
 
             val scoreRaw = item.optDouble("score", 0.0)
             val score = if (scoreRaw > 0.0) (scoreRaw * 10).roundToInt() else null
@@ -250,7 +250,7 @@ class AnilistService @Inject constructor(
                     ?: titlesObj?.optString("en_jp").orEmpty()
 
                 val poster = attrs.optJSONObject("posterImage")?.optString("large")
-                    ?: attrs.optJSONObject("posterImage")?.optString("original").orEmpty()
+                    ?: attrs.optJSONObject("posterImage")?.optString("original").takeIf { it != "null" }.orEmpty()
 
                 val ratingStr = attrs.optString("averageRating")
                 val score = ratingStr.toDoubleOrNull()?.roundToInt()
@@ -312,10 +312,10 @@ class AnilistService @Inject constructor(
                 val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
                     ?: titleObj?.optString("romaji").orEmpty()
 
-                val banner = item.optString("bannerImage").takeIf { it.isNotBlank() && it != "null" }
-                    ?: item.optJSONObject("coverImage")?.optString("extraLarge").orEmpty()
+                val banner = item.optString("bannerImage", "").takeIf { it.isNotBlank() && it != "null" }
+                    ?: item.optJSONObject("coverImage")?.optString("extraLarge").takeIf { it != "null" }.orEmpty()
                 val poster = item.optJSONObject("coverImage")?.optString("extraLarge")
-                    ?: item.optJSONObject("coverImage")?.optString("large").orEmpty()
+                    ?: item.optJSONObject("coverImage")?.optString("large").takeIf { it != "null" }.orEmpty()
 
                 val format = item.optString("format", "TV").replace("_", " ")
                 val epCount = item.optInt("episodes", 0).takeIf { it > 0 }?.toString() ?: "??"
@@ -419,7 +419,7 @@ class AnilistService @Inject constructor(
                     ?: titleObj?.optString("romaji").orEmpty()
 
                 val poster = item.optJSONObject("coverImage")?.optString("extraLarge")?.takeIf { it.isNotBlank() }
-                    ?: item.optJSONObject("coverImage")?.optString("large").orEmpty()
+                    ?: item.optJSONObject("coverImage")?.optString("large").takeIf { it != "null" }.orEmpty()
 
                 val scoreInt = item.optInt("averageScore", 0)
                 val rating = if (scoreInt > 0) "$scoreInt%" else "N/A"
@@ -495,7 +495,7 @@ class AnilistService @Inject constructor(
                     ?: titleObj?.optString("romaji").orEmpty()
 
                 val poster = item.optJSONObject("coverImage")?.optString("extraLarge")?.takeIf { it.isNotBlank() }
-                    ?: item.optJSONObject("coverImage")?.optString("large").orEmpty()
+                    ?: item.optJSONObject("coverImage")?.optString("large").takeIf { it != "null" }.orEmpty()
 
                 val scoreInt = item.optInt("averageScore", 0)
                 val rating = if (scoreInt > 0) "$scoreInt%" else "N/A"
@@ -618,7 +618,7 @@ class AnilistService @Inject constructor(
             val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
                 ?: titleObj?.optString("romaji").orEmpty()
             val poster = item.optJSONObject("coverImage")?.optString("extraLarge")?.takeIf { it.isNotBlank() }
-                ?: item.optJSONObject("coverImage")?.optString("large").orEmpty()
+                ?: item.optJSONObject("coverImage")?.optString("large").takeIf { it != "null" }.orEmpty()
             val score = item.optInt("averageScore", 0).takeIf { it > 0 }
 
             list.add(AnimeCardItem(id = item.optString("id"), title = title, posterUrl = poster, averageScore = score))
@@ -648,7 +648,7 @@ class AnilistService @Inject constructor(
             val images = item.optJSONObject("images")
             val poster = images?.optJSONObject("webp")?.optString("large_image_url")
                 ?: images?.optJSONObject("jpg")?.optString("large_image_url")
-                ?: images?.optJSONObject("jpg")?.optString("image_url").orEmpty()
+                ?: images?.optJSONObject("jpg")?.optString("image_url").takeIf { it != "null" }.orEmpty()
             val scoreRaw = item.optDouble("score", 0.0)
             val score = if (scoreRaw > 0.0) (scoreRaw * 10).roundToInt() else null
 
@@ -681,7 +681,7 @@ class AnilistService @Inject constructor(
                     ?: titlesObj?.optString("en_jp").orEmpty()
 
                 val poster = attrs.optJSONObject("posterImage")?.optString("large")
-                    ?: attrs.optJSONObject("posterImage")?.optString("original").orEmpty()
+                    ?: attrs.optJSONObject("posterImage")?.optString("original").takeIf { it != "null" }.orEmpty()
                 val score = attrs.optString("averageRating").toDoubleOrNull()?.roundToInt()
 
                 list.add(AnimeCardItem(id = id, title = title, posterUrl = poster, averageScore = score))
@@ -763,7 +763,7 @@ class AnilistService @Inject constructor(
                 AiringAnimeItem(
                     id = media.optString("id"),
                     title = title,
-                    posterUrl = media.optJSONObject("coverImage")?.optString("large").orEmpty(),
+                    posterUrl = media.optJSONObject("coverImage")?.optString("large").takeIf { it != "null" }.orEmpty(),
                     episode = item.optInt("episode", 1),
                     airingAt = item.optLong("airingAt", 0L),
                     popularity = media.optInt("popularity", 0)
@@ -789,7 +789,7 @@ class AnilistService @Inject constructor(
             val images = item.optJSONObject("images")
             val poster = images?.optJSONObject("webp")?.optString("large_image_url")
                 ?: images?.optJSONObject("jpg")?.optString("large_image_url")
-                ?: images?.optJSONObject("jpg")?.optString("image_url").orEmpty()
+                ?: images?.optJSONObject("jpg")?.optString("image_url").takeIf { it != "null" }.orEmpty()
 
             list.add(
                 AiringAnimeItem(
@@ -826,7 +826,7 @@ class AnilistService @Inject constructor(
                 ?: titlesObj?.optString("en_jp").orEmpty()
 
             val poster = attrs.optJSONObject("posterImage")?.optString("large")
-                ?: attrs.optJSONObject("posterImage")?.optString("original").orEmpty()
+                ?: attrs.optJSONObject("posterImage")?.optString("original").takeIf { it != "null" }.orEmpty()
 
             list.add(
                 AiringAnimeItem(
@@ -1026,8 +1026,9 @@ class AnilistService @Inject constructor(
 
     private fun parseMediaNodeToAnimeDetails(media: JSONObject): AnimeDetails {
         val titleObj = media.optJSONObject("title")
-        val resolvedTitle = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
-            ?: titleObj?.optString("romaji").orEmpty()
+        val englishTitle = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
+        val romajiTitle = titleObj?.optString("romaji")?.takeIf { it.isNotBlank() && it != "null" }
+        val resolvedTitle = englishTitle ?: romajiTitle.orEmpty()
 
         val genresList = mutableListOf<String>()
         val genresArray = media.optJSONArray("genres")
@@ -1061,9 +1062,10 @@ class AnilistService @Inject constructor(
             id = media.optString("id"),
             idMal = malId,
             title = resolvedTitle,
+            romajiTitle = romajiTitle ?: "",
             description = media.optString("description", "No description available.").replace("<br>", "\n"),
-            bannerImage = media.optString("bannerImage").takeIf { it.isNotBlank() && it != "null" } ?: "",
-            posterImage = media.optJSONObject("coverImage")?.optString("extraLarge").orEmpty(),
+            bannerImage = media.optString("bannerImage", "").takeIf { it.isNotBlank() && it != "null" } ?: "",
+            posterImage = media.optJSONObject("coverImage")?.optString("extraLarge").takeIf { it != "null" }.orEmpty(),
             averageScore = media.optInt("averageScore", 0),
             year = media.optInt("seasonYear", 0),
             format = media.optString("format", "TV"),
@@ -1078,12 +1080,13 @@ class AnilistService @Inject constructor(
     private fun parseJikanNodeToAnimeDetails(data: JSONObject): AnimeDetails {
         val malId = data.optInt("mal_id", 0)
         val titleEnglish = data.optString("title_english").takeIf { it.isNotBlank() && it != "null" }
-        val title = titleEnglish ?: data.optString("title", "Anime")
+        val romajiTitle = data.optString("title").takeIf { it.isNotBlank() && it != "null" }
+        val title = titleEnglish ?: romajiTitle ?: "Anime"
 
         val images = data.optJSONObject("images")
         val poster = images?.optJSONObject("webp")?.optString("large_image_url")?.takeIf { it.isNotBlank() }
             ?: images?.optJSONObject("jpg")?.optString("large_image_url")?.takeIf { it.isNotBlank() }
-            ?: images?.optJSONObject("jpg")?.optString("image_url").orEmpty()
+            ?: images?.optJSONObject("jpg")?.optString("image_url").takeIf { it != "null" }.orEmpty()
 
         val trailer = data.optJSONObject("trailer")
         val banner = trailer?.optJSONObject("images")?.optString("maximum_image_url")?.takeIf { it.isNotBlank() } ?: poster
@@ -1108,6 +1111,7 @@ class AnilistService @Inject constructor(
             id = malId.toString(),
             idMal = malId.takeIf { it > 0 },
             title = title,
+            romajiTitle = romajiTitle ?: "",
             description = synopsis,
             bannerImage = banner,
             posterImage = poster,
@@ -1127,12 +1131,13 @@ class AnilistService @Inject constructor(
         val attrs = item.optJSONObject("attributes") ?: JSONObject()
 
         val titlesObj = attrs.optJSONObject("titles")
-        val title = attrs.optString("canonicalTitle").takeIf { it.isNotBlank() && it != "null" }
+        val enTitle = attrs.optString("canonicalTitle").takeIf { it.isNotBlank() && it != "null" }
             ?: titlesObj?.optString("en").takeIf { !it.isNullOrBlank() && it != "null" }
-            ?: titlesObj?.optString("en_jp").orEmpty()
+        val romajiTitle = titlesObj?.optString("en_jp").takeIf { !it.isNullOrBlank() && it != "null" }
+        val title = enTitle ?: romajiTitle ?: "Anime"
 
         val poster = attrs.optJSONObject("posterImage")?.optString("large")
-            ?: attrs.optJSONObject("posterImage")?.optString("original").orEmpty()
+            ?: attrs.optJSONObject("posterImage")?.optString("original").takeIf { it != "null" }.orEmpty()
 
         val banner = attrs.optJSONObject("coverImage")?.optString("large")
             ?: attrs.optJSONObject("coverImage")?.optString("original")
@@ -1148,6 +1153,7 @@ class AnilistService @Inject constructor(
             id = id,
             idMal = null,
             title = title,
+            romajiTitle = romajiTitle ?: "",
             description = synopsis,
             bannerImage = banner,
             posterImage = poster,
@@ -1197,8 +1203,8 @@ class AnilistService @Inject constructor(
             return@withContext AnilistUser(
                 id = viewer.optInt("id"),
                 name = viewer.optString("name"),
-                avatar = viewer.optJSONObject("avatar")?.optString("large").orEmpty(),
-                banner = viewer.optString("bannerImage", "").takeIf { it.isNotEmpty() },
+                avatar = viewer.optJSONObject("avatar")?.optString("large").takeIf { it != "null" }.orEmpty(),
+                banner = viewer.optString("bannerImage", "").takeIf { it != "null" } ?: "".takeIf { it.isNotEmpty() },
                 animeCount = stats?.optInt("count", 0) ?: 0,
                 episodesWatched = stats?.optInt("episodesWatched", 0) ?: 0,
                 daysWatched = minutes / 60.0 / 24.0
@@ -1270,7 +1276,7 @@ class AnilistService @Inject constructor(
                         entryId = entry.optInt("id"),
                         mediaId = entry.optInt("mediaId"),
                         title = title,
-                        posterUrl = media.optJSONObject("coverImage")?.optString("large").orEmpty(),
+                        posterUrl = media.optJSONObject("coverImage")?.optString("large").takeIf { it != "null" }.orEmpty(),
                         progress = entry.optInt("progress", 0),
                         totalEpisodes = if (media.has("episodes") && !media.isNull("episodes")) media.optInt("episodes") else null,
                         status = status
@@ -1489,7 +1495,7 @@ class AnilistService @Inject constructor(
                     val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
                         ?: titleObj?.optString("romaji") ?: "Anime"
                     val ep = item.optInt("episode", 0)
-                    val poster = media.optJSONObject("coverImage")?.optString("large")
+                    val poster = media.optJSONObject("coverImage")?.optString("large")?.takeIf { it != "null" }
 
                     list.add(
                         AniListNotification(
@@ -1500,6 +1506,21 @@ class AnilistService @Inject constructor(
                             createdAt = createdAt,
                             type = "AIRING",
                             mediaId = mediaId
+                        )
+                    )
+                } else if (item.has("user")) {
+                    val user = item.getJSONObject("user")
+                    val name = user.optString("name", "Someone")
+                    val avatar = user.optJSONObject("avatar")?.optString("large")?.takeIf { it != "null" }
+                    list.add(
+                        AniListNotification(
+                            id = id,
+                            title = "New Follower",
+                            message = "$name started following you.",
+                            imageUrl = avatar,
+                            createdAt = createdAt,
+                            type = "FOLLOWING",
+                            mediaId = null
                         )
                     )
                 }

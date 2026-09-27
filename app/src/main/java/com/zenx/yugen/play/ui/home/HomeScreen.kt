@@ -80,8 +80,8 @@ fun HomeScreen(
         }
     }
 
-    val bgColor = Color(0xFF09090B)
-    val accentPurple = Color(0xFF8B5CF6)
+    val bgColor = remember { Color(0xFF09090B) }
+    val accentPurple = remember { Color(0xFF8B5CF6) }
 
     // Smooth Scroll Hide / Reveal for Top Bar
     var isTopBarVisible by remember { mutableStateOf(true) }
@@ -240,6 +240,11 @@ fun HomeScreen(
                 }
             }
             is HomeUiState.Success -> {
+                // Highly Optimized Grid Chunking moved here into the Composable scope
+                val chunkedAnime = remember(state.categoryAnime) {
+                    state.categoryAnime.chunked(3)
+                }
+
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
                     onRefresh = { viewModel.refresh() },
@@ -249,7 +254,7 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(top = 0.dp, bottom = 120.dp)
                     ) {
-                        // 1. Hero Carousel (Full-bleed covering the entire upper space with stationary TopGenreFilterBar overlay)
+                        // 1. Hero Carousel
                         if (state.heroAnime.isNotEmpty()) {
                             item {
                                 HeroCarousel(
@@ -272,7 +277,7 @@ fun HomeScreen(
                             }
                         }
 
-                        // 3. Continue Watching (16:9 widescreen card)
+                        // 2. Continue Watching
                         if (state.watchHistory.isNotEmpty()) {
                             item {
                                 ContinueWatchingSection(
@@ -285,7 +290,7 @@ fun HomeScreen(
                             }
                         }
 
-                        // 4. Category Tabs Row (NEWEST, POPULAR, TRENDING, TOP RATED)
+                        // 3. Category Tabs Row
                         item {
                             Spacer(modifier = Modifier.height(14.dp))
                             CategoryTabsRow(
@@ -295,10 +300,10 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(6.dp))
                         }
 
-                        val chunkedAnime = state.categoryAnime.chunked(3)
+                        // Grid Rendering
                         items(
                             items = chunkedAnime,
-                            key = { row -> row.joinToString("-") { it.id } }
+                            key = { row -> row.firstOrNull()?.id ?: "empty" }
                         ) { rowAnime ->
                             Row(
                                 modifier = Modifier
@@ -319,7 +324,7 @@ fun HomeScreen(
                             }
                         }
 
-                        // 6. Load More Category Button
+                        // 4. Load More Category Button
                         if (state.categoryAnime.isNotEmpty()) {
                             item {
                                 LoadMoreButton(
@@ -330,7 +335,7 @@ fun HomeScreen(
                             }
                         }
 
-                        // 7. Movies Section (3 initial cards + Expand / Collapse)
+                        // 5. Movies Section
                         if (state.movies.isNotEmpty()) {
                             item {
                                 MoviesSection(

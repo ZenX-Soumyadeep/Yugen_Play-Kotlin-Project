@@ -85,13 +85,6 @@ object DownloadModule {
             }
         )
 
-        // Graceful release on process termination
-        Runtime.getRuntime().addShutdownHook(Thread {
-            try {
-                cache.release()
-            } catch (_: Exception) {}
-        })
-
         return cache
     }
 

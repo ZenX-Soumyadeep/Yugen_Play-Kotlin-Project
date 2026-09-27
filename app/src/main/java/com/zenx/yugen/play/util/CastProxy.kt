@@ -191,6 +191,13 @@ object CastProxy {
                 val targetUrl = URLDecoder.decode(path.substringAfter("url="), "UTF-8")
                 val out = safeClient.getOutputStream()
 
+                val hostLower = targetUrl.lowercase()
+                if (hostLower.startsWith("http://127.") || hostLower.startsWith("http://localhost") || hostLower.startsWith("http://192.168.") || hostLower.startsWith("http://10.")) {
+                    out.write("HTTP/1.1 403 Forbidden\r\n\r\n".toByteArray())
+                    out.flush()
+                    return
+                }
+
                 if (targetUrl.startsWith("file://") || targetUrl.startsWith("file:")) {
                     val rawPath = targetUrl.removePrefix("file://").removePrefix("file:")
                     val file = File(rawPath).canonicalFile
@@ -291,7 +298,7 @@ object CastProxy {
                             "http://$hostIp:$currentPort/proxy?url=${URLEncoder.encode(fixedUrl, "UTF-8")}"
                         }
                     }
-                    val bytes = rewritten.toByteArray()
+                    val bytes = "$rewritten\n".toByteArray()
                     out.write("HTTP/1.1 $status $statusText\r\n".toByteArray())
                     out.write("Content-Type: application/vnd.apple.mpegurl\r\n".toByteArray())
                     out.write("Access-Control-Allow-Origin: *\r\n".toByteArray())

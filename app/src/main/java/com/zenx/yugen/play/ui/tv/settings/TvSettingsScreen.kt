@@ -42,11 +42,13 @@ import com.zenx.yugen.play.ui.settings.SettingsViewModel
 import com.zenx.yugen.play.ui.tv.components.tvButtonFocusable
 import kotlinx.coroutines.delay
 
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import com.zenx.yugen.play.ui.auth.AuthViewModel
 import com.zenx.yugen.play.ui.tv.auth.TvAnilistQrDialog
 
 enum class TvSettingsSection(val title: String, val icon: ImageVector) {
+    PROVIDERS("Providers", Icons.Default.Extension),
     PLAYBACK("Playback", Icons.Rounded.PlayCircle),
     ACCOUNT("Account & Sync", Icons.Rounded.AccountCircle),
     STORAGE("Storage & Cache", Icons.Rounded.Storage),
@@ -57,6 +59,7 @@ enum class TvSettingsSection(val title: String, val icon: ImageVector) {
 fun TvSettingsScreen(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onExtensionsClick: () -> Unit = {},
     onCheckForUpdates: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     authViewModel: AuthViewModel = hiltViewModel()
@@ -181,6 +184,37 @@ fun TvSettingsScreen(
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
         ) {
             when (selectedSection) {
+                TvSettingsSection.PROVIDERS -> {
+                    item {
+                        Text(
+                            text = "Streaming Providers",
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    item {
+                        TvSettingActionRow(
+                            title = "Anikoto",
+                            subtitle = "Primary provider - Fast multi-server HLS streaming",
+                            buttonText = "Active",
+                            icon = Icons.Default.Extension,
+                            onClick = {}
+                        )
+                    }
+
+                    item {
+                        TvSettingActionRow(
+                            title = "AnimePahe",
+                            subtitle = "Secondary provider - High-efficiency AV1 & MP4 streams",
+                            buttonText = "Active",
+                            icon = Icons.Default.Extension,
+                            onClick = {}
+                        )
+                    }
+                }
+
                 TvSettingsSection.PLAYBACK -> {
                     item {
                         Text(

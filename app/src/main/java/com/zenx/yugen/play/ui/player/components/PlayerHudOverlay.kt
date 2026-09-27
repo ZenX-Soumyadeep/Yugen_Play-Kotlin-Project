@@ -142,98 +142,41 @@ fun CenterHudOverlay(
                 }
             }
         } else {
-            // Ultra-Sleek Premium Vertical Capsule Indicator
-            val fillFraction = state.value.coerceIn(0f, 1f)
-            val animatedFillFraction by animateFloatAsState(
-                targetValue = fillFraction,
-                animationSpec = tween(durationMillis = 60, easing = LinearEasing),
-                label = "HudProgressAnim"
-            )
-
-            val fillBrush = if (state.type == HudType.BRIGHTNESS) {
-                Brush.verticalGradient(
-                    listOf(
-                        Color(0xFFFDE047), // Radiant Amber
-                        Color(0xFFF59E0B),
-                        Color(0xFFD97706)
-                    )
-                )
-            } else {
-                Brush.verticalGradient(
-                    listOf(
-                        Color(0xFFC084FC), // Vibrant Purple
-                        Color(0xFF9333EA),
-                        Color(0xFF7C3AED)
-                    )
-                )
-            }
-
+            // Minimalist Video Player HUD (VLC/MX Player style)
             Box(
                 modifier = Modifier
-                    .width(38.dp)
-                    .height(165.dp)
-                    .shadow(
-                        elevation = 16.dp,
-                        shape = RoundedCornerShape(19.dp),
-                        ambientColor = Color.Black.copy(alpha = 0.6f),
-                        spotColor = Color.Black.copy(alpha = 0.8f)
-                    )
-                    .clip(RoundedCornerShape(19.dp))
-                    .background(Color(0xE6101016))
-                    .border(
-                        BorderStroke(
-                            1.dp,
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color.White.copy(alpha = 0.30f),
-                                    Color.White.copy(alpha = 0.08f)
-                                )
-                            )
-                        ),
-                        RoundedCornerShape(19.dp)
-                    )
-                    .padding(3.5.dp)
+                    .width(140.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(GlassHudBg)
+                    .padding(vertical = 20.dp, horizontal = 24.dp),
+                contentAlignment = Alignment.Center
             ) {
-                // Inner recessed track
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color.White.copy(alpha = 0.06f))
-                ) {
-                    // Rising vertical progress fill
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .fillMaxHeight(fraction = animatedFillFraction)
-                            .align(Alignment.BottomCenter)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(fillBrush)
-                    )
-                }
-
-                // High-visibility vertical icon & text labels
                 Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.SpaceBetween
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "${(fillFraction * 100).toInt()}%",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = (-0.2).sp
-                    )
-
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(19.dp)
+                        modifier = Modifier.size(42.dp)
                     )
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        LinearProgressIndicator(
+                            progress = { state.value.coerceIn(0f, 1f) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(4.dp)
+                                .clip(CircleShape),
+                            color = AccentPurple,
+                            trackColor = Color.White.copy(alpha = 0.2f)
+                        )
+                    }
                 }
             }
         }

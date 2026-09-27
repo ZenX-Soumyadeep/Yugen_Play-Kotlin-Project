@@ -39,6 +39,7 @@ fun DetailScreen(
     onBackClick: () -> Unit,
     onDownloadsClick: () -> Unit,
     onGenreClick: (String) -> Unit = {},
+    onExtensionsClick: () -> Unit = {},
     viewModel: DetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -236,7 +237,7 @@ fun DetailScreen(
                             ) {
                                 Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(36.dp))
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text(state.episodeError, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                Text(state.episodeError, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Box(
                                     modifier = Modifier
@@ -282,7 +283,10 @@ fun DetailScreen(
                     }
                 }
 
-                DetailBottomSheets(viewModel = viewModel, state = state)
+                DetailBottomSheets(
+                    viewModel = viewModel,
+                    state = state
+                )
             }
         }
 

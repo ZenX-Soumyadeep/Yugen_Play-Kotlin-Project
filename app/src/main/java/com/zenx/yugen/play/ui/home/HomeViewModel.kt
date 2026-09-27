@@ -32,6 +32,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,6 +42,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -104,11 +107,11 @@ class HomeViewModel @Inject constructor(
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
-    val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    private val _error = MutableStateFlow<String?>(null)
 
     private val _shouldShowWhatsNew = MutableStateFlow(false)
     val shouldShowWhatsNew: StateFlow<Boolean> = _shouldShowWhatsNew.asStateFlow()
@@ -136,10 +139,10 @@ class HomeViewModel @Inject constructor(
     private val _unreadCount = MutableStateFlow(0)
     val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
 
-    private val shownNotificationIds = mutableSetOf<Int>()
+    private val shownNotificationIds = android.util.LruCache<Int, Boolean>(500)
 
-    private var anilistWatchingFetchJob: Job? = null
-    private var notificationsFetchJob: Job? = null
+    
+    private val isReceiverRegistered = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private val dismissalReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, intent: Intent?) {
@@ -151,7 +154,6 @@ class HomeViewModel @Inject constructor(
     }
 
     init {
-        observeData()
         fetchRemoteData()
         fetchAnilistWatching()
         fetchNotifications()
@@ -166,10 +168,15 @@ class HomeViewModel @Inject constructor(
         }
 
         val filter = IntentFilter("com.zenx.yugen.play.NOTIFICATION_DISMISSED")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.registerReceiver(context, dismissalReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
-        } else {
-            context.registerReceiver(dismissalReceiver, filter)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.registerReceiver(context, dismissalReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+            } else {
+                context.registerReceiver(dismissalReceiver, filter)
+            }
+            isReceiverRegistered.set(true)
+        } catch (e: Exception) {
+            // Ignore
         }
     }
 
@@ -178,10 +185,9 @@ class HomeViewModel @Inject constructor(
             authPreferences.authState
                 .map { Triple(it.isAuthenticated, it.userId, it.token) }
                 .distinctUntilChanged()
-                .collect { (isAuthenticated, userId, token) ->
-                    anilistWatchingFetchJob?.cancel()
+                .collectLatest { (isAuthenticated, userId, token) ->
                     if (isAuthenticated && userId != null && !token.isNullOrBlank()) {
-                        anilistWatchingFetchJob = viewModelScope.launch(Dispatchers.IO) {
+                        withContext(Dispatchers.IO) {
                             try {
                                 val data = anilistService.getUserAnimeList(userId, token)
                                 anilistWatchingFlow.value = data["Watching"]?.distinctBy { it.mediaId } ?: emptyList()
@@ -201,10 +207,9 @@ class HomeViewModel @Inject constructor(
             authPreferences.authState
                 .map { it.token }
                 .distinctUntilChanged()
-                .collect { token ->
-                    notificationsFetchJob?.cancel()
+                .collectLatest { token ->
                     if (!token.isNullOrBlank()) {
-                        notificationsFetchJob = viewModelScope.launch(Dispatchers.IO) {
+                        withContext(Dispatchers.IO) {
                             try {
                                 val dismissedIds = playerPreferences.dismissedNotificationIds.first()
                                 val (unread, notifs) = anilistService.getUserNotifications(token, reset)
@@ -214,8 +219,8 @@ class HomeViewModel @Inject constructor(
 
                                 if (unread > 0 && !reset) {
                                     filteredNotifs.take(unread).forEach { alert ->
-                                        if (alert.id !in shownNotificationIds) {
-                                            shownNotificationIds.add(alert.id)
+                                        if (shownNotificationIds.get(alert.id) == null) {
+                                            shownNotificationIds.put(alert.id, true)
                                             SystemNotificationHelper.showAiringNotification(
                                                 context = context,
                                                 notificationId = alert.id,
@@ -308,12 +313,11 @@ class HomeViewModel @Inject constructor(
 
     fun loadMoreCurrentCategory() {
         val cat = _selectedCategory.value
-        if (_isLoadingMore.value) return
+        if (!_isLoadingMore.compareAndSet(expect = false, update = true)) return
         val currentList = _categoryItems.value[cat].orEmpty()
         val nextPage = (categoryPages[cat] ?: 1) + 1
 
         viewModelScope.launch(Dispatchers.IO) {
-            _isLoadingMore.value = true
             try {
                 val more = anilistService.fetchCategoryAnime(cat.sortParam, page = nextPage, perPage = 18)
                 if (more.isNotEmpty()) {
@@ -352,143 +356,153 @@ class HomeViewModel @Inject constructor(
 
     fun expandMovies() = toggleMoviesExpanded()
 
-    private fun observeData() {
-        viewModelScope.launch {
-            val activeAnilistWatchingFlow = combine(anilistWatchingFlow, dismissedCloudSyncIds) { watching, dismissed ->
-                watching.filter {
-                    val nextEpNum = it.progress + 1
-                    "CLOUD_SYNC_${it.mediaId}_$nextEpNum" !in dismissed
-                }
-            }.distinctUntilChanged()
-
-            val categoryFlow = combine(
-                _selectedCategory,
-                _categoryItems,
-                _isLoadingMore,
-                _movies,
-                _isMoviesExpanded
-            ) { category, catMap, loadingMore, movies, isExpanded ->
-                CategoryFlowData(
-                    category = category,
-                    categoryAnime = catMap[category].orEmpty(),
-                    isLoadingMore = loadingMore,
-                    movies = movies,
-                    isMoviesExpanded = isExpanded
-                )
-            }
-
-            val historyAndFavsFlow = combine(
-                watchHistoryDao.getAllHistory(),
-                favoriteDao.getAllFavorites(),
-                activeAnilistWatchingFlow
-            ) { history, favorites, anilistWatching ->
-                val localContinueList = history
-                    .filter { it.durationMs > 0L || it.progressMs > 0L }
-                    .sortedByDescending { it.lastWatchedAt }
-                    .mapNotNull { entity ->
-                        val cleanEpNum = formatEpisodeNumber(entity.episodeId)
-                        val progress = if (entity.durationMs > 0) {
-                            (entity.progressMs.toFloat() / entity.durationMs.toFloat()).coerceIn(0f, 1f)
-                        } else 0f
-
-                        val isNearEnd = progress >= 0.80f
-                        val epInt = cleanEpNum.toIntOrNull()
-                        val subtitleText = if (isNearEnd && epInt != null) {
-                            "Up Next • Episode ${epInt + 1}"
-                        } else {
-                            "Episode $cleanEpNum"
-                        }
-                        val effectiveProgress = if (isNearEnd) 0f else progress
-                        val timeLeftStr = if (isNearEnd) {
-                            "Up Next"
-                        } else if (entity.durationMs > 0) {
-                            val minsLeft = ((entity.durationMs - entity.progressMs) / 60000L).coerceAtLeast(1)
-                            "${minsLeft}m left"
-                        } else ""
-
-                        ContinueWatchingUiModel(
-                            episodeId = entity.episodeId,
-                            animeTitle = entity.animeTitle,
-                            subtitle = subtitleText,
-                            posterUrl = entity.posterUrl,
-                            progress = effectiveProgress,
-                            timeLeft = timeLeftStr,
-                            isCloudSync = false,
-                            mediaId = null,
-                            isUpNext = isNearEnd
-                        )
-                    }
-
-                val localNormalizedTitles = localContinueList.map { StringUtils.normalizeTitleForComparison(it.animeTitle) }.toSet()
-
-                val cloudContinueList = anilistWatching
-                    .filter { StringUtils.normalizeTitleForComparison(it.title) !in localNormalizedTitles }
-                    .map { cloudEntry ->
-                        val nextEpNum = cloudEntry.progress + 1
-                        ContinueWatchingUiModel(
-                            episodeId = "CLOUD_SYNC_${cloudEntry.mediaId}_$nextEpNum",
-                            animeTitle = cloudEntry.title,
-                            subtitle = "Episode $nextEpNum",
-                            posterUrl = cloudEntry.posterUrl,
-                            progress = 0f,
-                            timeLeft = "",
-                            isCloudSync = true,
-                            mediaId = cloudEntry.mediaId.toString()
-                        )
-                    }
-
-                HistoryAndFavsData(
-                    watchHistory = localContinueList + cloudContinueList,
-                    favorites = favorites
-                )
-            }
-
-            combine(_heroAnime, categoryFlow, historyAndFavsFlow) { hero, catData, histFavs ->
-                if (hero.isEmpty() && catData.categoryAnime.isEmpty() && _uiState.value is HomeUiState.Loading) {
-                    HomeUiState.Loading
-                } else {
-                    HomeUiState.Success(
-                        heroAnime = hero,
-                        activeCategory = catData.category,
-                        categoryAnime = catData.categoryAnime,
-                        isLoadingMore = catData.isLoadingMore,
-                        movies = if (catData.isMoviesExpanded) catData.movies else catData.movies.take(3),
-                        isMoviesExpanded = catData.isMoviesExpanded,
-                        watchHistory = histFavs.watchHistory,
-                        favorites = histFavs.favorites
-                    )
-                }
-            }
-                .flowOn(Dispatchers.Default)
-                .collect { state ->
-                    _uiState.value = state
-                }
+    private val activeAnilistWatchingFlow = combine(anilistWatchingFlow, dismissedCloudSyncIds) { watching, dismissed ->
+        watching.filter {
+            val nextEpNum = it.progress + 1
+            "CLOUD_SYNC_${it.mediaId}_$nextEpNum" !in dismissed
         }
+    }.distinctUntilChanged()
+
+    private val categoryFlow = combine(
+        _selectedCategory,
+        _categoryItems,
+        _isLoadingMore,
+        _movies,
+        _isMoviesExpanded
+    ) { category, catMap, loadingMore, movies, isExpanded ->
+        CategoryFlowData(
+            category = category,
+            categoryAnime = catMap[category].orEmpty(),
+            isLoadingMore = loadingMore,
+            movies = movies,
+            isMoviesExpanded = isExpanded
+        )
     }
+
+    private val sortedHistoryFlow = watchHistoryDao.getAllHistory().map { history ->
+        history.filter { it.durationMs > 0L || it.progressMs > 0L }
+            .sortedByDescending { it.lastWatchedAt }
+    }.distinctUntilChanged()
+
+    private val historyAndFavsFlow = combine(
+        sortedHistoryFlow,
+        favoriteDao.getAllFavorites(),
+        activeAnilistWatchingFlow
+    ) { sortedHistory, favorites, anilistWatching ->
+        val localContinueList = sortedHistory.mapNotNull { entity ->
+            val cleanEpNum = formatEpisodeNumber(entity.episodeId)
+            val progress = if (entity.durationMs > 0) {
+                (entity.progressMs.toFloat() / entity.durationMs.toFloat()).coerceIn(0f, 1f)
+            } else 0f
+
+            val isNearEnd = progress >= 0.80f
+            val epInt = cleanEpNum.toIntOrNull()
+            val subtitleText = if (isNearEnd && epInt != null) {
+                "Up Next • Episode ${epInt + 1}"
+            } else {
+                "Episode $cleanEpNum"
+            }
+            val effectiveProgress = if (isNearEnd) 0f else progress
+            val timeLeftStr = if (isNearEnd) {
+                "Up Next"
+            } else if (entity.durationMs > 0) {
+                val minsLeft = ((entity.durationMs - entity.progressMs) / 60000L).coerceAtLeast(1)
+                "${minsLeft}m left"
+            } else ""
+
+            ContinueWatchingUiModel(
+                episodeId = entity.episodeId,
+                animeTitle = entity.animeTitle,
+                subtitle = subtitleText,
+                posterUrl = entity.posterUrl,
+                progress = effectiveProgress,
+                timeLeft = timeLeftStr,
+                isCloudSync = false,
+                mediaId = null,
+                isUpNext = isNearEnd
+            )
+        }
+
+        val localNormalizedTitles = localContinueList.map { StringUtils.normalizeTitleForComparison(it.animeTitle) }.toSet()
+
+        val cloudContinueList = anilistWatching
+            .filter { StringUtils.normalizeTitleForComparison(it.title) !in localNormalizedTitles }
+            .map { cloudEntry ->
+                val nextEpNum = cloudEntry.progress + 1
+                ContinueWatchingUiModel(
+                    episodeId = "CLOUD_SYNC_${cloudEntry.mediaId}_$nextEpNum",
+                    animeTitle = cloudEntry.title,
+                    subtitle = "Episode $nextEpNum",
+                    posterUrl = cloudEntry.posterUrl,
+                    progress = 0f,
+                    timeLeft = "",
+                    isCloudSync = true,
+                    mediaId = cloudEntry.mediaId.toString()
+                )
+            }
+
+        HistoryAndFavsData(
+            watchHistory = localContinueList + cloudContinueList,
+            favorites = favorites
+        )
+    }
+
+    val uiState: StateFlow<HomeUiState> = combine(
+        _heroAnime, categoryFlow, historyAndFavsFlow, _error
+    ) { hero, catData, histFavs, error ->
+        if (error != null) {
+            HomeUiState.Error(error)
+        } else if (hero.isEmpty() && catData.categoryAnime.isEmpty()) {
+            HomeUiState.Loading
+        } else {
+            HomeUiState.Success(
+                heroAnime = hero,
+                activeCategory = catData.category,
+                categoryAnime = catData.categoryAnime,
+                isLoadingMore = catData.isLoadingMore,
+                movies = if (catData.isMoviesExpanded) catData.movies else catData.movies.take(3),
+                isMoviesExpanded = catData.isMoviesExpanded,
+                watchHistory = histFavs.watchHistory,
+                favorites = histFavs.favorites
+            )
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
+        initialValue = HomeUiState.Loading
+    )
 
     private fun fetchRemoteData() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val hero = anilistService.fetchHeroTrending(6)
+                val initialCat = _selectedCategory.value
+
+                // Execute all AniList requests concurrently to massively speed up startup
+                val heroDeferred = async { anilistService.fetchHeroTrending(6) }
+                val trendingDeferred = async { anilistService.fetchCategoryAnime(initialCat.sortParam, page = 1, perPage = 18) }
+                val moviesDeferred = async { anilistService.fetchMovies(page = 1, perPage = 3) }
+                val popularDeferred = async { anilistService.fetchCategoryAnime(HomeCategory.POPULAR.sortParam, page = 1, perPage = 18) }
+
+                val hero = heroDeferred.await()
                 if (hero.isNotEmpty()) _heroAnime.value = hero
 
-                val initialCat = _selectedCategory.value
-                val trendingCards = anilistService.fetchCategoryAnime(initialCat.sortParam, page = 1, perPage = 18)
+                val trendingCards = trendingDeferred.await()
                 if (trendingCards.isNotEmpty()) {
                     _categoryItems.update { it + (initialCat to trendingCards) }
                 }
 
-                val movies = anilistService.fetchMovies(page = 1, perPage = 3)
+                val movies = moviesDeferred.await()
                 if (movies.isNotEmpty()) {
                     _movies.value = movies
                 }
 
-                launch {
-                    val pop = anilistService.fetchCategoryAnime(HomeCategory.POPULAR.sortParam, page = 1, perPage = 18)
-                    if (pop.isNotEmpty()) _categoryItems.update { it + (HomeCategory.POPULAR to pop) }
-                }
+                val pop = popularDeferred.await()
+                if (pop.isNotEmpty()) _categoryItems.update { it + (HomeCategory.POPULAR to pop) }
+
             } catch (e: Exception) {
-                if (_uiState.value is HomeUiState.Loading) _uiState.value = HomeUiState.Error(e.localizedMessage ?: "Connection failed")
+                if (_heroAnime.value.isEmpty() && _categoryItems.value.isEmpty()) {
+                    _error.value = e.localizedMessage ?: "Connection failed"
+                }
             }
         }
     }
@@ -497,37 +511,54 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
+                val auth = authPreferences.authState.value
+                val isAuthenticated = auth.isAuthenticated && auth.userId != null && !auth.token.isNullOrBlank()
+
                 withContext(Dispatchers.IO) {
-                    val hero = anilistService.fetchHeroTrending(6)
+                    val cat = _selectedCategory.value
+                    val moviesCount = if (_isMoviesExpanded.value) 21 else 3
+
+                    // Concurrent refresh requests
+                    val heroDef = async { anilistService.fetchHeroTrending(6) }
+                    val catDef = async { anilistService.fetchCategoryAnime(cat.sortParam, page = 1, perPage = 18) }
+                    val moviesDef = async { anilistService.fetchMovies(page = 1, perPage = moviesCount) }
+
+                    val watchingDef = if (isAuthenticated) async {
+                        try {
+                            anilistService.getUserAnimeList(auth.userId!!, auth.token!!)["Watching"]?.distinctBy { it.mediaId } ?: emptyList()
+                        } catch (e: Exception) { emptyList() }
+                    } else null
+
+                    val notifsDef = if (isAuthenticated) async {
+                        try {
+                            anilistService.getUserNotifications(auth.token!!, false)
+                        } catch (e: Exception) { Pair(0, emptyList()) }
+                    } else null
+
+                    val hero = heroDef.await()
                     if (hero.isNotEmpty()) _heroAnime.value = hero
 
-                    val cat = _selectedCategory.value
-                    val catItems = anilistService.fetchCategoryAnime(cat.sortParam, page = 1, perPage = 18)
-                    if (catItems.isNotEmpty()) {
-                        _categoryItems.update { it + (cat to catItems) }
+                    val catItems = catDef.await()
+                    if (catItems.isNotEmpty()) _categoryItems.update { it + (cat to catItems) }
+
+                    val movies = moviesDef.await()
+                    if (movies.isNotEmpty()) _movies.value = movies
+
+                    if (watchingDef != null) {
+                        anilistWatchingFlow.value = watchingDef.await()
                     }
 
-                    val moviesCount = if (_isMoviesExpanded.value) 21 else 3
-                    val movies = anilistService.fetchMovies(page = 1, perPage = moviesCount)
-                    if (movies.isNotEmpty()) _movies.value = movies
-                }
-
-                val auth = authPreferences.authState.value
-                if (auth.isAuthenticated && auth.userId != null && !auth.token.isNullOrBlank()) {
-                    try {
-                        val data = anilistService.getUserAnimeList(auth.userId, auth.token)
-                        anilistWatchingFlow.value = data["Watching"]?.distinctBy { it.mediaId } ?: emptyList()
-                    } catch (_: Exception) {}
-
-                    try {
-                        val (unread, notifs) = anilistService.getUserNotifications(auth.token, false)
+                    if (notifsDef != null) {
+                        val (unread, notifs) = notifsDef.await()
+                        val dismissedIds = playerPreferences.dismissedNotificationIds.first()
+                        val filteredNotifs = notifs.filter { it.id.toString() !in dismissedIds }
                         _unreadCount.value = unread
-                        if (notifs.isNotEmpty()) _notifications.value = notifs
-                    } catch (_: Exception) {}
+                        if (filteredNotifs.isNotEmpty()) _notifications.value = filteredNotifs
+                    }
                 }
             } catch (e: Exception) {
-                if (_uiState.value is HomeUiState.Loading) {
-                    _uiState.value = HomeUiState.Error(e.localizedMessage ?: "Connection failed")
+                if (_heroAnime.value.isEmpty() && _categoryItems.value.isEmpty()) {
+                    _error.value = e.localizedMessage ?: "Connection failed"
                 }
             } finally {
                 _isRefreshing.value = false
@@ -536,7 +567,7 @@ class HomeViewModel @Inject constructor(
     }
 
     fun retry() {
-        _uiState.value = HomeUiState.Loading
+        _error.value = null
         fetchRemoteData()
     }
 
@@ -555,10 +586,10 @@ class HomeViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        anilistWatchingFetchJob?.cancel()
-        notificationsFetchJob?.cancel()
-        try {
-            context.unregisterReceiver(dismissalReceiver)
-        } catch (_: Exception) {}
+        if (isReceiverRegistered.getAndSet(false)) {
+            try {
+                context.unregisterReceiver(dismissalReceiver)
+            } catch (_: Exception) {}
+        }
     }
 }

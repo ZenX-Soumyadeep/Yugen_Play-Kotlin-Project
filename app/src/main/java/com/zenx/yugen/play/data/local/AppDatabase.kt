@@ -11,7 +11,7 @@ import androidx.room.RoomDatabase
         OfflineSyncEntity::class,
         CachedAnimeDetailsEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {

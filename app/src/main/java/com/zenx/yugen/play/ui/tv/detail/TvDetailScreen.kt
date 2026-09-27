@@ -46,6 +46,7 @@ fun TvDetailScreen(
     onEpisodeClick: (episodeId: String, animeUrl: String, title: String, poster: String, streamUrl: String?) -> Unit,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onExtensionsClick: () -> Unit = {},
     viewModel: DetailViewModel = hiltViewModel()
 ) {
     BackHandler { onBackClick() }

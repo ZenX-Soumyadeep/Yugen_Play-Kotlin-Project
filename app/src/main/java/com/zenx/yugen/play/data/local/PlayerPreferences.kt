@@ -24,7 +24,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class PlayerPreferences @Inject constructor(
-    private val dataStore: DataStore<Preferences>
+    val dataStore: DataStore<Preferences>
 ) {
     companion object {
         // --- Subtitle ---

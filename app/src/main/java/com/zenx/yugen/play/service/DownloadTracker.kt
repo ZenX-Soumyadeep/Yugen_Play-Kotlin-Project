@@ -25,10 +25,25 @@ class DownloadTracker @Inject constructor(
     private val playerPreferences: PlayerPreferences
 ) : DownloadManager.Listener, Closeable {
 
+    // Hack/Fix: Wraps the map to forcefully break Compose's structural equality check.
+    // Because ExoPlayer mutates the internal DownloadProgress of the same object instance,
+    // Compose will ignore updates unless we generate a unique tick.
+    private class ProgressMap(
+        private val innerMap: Map<String, Download>,
+        private val tick: Long = System.currentTimeMillis()
+    ) : Map<String, Download> by innerMap {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is ProgressMap) return false
+            return this.tick == other.tick
+        }
+        override fun hashCode(): Int = tick.hashCode()
+    }
+
     private val _downloads = MutableSharedFlow<Map<String, Download>>(
         replay = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
-    ).apply { tryEmit(emptyMap()) }
+    ).apply { tryEmit(ProgressMap(emptyMap())) }
 
     val downloads: SharedFlow<Map<String, Download>> = _downloads.asSharedFlow()
 
@@ -46,7 +61,7 @@ class DownloadTracker @Inject constructor(
         downloadManager = manager
         manager.addListener(this)
         loadInitialDownloads(manager)
-        
+
         scope.launch {
             playerPreferences.maxParallelDownloads.collect { maxCount ->
                 manager.maxParallelDownloads = maxCount
@@ -70,7 +85,7 @@ class DownloadTracker @Inject constructor(
                 }
                 synchronized(stateLock) {
                     currentMap.putAll(initial)
-                    _downloads.tryEmit(HashMap(currentMap))
+                    _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
                 }
                 checkProgressLoop()
             } catch (_: Exception) {
@@ -89,7 +104,7 @@ class DownloadTracker @Inject constructor(
                 speedMap[download.request.id] = 0L
             }
             byteSamples[download.request.id] = Pair(System.currentTimeMillis(), download.bytesDownloaded)
-            _downloads.tryEmit(HashMap(currentMap))
+            _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
         }
         checkProgressLoop()
     }
@@ -99,7 +114,7 @@ class DownloadTracker @Inject constructor(
             currentMap.remove(download.request.id)
             byteSamples.remove(download.request.id)
             speedMap.remove(download.request.id)
-            _downloads.tryEmit(HashMap(currentMap))
+            _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
         }
         checkProgressLoop()
     }
@@ -132,6 +147,7 @@ class DownloadTracker @Inject constructor(
                                         if (timeDelta >= 300 && bytesDelta >= 0) {
                                             val instantSpeed = (bytesDelta * 1000L) / timeDelta
                                             val prevSpeed = speedMap[id] ?: 0L
+
                                             // Smooth network jitter with exponential moving average (EMA)
                                             val smoothedSpeed = if (prevSpeed > 0L) {
                                                 (0.4f * instantSpeed + 0.6f * prevSpeed).toLong()
@@ -152,7 +168,7 @@ class DownloadTracker @Inject constructor(
                             }
                         }
 
-                        _downloads.tryEmit(HashMap(currentMap))
+                        _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
 
                         stillActive = currentMap.values.any {
                             it.state == Download.STATE_DOWNLOADING || it.state == Download.STATE_QUEUED
@@ -161,7 +177,7 @@ class DownloadTracker @Inject constructor(
 
                     if (!stillActive) {
                         speedMap.clear()
-                        _downloads.tryEmit(HashMap(currentMap))
+                        _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
                         break
                     }
                     delay(350L.milliseconds)

@@ -38,13 +38,39 @@ private val ItemBg = Color.White.copy(alpha = 0.08f)
 private val GlassBorder = Color.White.copy(alpha = 0.15f)
 private val AccentPurple = Color(0xFF8B5CF6)
 
+private enum class AudioTrackType(val label: String, val badge: String) {
+    SUB("Japanese (Sub)", "SUB"),
+    DUB("English (Dub)", "DUB"),
+    HSUB("Hardsub", "HSUB"),
+    HDUB("Hindi (Dub)", "HDUB")
+}
+
+private fun VideoStream.audioTrackType(): AudioTrackType {
+    val q = quality.uppercase()
+    val n = (serverName ?: "").uppercase()
+    return when {
+        q.contains("HDUB") || n.contains("HDUB") -> AudioTrackType.HDUB
+        q.contains("HSUB") || n.contains("HSUB") || q.contains("HARDSUB") || n.contains("HARDSUB") -> AudioTrackType.HSUB
+        q.contains("DUB") || n.contains("DUB") -> AudioTrackType.DUB
+        else -> AudioTrackType.SUB
+    }
+}
+
+private fun VideoStream.cleanServerName(): String {
+    val rawName = serverName?.takeIf { it.isNotBlank() } ?: quality
+    return rawName
+        .replace(Regex("\\[?(sub|dub|hsub|hardsub|hdub)\\]?", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("\\(.*\\)|\\[.*?\\]"), "")
+        .trim()
+}
+
 @Composable
 fun PlayerSidePanels(
     state: PlayerUiState.Ready,
     viewModel: PlayerViewModel,
     modifier: Modifier = Modifier
 ) {
-    val isAnyPanelVisible = state.isQualitySheetVisible || state.isSubtitleSheetVisible || state.isServerSheetVisible || state.isSpeedSheetVisible
+    val isAnyPanelVisible = state.isQualitySheetVisible || state.isSubtitleSheetVisible || state.isServerSheetVisible || state.isSpeedSheetVisible || state.isEpisodeSheetVisible
 
     AnimatedVisibility(
         visible = isAnyPanelVisible,
@@ -64,6 +90,7 @@ fun PlayerSidePanels(
                     viewModel.setSubtitleSheetVisibility(false)
                     viewModel.setServerSheetVisibility(false)
                     viewModel.setSpeedSheetVisibility(false)
+                    viewModel.setEpisodeSheetVisibility(false)
                 }
         )
     }
@@ -92,6 +119,7 @@ fun PlayerSidePanels(
                     state.isSubtitleSheetVisible -> SubtitlePanel(state, viewModel)
                     state.isServerSheetVisible -> ServerPanel(state, viewModel)
                     state.isSpeedSheetVisible -> SpeedPanel(state, viewModel)
+                    state.isEpisodeSheetVisible -> EpisodePanel(state, viewModel)
                 }
             }
         }
@@ -118,10 +146,76 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
 
     PanelHeader("Subtitles") { viewModel.setSubtitleSheetVisibility(false) }
 
+    val activeStream = state.activeStream
+    val audioOptions = remember(state.streams, activeStream) {
+        if (activeStream != null) {
+            val currentClean = activeStream.cleanServerName()
+            val currentServerStreams = state.streams.filter { s ->
+                s.cleanServerName().equals(currentClean, ignoreCase = true)
+            }
+            currentServerStreams.groupBy { it.audioTrackType() }
+        } else {
+            emptyMap()
+        }
+    }
+
     LazyColumn(
         contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        // --- Audio Track Selection ---
+        if (activeStream != null) {
+            
+            if (audioOptions.size > 1 || audioOptions.keys.firstOrNull() != null) {
+                item {
+                    Text(
+                        "AUDIO TRACKS",
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
+                }
+                
+                // Find current active category
+                val currentCategory = activeStream.audioTrackType()
+                
+                audioOptions.forEach { (type, streams) ->
+                    item {
+                        PanelItem(
+                            title = type.label,
+                            isSelected = type == currentCategory,
+                            onClick = {
+                                if (type != currentCategory) {
+                                    // Switch to the best stream of this audio type
+                                    val matchingStream = if (state.selectedQualityHeight > 0) {
+                                        streams.find { s ->
+                                            val h = s.resolution?.filter { it.isDigit() }?.toIntOrNull()
+                                                ?: Regex("(\\d{3,4})p?").find(s.quality)?.groupValues?.get(1)?.toIntOrNull()
+                                            h == state.selectedQualityHeight
+                                        }
+                                    } else null
+                                    
+                                    val chosenStream = matchingStream
+                                        ?: streams.maxByOrNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() ?: 0 }
+                                        ?: streams.first()
+                                        
+                                    viewModel.selectStream(chosenStream)
+                                }
+                            }
+                        )
+                    }
+                }
+                
+                item {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    HorizontalDivider(color = GlassBorder, modifier = Modifier.padding(vertical = 4.dp))
+                }
+            }
+        }
+
+        // --- Subtitle Track Selection ---
         item {
             Text(
                 "SUBTITLE TRACKS",
@@ -201,48 +295,43 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
                     // Size Selector
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Font Size", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SegmentedButton("Small", state.subtitleSize == 0.040f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleSize(0.040f) }
-                            SegmentedButton("Normal", state.subtitleSize == 0.053f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleSize(0.053f) }
-                            SegmentedButton("Large", state.subtitleSize == 0.065f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleSize(0.065f) }
-                        }
-                    }
-
-                    // Edge Style
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Edge Style", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SegmentedButton("Shadow", state.subtitleEdgeStyle == 2, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(2) }
-                            SegmentedButton("Outline", state.subtitleEdgeStyle == 1, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(1) }
-                            SegmentedButton("Box", state.subtitleEdgeStyle == 0, modifier = Modifier.weight(1f)) { viewModel.setSubtitleEdgeStyle(0) }
-                        }
-                    }
-
-                    // Text Color Selector
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Text Color", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        val colorOptions = listOf(
-                            "White" to 0xFFFFFFFF,
-                            "Yellow" to 0xFFFFDD00,
-                            "Cyan" to 0xFF00E5FF,
-                            "Green" to 0xFF69FF47
-                        )
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            colorOptions.forEach { (label, colorLong) ->
-                                val isSelected = state.subtitleTextColor == colorLong
-                                val swatch = Color(colorLong.toInt())
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(30.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(swatch.copy(alpha = if (isSelected) 1f else 0.35f))
-                                        .border(1.5.dp, if (isSelected) Color.White else Color.Transparent, RoundedCornerShape(8.dp))
-                                        .bounceClick { viewModel.setSubtitleTextColor(colorLong) },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(label, color = if (isSelected) Color.Black.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(36.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.White.copy(alpha = 0.05f)),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clickable { 
+                                        val step = 0.053f * 0.05f
+                                        val newSize = (state.subtitleSize - step).coerceAtLeast(0.015f)
+                                        viewModel.setSubtitleSize(newSize)
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Rounded.Remove, contentDescription = "Decrease", tint = Color.White, modifier = Modifier.size(18.dp))
+                            }
+                            
+                            val percentage = Math.round((state.subtitleSize / 0.053f) * 100f).toInt()
+                            Text("$percentage%", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp))
+                            
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clickable { 
+                                        val step = 0.053f * 0.05f
+                                        val newSize = (state.subtitleSize + step).coerceAtMost(0.2f)
+                                        viewModel.setSubtitleSize(newSize)
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Rounded.Add, contentDescription = "Increase", tint = Color.White, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
@@ -289,7 +378,7 @@ private fun SpeedPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
 
 private data class ServerGroupItem(
     val serverName: String,
-    val isDub: Boolean,
+    val badgeText: String,
     val streams: List<VideoStream>,
     val maxResolution: String?
 )
@@ -303,47 +392,26 @@ private fun ServerPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) 
         s?.quality?.contains("dub", ignoreCase = true) == true || s?.serverName?.contains("dub", ignoreCase = true) == true
     }
 
-    val hasDub = remember(state.streams) {
-        state.streams.any { it.quality.contains("dub", ignoreCase = true) || it.serverName?.contains("dub", ignoreCase = true) == true }
-    }
-    val hasSub = remember(state.streams) {
-        state.streams.any { !it.quality.contains("dub", ignoreCase = true) && it.serverName?.contains("dub", ignoreCase = true) != true }
-    }
-
-    var isDubTabSelected by remember(activeIsDub, hasDub, hasSub) {
-        mutableStateOf(if (hasDub && hasSub) activeIsDub else hasDub && !hasSub)
-    }
-
-    val filteredStreams = remember(state.streams, isDubTabSelected, hasSub, hasDub) {
-        if (hasSub && hasDub) {
-            state.streams.filter {
-                val dub = it.quality.contains("dub", ignoreCase = true) || it.serverName?.contains("dub", ignoreCase = true) == true
-                dub == isDubTabSelected
-            }
-        } else {
-            state.streams
-        }
-    }
-
-    val serverGroups = remember(filteredStreams) {
-        filteredStreams.groupBy { stream ->
-            val rawName = stream.serverName?.takeIf { it.isNotBlank() } ?: stream.quality
-            val cleanServerName = rawName
-                .replace(Regex("\\[?(sub|dub)\\]?", RegexOption.IGNORE_CASE), "")
-                .replace(Regex("\\(.*\\)|\\[.*?\\]"), "")
-                .trim()
-                .ifBlank { "Server" }
-            val isDub = stream.quality.contains("dub", ignoreCase = true) || stream.serverName?.contains("dub", ignoreCase = true) == true
-            cleanServerName to isDub
-        }.map { (key, groupStreams) ->
-            val (cleanName, isDub) = key
+    val serverGroups = remember(state.streams) {
+        state.streams.groupBy { stream ->
+            stream.cleanServerName().ifBlank { "Server" }
+        }.map { (cleanName, groupStreams) ->
+            val trackTypes = groupStreams.map { it.audioTrackType() }.toSet()
+            
+            val validBadges = mutableListOf<String>()
+            if (AudioTrackType.SUB in trackTypes) validBadges.add(AudioTrackType.SUB.badge)
+            if (AudioTrackType.DUB in trackTypes) validBadges.add(AudioTrackType.DUB.badge)
+            if (AudioTrackType.HSUB in trackTypes) validBadges.add(AudioTrackType.HSUB.badge)
+            if (AudioTrackType.HDUB in trackTypes) validBadges.add(AudioTrackType.HDUB.badge)
+            
+            val badge = if (validBadges.size > 1) "Multi" else validBadges.firstOrNull() ?: "SUB"
             val maxRes = groupStreams.mapNotNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() }.maxOrNull()
-            val resLabel = if (maxRes != null && maxRes > 0) "${maxRes}p" else null
+            
             ServerGroupItem(
                 serverName = cleanName,
-                isDub = isDub,
+                badgeText = badge,
                 streams = groupStreams,
-                maxResolution = resLabel
+                maxResolution = null // Hiding resolutions from the server list as requested
             )
         }
     }
@@ -360,49 +428,15 @@ private fun ServerPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) 
         }
         if (byUrl != -1) return@remember byUrl
 
-        val currentRaw = currentStream.serverName?.takeIf { it.isNotBlank() } ?: currentStream.quality
-        val currentClean = currentRaw
-            .replace(Regex("\\[?(sub|dub)\\]?", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("\\(.*\\)|\\[.*?\\]"), "")
-            .trim()
-        val currentIsDub = currentStream.quality.contains("dub", ignoreCase = true) || currentStream.serverName?.contains("dub", ignoreCase = true) == true
+        val currentClean = currentStream.cleanServerName()
 
         serverGroups.indexOfFirst { group ->
-            group.isDub == currentIsDub && group.serverName.equals(currentClean, ignoreCase = true)
+            group.serverName.equals(currentClean, ignoreCase = true)
         }
     }
 
     LazyColumn(contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (hasSub && hasDub) {
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(ItemBg)
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    SegmentedButton(
-                        title = "SUB",
-                        isSelected = !isDubTabSelected,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        isDubTabSelected = false
-                    }
-                    SegmentedButton(
-                        title = "DUB",
-                        isSelected = isDubTabSelected,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        isDubTabSelected = true
-                    }
-                }
-            }
-        }
-
         itemsIndexed(serverGroups) { index, group ->
-            val badgeText = if (group.isDub) "DUB" else "SUB"
             val subtitleText = when {
                 group.streams.any { it.format.equals("HLS", ignoreCase = true) } -> "Adaptive Resolution"
                 group.maxResolution != null -> "Up to ${group.maxResolution}"
@@ -414,7 +448,7 @@ private fun ServerPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) 
             PanelItem(
                 title = group.serverName,
                 subtitle = subtitleText,
-                badge = badgeText,
+                badge = group.badgeText,
                 isSelected = isSelected,
                 onClick = {
                     val matchingStream = if (state.selectedQualityHeight > 0) {
@@ -424,9 +458,15 @@ private fun ServerPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) 
                             h == state.selectedQualityHeight
                         }
                     } else null
+                    
+                    // Maintain current audio track type (sub or dub or hsub) if possible
+                    val currentCategory = state.activeStream?.audioTrackType() ?: AudioTrackType.SUB
+                    
                     val chosenStream = matchingStream
+                        ?: group.streams.find { it.audioTrackType() == currentCategory }
                         ?: group.streams.maxByOrNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() ?: 0 }
                         ?: group.streams.first()
+                        
                     viewModel.selectStream(chosenStream)
                 }
             )
@@ -522,6 +562,94 @@ private fun PanelItem(
         }
         if (isSelected) {
             Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(22.dp))
+        }
+    }
+}
+
+@Composable
+private fun EpisodePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
+    PanelHeader("Episodes") { viewModel.setEpisodeSheetVisibility(false) }
+    
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    
+    LaunchedEffect(state.currentEpisodeId, state.episodes) {
+        val index = state.episodes.indexOfFirst { it.id == state.currentEpisodeId }
+        if (index >= 0) {
+            listState.scrollToItem(index)
+        }
+    }
+
+    LazyColumn(
+        state = listState,
+        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp), 
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        items(state.episodes, key = { ep -> ep.id }) { ep ->
+            val isSelected = ep.id == state.currentEpisodeId
+            val bg = if (isSelected) AccentPurple.copy(alpha = 0.2f) else ItemBg
+            val border = if (isSelected) AccentPurple else Color.Transparent
+            val textColor = if (isSelected) Color.White else Color.White.copy(alpha = 0.8f)
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(bg)
+                    .border(1.dp, border, RoundedCornerShape(12.dp))
+                    .bounceClick(onClick = { viewModel.selectEpisode(ep) })
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Thumbnail
+                val imageUrl = ep.thumbnail
+                if (!imageUrl.isNullOrBlank()) {
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier
+                            .size(width = 100.dp, height = 56.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black.copy(alpha = 0.5f))
+                    ) {
+                        coil.compose.AsyncImage(
+                            model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                                .data(imageUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Thumbnail",
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        if (isSelected) {
+                            androidx.compose.foundation.layout.Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(AccentPurple.copy(alpha = 0.4f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White)
+                            }
+                        }
+                    }
+                }
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Episode ${ep.formattedNumber}",
+                        color = if (isSelected) AccentPurple else Color.White.copy(alpha = 0.7f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = ep.title.ifBlank { "Episode ${ep.formattedNumber}" },
+                        color = textColor,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }

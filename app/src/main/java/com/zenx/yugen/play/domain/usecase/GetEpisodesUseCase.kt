@@ -14,10 +14,9 @@ class GetEpisodesUseCase @Inject constructor(
         providerName: String,
         anilistId: Int? = null
     ): Resource<List<Episode>> {
-        val directUrl = animeUrlOrTitle?.takeIf { it.startsWith("http") }
         return episodeRepository.getEpisodes(
             anilistId = anilistId,
-            targetUrl = directUrl,
+            targetUrl = animeUrlOrTitle,
             title = title,
             providerName = providerName
         )

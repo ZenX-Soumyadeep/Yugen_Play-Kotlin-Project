@@ -2,783 +2,392 @@ package com.zenx.yugen.play.data.provider
 
 import android.util.Base64
 import android.util.Log
-import com.zenx.yugen.play.di.ProviderClient
-import com.zenx.yugen.play.domain.AnimeProvider
-import com.zenx.yugen.play.domain.Episode
-import com.zenx.yugen.play.domain.SearchResult
-import com.zenx.yugen.play.domain.SkipInterval
-import com.zenx.yugen.play.domain.Subtitle
-import com.zenx.yugen.play.domain.VideoStream
+import com.zenx.yugen.play.domain.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import okhttp3.Call
-import okhttp3.Callback
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import kotlinx.serialization.json.*
+import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Response
-import org.json.JSONObject
 import org.jsoup.Jsoup
-import java.io.IOException
-import java.net.URI
 import java.net.URLEncoder
-import java.security.GeneralSecurityException
 import javax.crypto.Cipher
-import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
-import javax.inject.Inject
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
-private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
-    continuation.invokeOnCancellation {
-        try { cancel() } catch (_: Throwable) {}
-    }
-    enqueue(object : Callback {
-        override fun onResponse(call: Call, response: Response) {
-            continuation.resume(response) {
-                try { response.close() } catch (_: Throwable) {}
-            }
-        }
-        override fun onFailure(call: Call, e: IOException) {
-            if (!continuation.isCancelled) continuation.resumeWithException(e)
-        }
-    })
-}
-
-data class ProviderKeys(
-    val exchangeKey1: List<String>,
-    val key1: String,
-    val key2: String,
-    val exchangeKey2: List<String>,
-    val exchangeKey3: List<String>,
-    val key3: String
-)
-
-class ProviderEncryptionException(message: String, cause: Throwable? = null) : Exception(message, cause)
-class ProviderNetworkException(message: String, cause: Throwable? = null) : Exception(message, cause)
-
-class AnikotoProvider @Inject constructor(
-    @ProviderClient private val client: OkHttpClient
+class AnikotoProvider(
+    private val client: OkHttpClient,
+    private val json: Json
 ) : AnimeProvider {
 
     override val name: String = "Anikoto"
-    override val baseUrl: String = "https://anikoto.cz"
-    private val tag = "YUGEN_PLAYER"
+    override val baseUrl: String = "https://anikototv.to"
 
-    private val defaultKeys = ProviderKeys(
-        exchangeKey1 = listOf("AP6GeR8H0lwUz1", "UAz8Gwl10P6ReH"),
-        key1 = "ItFKjuWokn4ZpB",
-        key2 = "fOyt97QWFB3",
-        exchangeKey2 = listOf("1majSlPQd2M5", "da1l2jSmP5QM"),
-        exchangeKey3 = listOf("CPYvHj09Au3", "0jHA9CPYu3v"),
-        key3 = "736y1uTJpBLUX"
-    )
+    private val extractor = AnikotoExtractor(client, json, baseUrl)
+    private val mapperUrl = "https://mapper.nekostream.site/api"
 
-    private suspend fun getActiveKeys(): ProviderKeys {
-        // Removed the fake GitHub remote config; relies strictly on accurate local keys.
-        return defaultKeys
-    }
+    companion object {
+        private const val TAG = "AnikotoProvider"
+        private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
 
-    private suspend fun vrfEncrypt(input: String): String {
-        val keys = getActiveKeys()
-        try {
-            var vrf = input
-            vrf = exchange(vrf, keys.exchangeKey1)
-            vrf = rc4Encrypt(keys.key1, vrf)
-            vrf = rc4Encrypt(keys.key2, vrf)
-            vrf = exchange(vrf, keys.exchangeKey2)
-            vrf = exchange(vrf, keys.exchangeKey3)
-            vrf = vrf.reversed()
-            vrf = rc4Encrypt(keys.key3, vrf)
-            val encodedBytes = Base64.encodeToString(vrf.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
-            return URLEncoder.encode(encodedBytes, "UTF-8")
-        } catch (e: GeneralSecurityException) {
-            throw ProviderEncryptionException("Provider encryption keys are outdated.", e)
-        } catch (e: Exception) {
-            throw ProviderEncryptionException("Unexpected failure during VRF transformation", e)
-        }
-    }
+        private val EXCHANGE_KEY_1 = listOf("AP6GeR8H0lwUz1", "UAz8Gwl10P6ReH")
+        private const val KEY_1 = "ItFKjuWokn4ZpB"
+        private const val KEY_2 = "fOyt97QWFB3"
+        private val EXCHANGE_KEY_2 = listOf("1majSlPQd2M5", "da1l2jSmP5QM")
+        private val EXCHANGE_KEY_3 = listOf("CPYvHj09Au3", "0jHA9CPYu3v")
+        private const val KEY_3 = "736y1uTJpBLUX"
 
-    private fun rc4Encrypt(key: String, input: String): String {
-        val rc4Key = SecretKeySpec(key.toByteArray(Charsets.UTF_8), "RC4")
-        val cipher = Cipher.getInstance("RC4")
-        cipher.init(Cipher.ENCRYPT_MODE, rc4Key)
-        val output = cipher.doFinal(input.toByteArray(Charsets.UTF_8))
-        return Base64.encodeToString(output, Base64.URL_SAFE or Base64.NO_WRAP)
-    }
-
-    private fun exchange(input: String, keys: List<String>): String {
-        val sourceChars = keys.getOrNull(0) ?: return input
-        val targetChars = keys.getOrNull(1) ?: return input
-        return input.map { i ->
-            val idx = sourceChars.indexOf(i)
-            if (idx != -1 && idx < targetChars.length) targetChars[idx] else i
-        }.joinToString("")
-    }
-
-    /**
-     * MegaPlay's /stream/getSources response no longer exposes a plaintext "sources" list.
-     * The playable URL is now AES-256-CBC encrypted inside the `enc` field and decrypts to:
-     *     {"file": "https://.../master.m3u8"}
-     *
-     * Key/IV constants mirror the site's decryptor (`lib/newclient.min.js`):
-     *   key = UTF-8("i?LMTAx0Q6,:}50U") zero-padded/truncated to 32 bytes (AES-256)
-     *   iv  = UTF-8("W0;27ToaUpl_P%'c") zero-padded/truncated to 16 bytes
-     */
-    private fun decryptMegaPlayEnc(encB64: String): String {
-        val raw = Base64.decode(encB64, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-        val key = "i?LMTAx0Q6,:}50U".toByteArray(Charsets.UTF_8).copyOf(32)
-        val iv = "W0;27ToaUpl_P%'c".toByteArray(Charsets.UTF_8).copyOf(16)
-
-        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
-
-        val jsonText = String(cipher.doFinal(raw), Charsets.UTF_8)
-        var m3u8 = JSONObject(jsonText).optString("file", "")
-        if (m3u8.isNotBlank() && !m3u8.contains("token=")) {
-            m3u8 = appendMegaPlayToken(m3u8)
-        }
-        return m3u8
-    }
-
-    private val pathKeyRegex = Regex("""/([a-f0-9]{32})/([a-f0-9]{32})/""", RegexOption.IGNORE_CASE)
-    private val MEGAPLAY_TOKEN_SECRET = "MpCdnT0k3n!9f2K#xQ7vL5mR8wN1pY4s"
-
-    private fun appendMegaPlayToken(m3u8: String): String {
-        val match = pathKeyRegex.find(m3u8) ?: return m3u8
-        val pathKey = "${match.groupValues[1].lowercase()}/${match.groupValues[2].lowercase()}"
-        val expiry = (System.currentTimeMillis() / 1000) + 90
-        val payload = "$expiry|$pathKey"
-
-        return try {
-            val mac = javax.crypto.Mac.getInstance("HmacSHA256")
-            mac.init(SecretKeySpec(MEGAPLAY_TOKEN_SECRET.toByteArray(Charsets.UTF_8), "HmacSHA256"))
-            val signatureBytes = mac.doFinal(payload.toByteArray(Charsets.UTF_8))
-            val signature = Base64.encodeToString(signatureBytes, Base64.URL_SAFE or Base64.NO_WRAP).trimEnd('=')
-
-            val payloadB64 = Base64.encodeToString(payload.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP).trimEnd('=')
-            val token = "$payloadB64.$signature"
-
-            if (m3u8.contains("?")) "$m3u8&token=$token" else "$m3u8?token=$token"
-        } catch (e: Exception) {
-            Log.e(tag, "MegaPlay token generation failed: ${e.message}")
-            m3u8
-        }
+        private val VRF_ORDER = listOf(
+            Triple(1, "exchange", EXCHANGE_KEY_1),
+            Triple(2, "rc4", listOf(KEY_1)),
+            Triple(3, "rc4", listOf(KEY_2)),
+            Triple(4, "exchange", EXCHANGE_KEY_2),
+            Triple(5, "exchange", EXCHANGE_KEY_3),
+            Triple(6, "reverse", emptyList()),
+            Triple(7, "rc4", listOf(KEY_3)),
+            Triple(8, "base64", emptyList()),
+        )
     }
 
     override suspend fun search(query: String): List<SearchResult> = withContext(Dispatchers.IO) {
-        val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
-        val vrf = if (query.isNotEmpty()) vrfEncrypt(query) else ""
+        try {
+            val encodedQuery = URLEncoder.encode(query, "UTF-8").replace("+", "%20")
+            val vrf = if (query.isNotEmpty()) vrfEncrypt(query) else ""
+            val url = "$baseUrl/search?keyword=$encodedQuery&vrf=$vrf"
 
-        val searchUrl = "$baseUrl/filter?keyword=$encodedQuery&vrf=$vrf"
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("Referer", "$baseUrl/")
+                .addHeader("User-Agent", USER_AGENT)
+                .get()
+                .build()
 
-        val request = Request.Builder()
-            .url(searchUrl)
-            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            .addHeader("Referer", "$baseUrl/")
-            .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use emptyList<SearchResult>()
+                val html = response.body?.string() ?: return@use emptyList<SearchResult>()
+                val doc = Jsoup.parse(html)
 
-        val doc = try {
-            client.newCall(request).await().use { response ->
-                if (!response.isSuccessful) throw ProviderNetworkException("Search returned HTTP ${response.code}")
-                response.body?.byteStream()?.let { stream ->
-                    Jsoup.parse(stream, "UTF-8", baseUrl)
-                } ?: throw ProviderNetworkException("Empty search response body")
-            }
-        } catch (e: IOException) {
-            throw ProviderNetworkException("Network error during search", e)
-        }
+                doc.select("div.ani.items > div.item").mapNotNull { element ->
+                    val aName = element.selectFirst("a.name") ?: return@mapNotNull null
+                    val title = aName.text()
+                    val href = aName.attr("href").substringBefore("?").trim()
+                    val urlPath = if (href.startsWith(baseUrl)) href.substring(baseUrl.length) else href
 
-        val results = mutableListOf<SearchResult>()
-        val items = doc.select(".flw-item, div.item, .film_list-wrap > div, .film-detail, div.ani.items > div.item")
+                    val poster = element.selectFirst("img")?.let {
+                        it.attr("data-src").ifBlank { it.attr("src") }
+                    }.orEmpty()
 
-        items.forEach { item ->
-            val aTag = item.selectFirst("a.name, a.poster, a.film-poster, a.dynamic-name, a[href*='/watch/']")
-            val imgTag = item.selectFirst("img")
-            val titleTag = item.selectFirst(".name, .film-name, h3.title, .film-name a, a.name")
-
-            if (aTag != null && (titleTag != null || aTag.hasAttr("title"))) {
-                val rawHref = aTag.attr("href").substringBefore("?")
-                val cleanHref = rawHref.replace(Regex("""/ep-\d+$"""), "")
-                val url = if (cleanHref.startsWith("http")) cleanHref else "$baseUrl$cleanHref"
-                val title = titleTag?.text()?.trim() ?: aTag.attr("title").trim()
-                val poster = imgTag?.attr("data-src")?.ifEmpty { imgTag.attr("src") }
-                    ?: imgTag?.attr("src").orEmpty()
-
-                if (title.isNotEmpty()) {
-                    results.add(SearchResult(title = title, url = url, poster = poster))
+                    if (title.isBlank() || urlPath.isBlank()) null
+                    else SearchResult(title = title, url = urlPath, poster = poster)
                 }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Search failed: ${e.message}")
+            emptyList()
         }
-        results
     }
 
     override suspend fun getEpisodes(animeUrl: String): List<Episode> = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url(animeUrl)
-            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            .addHeader("Referer", "$baseUrl/")
-            .build()
+        try {
+            val request = Request.Builder()
+                .url(baseUrl + animeUrl)
+                .addHeader("Referer", "$baseUrl/")
+                .addHeader("User-Agent", USER_AGENT)
+                .get()
+                .build()
 
-        val doc = try {
-            client.newCall(request).await().use { response ->
-                if (!response.isSuccessful) throw ProviderNetworkException("Failed to load anime page, HTTP ${response.code}")
-                response.body?.byteStream()?.let { stream ->
-                    Jsoup.parse(stream, "UTF-8", animeUrl)
-                } ?: throw ProviderNetworkException("Empty anime page body")
-            }
-        } catch (e: IOException) {
-            throw ProviderNetworkException("Network error fetching anime page", e)
-        }
+            var dataId = ""
+            var malId = ""
+            var slug = ""
+            var title = ""
 
-        val episodes = mutableListOf<Episode>()
-        val animeId = doc.selectFirst("[data-id]")?.attr("data-id")
-            ?: doc.selectFirst("[data-tip]")?.attr("data-tip")
-            ?: throw ProviderEncryptionException("Failed to find Anime ID on page. Provider DOM may have changed.")
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use emptyList<Episode>()
+                val html = response.body?.string() ?: return@use emptyList<Episode>()
+                val doc = Jsoup.parse(html)
 
-        val vrf = vrfEncrypt(animeId)
-        val ajaxUrl = "$baseUrl/ajax/episode/list/$animeId?vrf=$vrf"
+                title = doc.selectFirst(".name")?.text().orEmpty()
+                dataId = doc.selectFirst("[data-id]")?.attr("data-id")
+                    ?: doc.selectFirst("[data-tip]")?.attr("data-tip")
+                            ?: return@use emptyList<Episode>()
 
-        val ajaxReq = Request.Builder()
-            .url(ajaxUrl)
-            .addHeader("Accept", "application/json, text/javascript, */*; q=0.01")
-            .addHeader("Referer", animeUrl)
-            .addHeader("X-Requested-With", "XMLHttpRequest")
-            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            .build()
-
-        val ajaxRespStr = try {
-            client.newCall(ajaxReq).await().use {
-                if (!it.isSuccessful) throw ProviderNetworkException("AJAX episodes returned HTTP ${it.code}")
-                it.body?.string().orEmpty()
-            }
-        } catch (e: IOException) {
-            throw ProviderNetworkException("Network error fetching AJAX episodes", e)
-        }
-
-        if (ajaxRespStr.isNotEmpty()) {
-            val ajaxHtml = if (ajaxRespStr.startsWith("{")) {
-                val json = JSONObject(ajaxRespStr)
-                json.optString("result", json.optString("html", ""))
-            } else {
-                ajaxRespStr
-            }
-
-            if (ajaxHtml.isNotEmpty()) {
-                val ajaxDoc = Jsoup.parse(ajaxHtml)
-                val epElements = ajaxDoc.select("div.episodes ul > li > a, a.ep-item, a[data-id], .ssl-item a")
-
-                epElements.forEach { epElement ->
-                    val rawNum = epElement.attr("data-num").ifEmpty {
-                        Regex("""(?:ep(?:isode)?\.?\s*)?(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
-                            .find(epElement.text())?.groupValues?.get(1).orEmpty()
-                    }
-                    val ids = epElement.attr("data-ids").ifEmpty { epElement.attr("data-id") }
-                    if (ids.isEmpty() && rawNum.isEmpty()) return@forEach
-
-                    val tooltip = epElement.parent()?.attr("title").orEmpty()
-                    var title = epElement.parent()?.select("span.d-title")?.text().orEmpty()
-                    if (title.isEmpty() && tooltip.isNotEmpty()) {
-                        title = tooltip.substringBefore("Release:").substringBefore("Softsub").trim()
-                    }
-                    if (title.isEmpty()) title = if (rawNum.isNotEmpty()) "Episode $rawNum" else "Episode"
-
-                    val numFloat = rawNum.toFloatOrNull() ?: 0f
-                    val compoundId = "$animeUrl~~~$ids~~~$rawNum~~~$name"
-                    episodes.add(Episode(id = compoundId, title = title, number = numFloat))
+                val watchDiv = doc.selectFirst("#watch-main")
+                if (watchDiv != null) {
+                    malId = watchDiv.attr("data-mal").orEmpty()
                 }
             }
-        }
 
-        val sortedDeduped = episodes
-            .filter { it.number > 0f }
-            .distinctBy { it.number }
-            .sortedBy { it.number }
+            if (dataId.isBlank()) return@withContext emptyList<Episode>()
 
-        if (sortedDeduped.isNotEmpty()) {
-            sortedDeduped
-        } else if (episodes.isNotEmpty()) {
-            episodes.distinctBy { it.id }.mapIndexed { idx, ep ->
-                val fallbackNum = (idx + 1).toFloat()
-                ep.copy(number = if (ep.number > 0f) ep.number else fallbackNum)
-            }.sortedBy { it.number }
-        } else {
-            listOf(Episode(id = "$animeUrl~~~$animeId~~~1~~~$name", title = "Full Movie / Episode 1", number = 1f))
+            val listHeaders = Headers.Builder().apply {
+                add("Accept", "application/json, text/javascript, */*; q=0.01")
+                add("Referer", baseUrl + animeUrl)
+                add("User-Agent", USER_AGENT)
+                add("X-Requested-With", "XMLHttpRequest")
+            }.build()
+
+            val epsRequest = Request.Builder()
+                .url("$baseUrl/ajax/episode/list/$dataId?vrf=${vrfEncrypt(dataId)}")
+                .headers(listHeaders)
+                .get()
+                .build()
+
+            client.newCall(epsRequest).execute().use { response ->
+                if (!response.isSuccessful) return@use emptyList<Episode>()
+                val jsonStr = response.body?.string() ?: return@use emptyList<Episode>()
+
+                var htmlContent: String? = null
+                try {
+                    val jsonObj = json.parseToJsonElement(jsonStr).jsonObject
+                    htmlContent = jsonObj["html"]?.jsonPrimitive?.content ?: jsonObj["result"]?.jsonPrimitive?.content
+                } catch(e: Exception) {
+                    val regex = Regex(""""(?:result|html)"\s*:\s*"([^"]+)"""")
+                    htmlContent = regex.find(jsonStr)?.groupValues?.get(1)?.replace("\\\"", "\"")?.replace("\\/", "/")?.replace("\\n", "")
+                }
+
+                if (htmlContent == null) return@use emptyList<Episode>()
+
+                val epsDoc = Jsoup.parse(htmlContent)
+
+                epsDoc.select("div.episodes ul > li > a").mapNotNull { element ->
+                    val epNum = element.attr("data-num")
+                    val ids = element.attr("data-ids")
+
+                    val timestamp = element.attr("data-timestamp").toLongOrNull() ?: 0L
+                    val elemMalId = element.attr("data-mal").takeIf { it.isNotEmpty() } ?: malId
+                    val elemSlug = element.attr("data-slug").takeIf { it.isNotEmpty() } ?: slug
+
+                    if (epNum.isBlank() || ids.isBlank()) return@mapNotNull null
+
+                    val stateJson = buildJsonObject {
+                        put("ids", ids)
+                        put("epurl", "$animeUrl/ep-$epNum")
+                        put("mal", elemMalId)
+                        put("slug", elemSlug)
+                        put("ts", timestamp)
+                    }
+                    val safeSourceUrl = Base64.encodeToString(stateJson.toString().toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP)
+
+                    val epName = element.parent()?.select("span.d-title")?.text().orEmpty()
+                    val displayTitle = if (epName.isNotEmpty() && epName != "Episode $epNum") "Episode $epNum: $epName" else "Episode $epNum"
+
+                    val generatedId = EpisodeId.build(
+                        sourceUrl = safeSourceUrl,
+                        animeTitle = title,
+                        episodeNumber = epNum.toFloatOrNull() ?: 1f
+                    )
+
+                    Episode(
+                        id = generatedId,
+                        number = epNum.toFloatOrNull() ?: 1f,
+                        title = displayTitle,
+                        thumbnail = null
+                    )
+                }.reversed()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getEpisodes failed: ${e.message}")
+            emptyList()
         }
     }
 
     override suspend fun extractStreams(episodeId: String, title: String): List<VideoStream> = withContext(Dispatchers.IO) {
-        val parts = episodeId.split("~~~")
-        val epUrl = parts[0]
-        var serverParam = if (parts.size > 1) parts[1] else ""
-        val isValidServerParam = serverParam.isNotBlank() && serverParam.all { it.isDigit() || it == ',' || it == '-' }
+        val parsedId = EpisodeId.parse(episodeId)
 
-        if (!isValidServerParam && epUrl.isNotBlank()) {
-            try {
-                val targetEpNum = parts.getOrNull(2)?.toFloatOrNull()
-                val freshEpisodes = getEpisodes(epUrl)
-                val matched = if (targetEpNum != null) {
-                    freshEpisodes.find { it.number == targetEpNum }
-                } else freshEpisodes.firstOrNull()
-
-                if (matched != null) {
-                    val freshParts = matched.id.split("~~~")
-                    if (freshParts.size > 1 && freshParts[1].all { it.isDigit() || it == ',' || it == '-' }) {
-                        serverParam = freshParts[1]
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-
-        val serverUrl = "$baseUrl/ajax/server/list?servers=$serverParam"
-        var serverHtml = ""
+        var ids = ""
+        var epurlPart = ""
+        var malId = ""
+        var slug = ""
+        var ts = ""
 
         try {
-            val serverReq = Request.Builder()
-                .url(serverUrl)
-                .addHeader("Accept", "application/json, text/javascript, */*; q=0.01")
-                .addHeader("Referer", epUrl)
-                .addHeader("X-Requested-With", "XMLHttpRequest")
-                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            val decodedJson = String(Base64.decode(parsedId.sourceUrl, Base64.URL_SAFE or Base64.NO_WRAP))
+            val stateObj = json.parseToJsonElement(decodedJson).jsonObject
+            ids = stateObj["ids"]?.jsonPrimitive?.content ?: ""
+            epurlPart = stateObj["epurl"]?.jsonPrimitive?.content ?: ""
+            malId = stateObj["mal"]?.jsonPrimitive?.content ?: ""
+            slug = stateObj["slug"]?.jsonPrimitive?.content ?: ""
+            ts = stateObj["ts"]?.jsonPrimitive?.content ?: ""
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to decode state JSON: ${e.message}")
+            return@withContext emptyList()
+        }
+
+        val servers = mutableListOf<VideoServer>()
+
+        // 1. Fetch HTML Servers (SUB/DUB)
+        try {
+            val listHeaders = Headers.Builder().apply {
+                add("Accept", "application/json, text/javascript, */*; q=0.01")
+                add("Referer", "$baseUrl$epurlPart")
+                add("User-Agent", USER_AGENT)
+                add("X-Requested-With", "XMLHttpRequest")
+            }.build()
+
+            val req = Request.Builder()
+                .url("$baseUrl/ajax/server/list?servers=$ids")
+                .headers(listHeaders)
+                .get()
                 .build()
 
-            val respStr = client.newCall(serverReq).await().use {
-                if (!it.isSuccessful) throw ProviderNetworkException("Server list returned HTTP ${it.code}")
-                it.body?.string().orEmpty()
-            }
+            client.newCall(req).execute().use { response ->
+                if (response.isSuccessful) {
+                    val jsonStr = response.body?.string() ?: ""
+                    val jsonObj = json.parseToJsonElement(jsonStr).jsonObject
+                    val htmlContent = jsonObj["html"]?.jsonPrimitive?.content ?: jsonObj["result"]?.jsonPrimitive?.content ?: ""
+                    val doc = Jsoup.parse(htmlContent)
 
-            if (respStr.trim().startsWith("{")) {
-                val json = JSONObject(respStr)
-                serverHtml = json.optString("result", "")
+                    val serverItems = doc.select(".server-item")
+                    if (serverItems.isNotEmpty()) {
+                        serverItems.forEach { item ->
+                            val serverType = item.attr("data-type").ifBlank {
+                                val pType = item.parent()?.attr("data-type") ?: ""
+                                if (item.closest(".servers-dub") != null || pType.contains("dub", true)) {
+                                    if (pType.contains("hdub", true)) "hdub" else "dub"
+                                } else if (item.closest(".servers-hsub") != null || pType.contains("hsub", true)) {
+                                    "hsub"
+                                } else {
+                                    "sub"
+                                }
+                            }
+                            val typeLabel = when {
+                                serverType.equals("hdub", true) -> "HDUB"
+                                serverType.equals("hsub", true) -> "HSUB"
+                                serverType.equals("dub", true) -> "DUB"
+                                else -> "SUB"
+                            }
+                            val serverId = item.attr("data-link-id").ifBlank { item.attr("data-id") }
+                            val serverName = item.text().trim()
+                            if (serverId.isNotBlank() && serverName.isNotBlank()) {
+                                servers.add(VideoServer(typeLabel, serverId, serverName))
+                            }
+                        }
+                    } else {
+                        doc.select(".servers .type").forEach { typeElement ->
+                            val serverType = typeElement.attr("data-type")
+                            val typeLabel = when {
+                                serverType.equals("hdub", true) -> "HDUB"
+                                serverType.equals("hsub", true) -> "HSUB"
+                                serverType.equals("dub", true) -> "DUB"
+                                else -> "SUB"
+                            }
+
+                            typeElement.select("li").forEach { li ->
+                                val serverId = li.attr("data-link-id").ifBlank { li.attr("data-id") }
+                                val serverName = li.text().trim()
+                                if (serverId.isNotBlank() && serverName.isNotBlank()) {
+                                    servers.add(VideoServer(typeLabel, serverId, serverName))
+                                }
+                            }
+                        }
+                    }
+                }
             }
         } catch (e: Exception) {
-            throw ProviderNetworkException("Failed to fetch stream server list", e)
+            Log.e(TAG, "Failed to fetch HTML servers: ${e.message}")
         }
 
-        val serverDoc = Jsoup.parse(serverHtml)
-        val serverElements = serverDoc.select("div.servers > div.type li")
-            .filter { !it.hasClass("download-icon") && !it.hasClass("nav-item") && !it.hasClass("tab-item") }
+        // 2. Fetch Mapper Servers (HSUB/DUB)
+        if (malId.isNotBlank() && slug.isNotBlank() && ts.isNotBlank() && ts != "0") {
+            try {
+                val mapperHeaders = Headers.Builder().apply {
+                    add("Accept", "application/json, text/javascript, */*; q=0.01")
+                    add("Referer", "$baseUrl/")
+                    add("Origin", baseUrl)
+                }.build()
 
-        if (serverElements.isEmpty()) {
-            throw ProviderNetworkException("No playable servers found on provider.")
-        }
+                val apiUrl = "$mapperUrl/mal/$malId/$slug/$ts"
+                val req = Request.Builder().url(apiUrl).headers(mapperHeaders).addHeader("User-Agent", USER_AGENT).get().build()
 
-        val semaphore = Semaphore(3)
+                client.newCall(req).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val jsonStr = response.body?.string() ?: ""
+                        val mapperObj = json.parseToJsonElement(jsonStr).jsonObject
 
-        val deferredStreams = serverElements.map { serverElement ->
-            async {
-                semaphore.withPermit {
-                    val serverId = serverElement.attr("data-link-id")
-                    val serverName = serverElement.text().trim().ifEmpty { "Server" }
-                    val typeElem = serverElement.closest(".type")
-                    val typeStr = typeElem?.selectFirst("label")?.text().orEmpty()
-                        .ifEmpty { typeElem?.attr("data-type").orEmpty() }
+                        mapperObj.keys.filter { !it.equals("status", true) }.forEach { key ->
+                            val serverObj = mapperObj[key]?.jsonObject
+                            val serverName = getMapperServerName(key)
 
-                    val prefix = if (typeStr.contains("dub", true)) "[DUB]" else "[SUB]"
-                    val extractedList = mutableListOf<VideoStream>()
-
-                    if (serverId.isNotEmpty()) {
-                        try {
-                            val embedReq = Request.Builder()
-                                .url("$baseUrl/ajax/server?get=$serverId")
-                                .addHeader("Accept", "application/json, text/javascript, */*; q=0.01")
-                                .addHeader("Referer", epUrl)
-                                .addHeader("X-Requested-With", "XMLHttpRequest")
-                                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                                .build()
-
-                            val embedResp = client.newCall(embedReq).await().use {
-                                if (!it.isSuccessful) return@use ""
-                                it.body?.string().orEmpty()
-                            }
-
-                            if (embedResp.trim().startsWith("{")) {
-                                val json = JSONObject(embedResp)
-                                val resultObj = json.optJSONObject("result")
-                                val rawEmbedUrl = resultObj?.optString("url", "")
-                                    ?: json.optString("url", "")
-
-                                val skipIntervals = mutableListOf<SkipInterval>()
-                                val skipDataObj = resultObj?.optJSONObject("skip_data")
-                                if (skipDataObj != null) {
-                                    val introArr = skipDataObj.optJSONArray("intro")
-                                    if (introArr != null && introArr.length() >= 2) {
-                                        val start = introArr.optDouble(0)
-                                        val end = introArr.optDouble(1)
-                                        if (end > start) skipIntervals.add(SkipInterval(start, end, "op"))
-                                    }
-                                    val outroArr = skipDataObj.optJSONArray("outro")
-                                    if (outroArr != null && outroArr.length() >= 2) {
-                                        val start = outroArr.optDouble(0)
-                                        val end = outroArr.optDouble(1)
-                                        if (end > start) skipIntervals.add(SkipInterval(start, end, "ed"))
-                                    }
-                                }
-
-                                if (rawEmbedUrl.isNotEmpty()) {
-                                    val embedUrl = normalizeUrl(rawEmbedUrl, baseUrl)
-                                    val resolved = resolveEmbedStreams(embedUrl, epUrl, serverName, prefix, skipIntervals)
-                                    if (resolved.isNotEmpty()) {
-                                        extractedList.addAll(resolved)
-                                    }
+                            listOf("sub" to "HSUB", "dub" to "DUB").forEach { (typeKey, typeLabel) ->
+                                val linkUrl = serverObj?.get(typeKey)?.jsonObject?.get("url")?.jsonPrimitive?.content
+                                if (!linkUrl.isNullOrBlank() && linkUrl != "null") {
+                                    servers.add(VideoServer(typeLabel, linkUrl, serverName))
                                 }
                             }
-                        } catch (e: Exception) {
-                            Log.e(tag, "Server extraction failed for $serverId", e)
                         }
                     }
-                    extractedList
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch Mapper servers: ${e.message}")
             }
         }
 
-        val allStreams = deferredStreams.awaitAll().flatten()
-        if (allStreams.isEmpty()) throw ProviderNetworkException("Failed to extract any playable streams from servers.")
-
-        return@withContext allStreams
-    }
-
-    private suspend fun resolveEmbedStreams(
-        embedUrl: String,
-        referer: String,
-        serverName: String,
-        prefix: String,
-        skipIntervals: List<SkipInterval>,
-        depth: Int = 0
-    ): List<VideoStream> {
-        val resultStreams = mutableListOf<VideoStream>()
-        try {
-            if (embedUrl.contains("mewcdn.online/player/plyr.php")) {
-                val fragment = embedUrl.substringAfter("#").substringBefore("#")
-                if (fragment.isNotEmpty()) {
-                    val rawM3u8 = String(Base64.decode(fragment, Base64.DEFAULT), Charsets.UTF_8).trim()
-                    val pageHeaders = mapOf(
-                        "Referer" to "$baseUrl/",
-                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    )
-
-                    val reqBuilder = Request.Builder().url(embedUrl)
-                    pageHeaders.forEach { (k, v) -> reqBuilder.addHeader(k, v) }
-
-                    val pageHtml = client.newCall(reqBuilder.build()).await().use {
-                        if (!it.isSuccessful) return@use ""
-                        it.body?.string().orEmpty()
-                    }
-                    val hostMapRegex = Regex("""var HOST_MAP\s*=\s*\{([^}]+)\}""")
-                    val entryRegex = Regex("""'([^']+)'\s*:\s*'([^']+)'""")
-                    val mapMatch = hostMapRegex.find(pageHtml)
-                    val hostMap = mutableMapOf<String, String>()
-                    if (mapMatch != null) {
-                        entryRegex.findAll(mapMatch.groupValues[1]).forEach {
-                            hostMap[it.groupValues[1]] = it.groupValues[2]
-                        }
-                    }
-
-                    var finalM3u8 = rawM3u8
-                    for ((origin, proxy) in hostMap) {
-                        if (finalM3u8.contains(origin)) {
-                            finalM3u8 = finalM3u8.replace(origin, proxy)
-                            break
-                        }
-                    }
-
-                    val mewHeaders = mapOf(
-                        "Referer" to "https://mewcdn.online/",
-                        "Origin" to "https://mewcdn.online",
-                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    )
-
-                    val parsedVariants = parseM3U8(finalM3u8, mewHeaders, serverName, prefix, emptyList(), skipIntervals)
-                    if (parsedVariants.isNotEmpty()) {
-                        resultStreams.addAll(parsedVariants)
-                    } else {
-                        resultStreams.add(
-                            VideoStream(
-                                quality = "$prefix $serverName", url = finalM3u8, headers = mewHeaders,
-                                isM3U8 = true, subtitles = emptyList(), skipIntervals = skipIntervals,
-                                format = "HLS", resolution = "Auto", serverName = "$prefix $serverName"
-                            )
-                        )
-                    }
-                    return resultStreams
-                }
-            }
-
-            val uri = URI(embedUrl)
-            val host = uri.host ?: "anikoto.cz"
-            val baseOrigin = "https://$host"
-            val pageBody = client.newCall(
-                Request.Builder().url(embedUrl)
-                    .addHeader("Referer", referer)
-                    .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .build()
-            ).await().use {
-                if (!it.isSuccessful) return@use ""
-                it.body?.string().orEmpty()
-            }
-
-            val dataId = Regex("""data-id="([^"]+)"""").find(pageBody)?.groupValues?.get(1).orEmpty()
-            var finalStreamUrl = ""
-            val subtitles = mutableListOf<Subtitle>()
-            val resolvedSkips = skipIntervals.toMutableList()
-
-            if (dataId.isNotEmpty()) {
-                val streamType = try {
-                    uri.path.split("/").filter { it.isNotEmpty() }
-                        .lastOrNull()?.takeIf { it == "sub" || it == "dub" || it == "hsub" } ?: ""
-                } catch (_: Exception) { "" }
-
-                // CDN fix: the bare getSources endpoint hands back the `fetch.nexabloom.top` CDN,
-                // which sits behind a Cloudflare challenge and answers 403 to every m3u8/segment
-                // request (the player then loops switching servers and finally shows "No streams").
-                // Requesting with `s=bcdn` (-> ncdn.imgnex.top) or `s=tcdn` (-> megap.shiora.*)
-                // returns an unblocked CDN, so those variants are attempted first and the
-                // Cloudflare-walled default is kept only as a last resort.
-                val sourceQuery = "id=$dataId&id=$dataId&type=$streamType&type=$streamType"
-                val candidateApiUrls = listOf(
-                    "$baseOrigin/stream/getSources?$sourceQuery&s=bcdn",
-                    "$baseOrigin/stream/getSources?$sourceQuery&s=tcdn",
-                    "$baseOrigin/stream/getSources?$sourceQuery",
-                    "$baseOrigin/stream/getSourcesNew?$sourceQuery"
-                )
-
-                for (apiUrl in candidateApiUrls) {
+        // 3. Extract Streams Concurrently
+        coroutineScope {
+            servers.distinctBy { "${it.type}_${it.serverId}" }.map { server ->
+                async {
                     try {
-                        val apiReq = Request.Builder().url(apiUrl).addHeader("Accept", "*/*")
-                            .addHeader("X-Requested-With", "XMLHttpRequest").addHeader("Referer", embedUrl)
-                            .addHeader("Origin", baseOrigin).addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                            .build()
-                        val sourceResp = client.newCall(apiReq).await().use {
-                            if (!it.isSuccessful) return@use ""
-                            it.body?.string().orEmpty()
-                        }
+                        val formattedName = server.serverName
+                        val qualityTag = "1080p [${server.type}]"
 
-                        if (sourceResp.trim().startsWith("{")) {
-                            val sourceJson = JSONObject(sourceResp)
+                        if (extractor.isMegaPlayServer(server.serverName) || extractor.isMegaPlayUrl(server.serverId)) {
+                            val embedUrl = if (server.serverId.startsWith("http")) server.serverId
+                            else extractor.getEmbedLink(server.serverId, epurlPart)
 
-                            // JSON fix: Unwraps "sources" gracefully whether it is nested inside "result" or exposed at the root level.
-                            val resultObj = sourceJson.optJSONObject("result")
-                            val sourcesVal = sourceJson.opt("sources") ?: resultObj?.opt("sources")
-
-                            var candidateUrl = ""
-                            when (sourcesVal) {
-                                is JSONObject -> candidateUrl = sourcesVal.optString("file", "")
-                                is org.json.JSONArray -> {
-                                    for (i in 0 until sourcesVal.length()) {
-                                        val item = sourcesVal.optJSONObject(i)
-                                        val file = item?.optString("file", "").orEmpty()
-                                        if (file.contains(".m3u8", ignoreCase = true) || file.contains(".mp4", ignoreCase = true)) {
-                                            candidateUrl = file
-                                            break
-                                        }
-                                    }
-                                    if (candidateUrl.isEmpty() && sourcesVal.length() > 0) {
-                                        candidateUrl = sourcesVal.optJSONObject(0)?.optString("file", "") ?: sourcesVal.optString(0, "")
-                                    }
-                                }
-                                is String -> candidateUrl = sourcesVal
-                            }
-
-                            // MegaPlay moved to AES-256-CBC encrypted stream URLs: when no legacy
-                            // "sources" payload exists, decrypt the `enc` token (-> {"file": "<url>"}).
-                            if (candidateUrl.isEmpty() && finalStreamUrl.isEmpty()) {
-                                val encToken = sourceJson.optString("enc", "")
-                                    .ifBlank { resultObj?.optString("enc", "") ?: "" }
-                                    .takeIf { it.isNotBlank() }
-                                if (encToken != null) {
-                                    candidateUrl = runCatching { decryptMegaPlayEnc(encToken) }
-                                        .getOrElse {
-                                            Log.w(tag, "Failed to decrypt MegaPlay 'enc' payload for $serverName", it)
-                                            ""
-                                        }
-                                    if (candidateUrl.isNotEmpty()) finalStreamUrl = candidateUrl
-                                }
-                            }
-                            if (candidateUrl.isNotEmpty()) finalStreamUrl = candidateUrl
-
-                            val tracksVal = sourceJson.optJSONArray("tracks") ?: resultObj?.optJSONArray("tracks")
-                            if (tracksVal != null && subtitles.isEmpty()) {
-                                for (i in 0 until tracksVal.length()) {
-                                    val t = tracksVal.getJSONObject(i)
-                                    val kind = t.optString("kind", "")
-                                    if (kind == "captions" || kind.isEmpty()) {
-                                        val subFile = t.optString("file", "")
-                                        if (subFile.isNotEmpty()) {
-                                            subtitles.add(Subtitle(label = t.optString("label", "English"), url = subFile, isDefault = t.optBoolean("default", false), isForced = false, isSdh = false, format = "VTT"))
-                                        }
-                                    }
-                                }
-                            }
-                            if (resolvedSkips.isEmpty()) {
-                                val introObj = sourceJson.optJSONObject("intro") ?: resultObj?.optJSONObject("intro")
-                                if (introObj != null) {
-                                    val start = introObj.optDouble("start", 0.0)
-                                    val end = introObj.optDouble("end", 0.0)
-                                    if (end > start) resolvedSkips.add(SkipInterval(start, end, "op"))
-                                }
-                                val outroObj = sourceJson.optJSONObject("outro") ?: resultObj?.optJSONObject("outro")
-                                if (outroObj != null) {
-                                    val start = outroObj.optDouble("start", 0.0)
-                                    val end = outroObj.optDouble("end", 0.0)
-                                    if (end > start) resolvedSkips.add(SkipInterval(start, end, "ed"))
-                                }
-                            }
-                            if (finalStreamUrl.isNotEmpty()) break
-                        }
+                            if (embedUrl != null) {
+                                extractor.extractFromMegaPlay(embedUrl, formattedName, qualityTag)
+                            } else emptyList()
+                        } else emptyList()
                     } catch (e: Exception) {
-                        Log.e(tag, "Source API error at $apiUrl", e)
+                        Log.e(TAG, "Extraction failed for server ${server.serverName}: ${e.message}")
+                        emptyList()
                     }
                 }
-            }
-
-            if (finalStreamUrl.isEmpty()) {
-                if (depth < 2) {
-                    val iframeRegex = Regex("""<iframe[^>]+src="([^"]+)"""")
-                    val iframeSrc = iframeRegex.find(pageBody)?.groupValues?.get(1)
-                    if (!iframeSrc.isNullOrBlank()) {
-                        val resolvedIframe = normalizeUrl(iframeSrc, embedUrl)
-                        val recursiveStreams = resolveEmbedStreams(resolvedIframe, embedUrl, serverName, prefix, skipIntervals, depth + 1)
-                        if (recursiveStreams.isNotEmpty()) return recursiveStreams
-                    }
-                }
-
-                val sourceRegex = Regex("""<source[^>]+src="([^"]+\.m3u8[^"]*)"""")
-                val directM3u8Regex = Regex("""https?://[^\s"'<>]+\.m3u8[^\s"'<>]*""")
-                val jsVarRegex = Regex("""(?:var|let|const)\s+\w+\s*=\s*["']([^"']*(?:\.m3u8|/stream/)[^"']*)["']|(?:file|source|url|src)\s*[:=]\s*["']([^"']*(?:\.m3u8|/stream/)[^"']*)["']""")
-
-                val directMatch = sourceRegex.find(pageBody)?.groupValues?.get(1)
-                    ?: directM3u8Regex.find(pageBody)?.groupValues?.get(0)
-                    ?: jsVarRegex.find(pageBody)?.let { match ->
-                        match.groupValues.getOrNull(1)?.takeIf(String::isNotEmpty)
-                            ?: match.groupValues.getOrNull(2)?.takeIf(String::isNotEmpty)
-                    }
-
-                if (!directMatch.isNullOrBlank()) {
-                    finalStreamUrl = normalizeUrl(directMatch, embedUrl)
-                }
-            }
-
-            // Safety net: if a Cloudflare-walled CDN host still slipped through (e.g. an
-            // episode whose `s=` variants are unsupported), swap it for the working
-            // `ncdn.imgnex.top` host, which mirrors the exact same /anime/<hash>/<hash>/ layout.
-            if (finalStreamUrl.contains("fetch.nexabloom.top")) {
-                finalStreamUrl = finalStreamUrl.replace("fetch.nexabloom.top", "ncdn.imgnex.top")
-                subtitles.replaceAll { sub ->
-                    if (sub.url.contains("fetch.nexabloom.top")) {
-                        sub.copy(url = sub.url.replace("fetch.nexabloom.top", "ncdn.imgnex.top"))
-                    } else sub
-                }
-            }
-
-            if (finalStreamUrl.isNotEmpty()) {
-                val headers = mapOf(
-                    "Referer" to "$baseOrigin/",
-                    "Origin" to baseOrigin,
-                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                )
-                val isDirectMp4 = finalStreamUrl.contains(".mp4", ignoreCase = true)
-                if (isDirectMp4) {
-                    resultStreams.add(VideoStream(quality = "$prefix $serverName", url = finalStreamUrl, headers = headers, isM3U8 = false, subtitles = subtitles, skipIntervals = resolvedSkips, format = "MP4", resolution = "Auto", serverName = "$prefix $serverName"))
-                } else {
-                    val parsedVariants = parseM3U8(finalStreamUrl, headers, serverName, prefix, subtitles, resolvedSkips)
-                    if (parsedVariants.isNotEmpty()) {
-                        resultStreams.addAll(parsedVariants)
-                    } else {
-                        resultStreams.add(VideoStream(quality = "$prefix $serverName", url = finalStreamUrl, headers = headers, isM3U8 = true, subtitles = subtitles, skipIntervals = resolvedSkips, format = "HLS", resolution = "Auto", serverName = "$prefix $serverName"))
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(tag, "Failed resolving stream from embed: $embedUrl", e)
+            }.awaitAll().flatten()
         }
-        return resultStreams
     }
 
-    private suspend fun parseM3U8(
-        masterUrl: String, headers: Map<String, String>, serverName: String, prefix: String,
-        subtitles: List<Subtitle>, skipIntervals: List<SkipInterval>, durationMs: Long? = null
-    ): List<VideoStream> {
-        val reqBuilder = Request.Builder().url(masterUrl)
-        headers.forEach { (k, v) -> reqBuilder.addHeader(k, v) }
-        val manifestText = try {
-            client.newCall(reqBuilder.build()).await().use {
-                if (!it.isSuccessful) return@use ""
-                it.body?.string().orEmpty()
-            }
-        } catch (e: Exception) {
-            Log.e(tag, "Failed to fetch master manifest: $masterUrl", e)
-            return emptyList()
+    private data class VideoServer(val type: String, val serverId: String, val serverName: String)
+
+    private fun getMapperServerName(key: String): String {
+        return when (key.lowercase()) {
+            "vcloud" -> "VidCloud-1"
+            "vplay" -> "VidPlay-1"
+            "vstream" -> "Vidstream-2"
+            "mew" -> "Mew"
+            else -> key
         }
-        if (!manifestText.contains("#EXT-X-STREAM-INF")) return emptyList()
-
-        val streams = mutableListOf<VideoStream>()
-        val lines = manifestText.lines()
-        var currentBandwidth: Long? = null
-        var currentResolution: String? = null
-        var currentCodecs: String? = null
-        val bwRegex = Regex("""BANDWIDTH=(\d+)""")
-        val resRegex = Regex("""RESOLUTION=(\d+x\d+)""")
-        val codecRegex = Regex("""CODECS="([^"]+)"""")
-
-        for (i in lines.indices) {
-            val line = lines[i].trim()
-            if (line.startsWith("#EXT-X-STREAM-INF")) {
-                currentBandwidth = bwRegex.find(line)?.groupValues?.get(1)?.toLongOrNull()
-                currentResolution = resRegex.find(line)?.groupValues?.get(1)
-                currentCodecs = codecRegex.find(line)?.groupValues?.get(1)
-            } else if (line.isNotEmpty() && !line.startsWith("#")) {
-                val variantUrl = masterUrl.toHttpUrlOrNull()?.resolve(line)?.toString()
-                    ?: try { URI(masterUrl).resolve(line.replace(" ", "%20")).toString() } catch (_: Exception) {
-                        if (line.startsWith("http://") || line.startsWith("https://")) line
-                        else {
-                            val base = if (masterUrl.endsWith("/")) masterUrl else "${masterUrl.substringBeforeLast("/")}/"
-                            base + line.removePrefix("/")
-                        }
-                    }
-
-                val height = currentResolution?.substringAfter("x")?.toIntOrNull()
-                val qualityLabel = when {
-                    height != null && height >= 1080 -> "1080p"
-                    height != null && height >= 720 -> "720p"
-                    height != null && height >= 480 -> "480p"
-                    height != null && height >= 360 -> "360p"
-                    height != null -> "${height}p"
-                    else -> "HD"
-                }
-
-                val durationSeconds = if (durationMs != null && durationMs > 0L) durationMs / 1000.0 else 1440.0
-                val estimatedSizeBytes = currentBandwidth?.let { bw -> ((bw.toDouble() / 8.0) * durationSeconds).toLong() }
-
-                streams.add(VideoStream(quality = "$prefix $serverName ($qualityLabel)", url = variantUrl, headers = headers, isM3U8 = true, subtitles = subtitles, skipIntervals = skipIntervals, bitrate = currentBandwidth, sizeInBytes = estimatedSizeBytes, resolution = qualityLabel, codec = currentCodecs, format = "HLS", serverName = "$prefix $serverName"))
-                currentBandwidth = null
-                currentResolution = null
-                currentCodecs = null
-            }
-        }
-        return streams
     }
 
-    private fun normalizeUrl(url: String, base: String): String {
-        return when {
-            url.startsWith("http://") || url.startsWith("https://") -> url
-            url.startsWith("//") -> "https:$url"
-            url.startsWith("/") -> {
-                val uri = URI(base)
-                "${uri.scheme}://${uri.host}$url"
-            }
-            else -> {
-                try {
-                    URI(base).resolve(url).toString()
-                } catch (_: Exception) {
-                    if (base.endsWith("/")) "$base$url" else "$base/$url"
-                }
+    private fun vrfEncrypt(input: String): String {
+        var vrf = input
+        VRF_ORDER.forEach { item ->
+            when (item.second) {
+                "exchange" -> vrf = exchange(vrf, item.third)
+                "rc4" -> vrf = rc4Encrypt(item.third[0], vrf)
+                "reverse" -> vrf = vrf.reversed()
+                "base64" -> vrf = Base64.encode(vrf.toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP).toString(Charsets.UTF_8).trimEnd('=')
             }
         }
+        return URLEncoder.encode(vrf, "utf-8")
+    }
+
+    private fun rc4Encrypt(key: String, input: String): String {
+        val rc4Key = SecretKeySpec(key.toByteArray(), "RC4")
+        val cipher = Cipher.getInstance("RC4")
+        cipher.init(Cipher.ENCRYPT_MODE, rc4Key, cipher.parameters)
+        val output = cipher.doFinal(input.toByteArray())
+        return Base64.encode(output, Base64.URL_SAFE or Base64.NO_WRAP).toString(Charsets.UTF_8).trimEnd('=')
+    }
+
+    private fun exchange(input: String, keys: List<String>): String {
+        val key1 = keys[0]
+        val key2 = keys[1]
+        return input.map { i ->
+            val idx = key1.indexOf(i)
+            if (idx != -1) key2[idx] else i
+        }.joinToString("")
     }
 }

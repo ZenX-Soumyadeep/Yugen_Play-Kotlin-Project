@@ -38,6 +38,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     onBackClick: () -> Unit = {},
+    onExtensionsClick: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     updateViewModel: UpdateViewModel = hiltViewModel()
 ) {
@@ -52,6 +53,7 @@ fun SettingsScreen(
     var showWhatsNewSheet by remember { mutableStateOf(false) }
     var showClearHistoryDialog by remember { mutableStateOf(false) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
+    var showProvidersDialog by remember { mutableStateOf(false) }
     var isCheckingUpdate by remember { mutableStateOf(false) }
 
     // Player preferences state
@@ -132,6 +134,68 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(18.dp),
             contentPadding = PaddingValues(bottom = 32.dp)
         ) {
+            // Section: Streaming Providers
+            item {
+                SectionLabel(title = "Streaming Providers")
+                Spacer(modifier = Modifier.height(8.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(glassBg)
+                        .border(1.dp, glassBorder, RoundedCornerShape(18.dp))
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bounceClick { showProvidersDialog = true },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(accentPurple.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Extension,
+                                    contentDescription = null,
+                                    tint = accentPurple,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    "Active Providers",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                                Text(
+                                    "Anikoto, AnimePahe (Built-in)",
+                                    color = Color.White.copy(alpha = 0.65f),
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = Color.Gray
+                        )
+                    }
+                }
+            }
+
             // Section 0: Player Preferences
             item {
                 SectionLabel(title = "Player Preferences")
@@ -495,6 +559,70 @@ fun SettingsScreen(
                     Text("Cancel", color = Color.White)
                 }
             }
+        )
+    }
+
+    if (showProvidersDialog) {
+        AlertDialog(
+            onDismissRequest = { showProvidersDialog = false },
+            title = {
+                Text("Streaming Providers", fontWeight = FontWeight.Bold, color = Color.White)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Yugen Play includes 2 high-performance built-in providers directly compiled into the app for maximum reliability and speed.",
+                        fontSize = 13.sp,
+                        color = Color.White.copy(alpha = 0.75f)
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.05f))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("Anikoto", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
+                            Text("Fast multi-server HLS streaming", fontSize = 11.sp, color = Color.Gray)
+                        }
+                        Text(
+                            "ACTIVE",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF10B981)
+                        )
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.05f))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("AnimePahe", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
+                            Text("High-efficiency AV1 & MP4 streams", fontSize = 11.sp, color = Color.Gray)
+                        }
+                        Text(
+                            "ACTIVE",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF10B981)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showProvidersDialog = false }) {
+                    Text("OK", color = accentPurple, fontWeight = FontWeight.Bold)
+                }
+            },
+            containerColor = Color(0xFF18181B)
         )
     }
 }

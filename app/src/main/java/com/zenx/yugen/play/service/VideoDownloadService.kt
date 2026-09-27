@@ -58,12 +58,13 @@ class VideoDownloadService : DownloadService(
     }
 
     // Issue 9.1 Fix: Replaced null with PlatformScheduler to allow OS-level background resumption
-    override fun getScheduler(): Scheduler? {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            PlatformScheduler(this, JOB_ID)
-        } else {
-            null
-        }
+    override fun getScheduler(): Scheduler {
+        return PlatformScheduler(this, JOB_ID)
+    }
+
+    override fun onDestroy() {
+        metadataCache.clear()
+        super.onDestroy()
     }
 
     private fun getOrParseMetadata(download: Download): CachedDownloadMeta {

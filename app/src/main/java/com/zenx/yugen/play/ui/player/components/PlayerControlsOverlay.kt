@@ -52,6 +52,10 @@ private val GlassBorder = Color.White.copy(alpha = 0.15f)
 private val ChipBg = Color.Black.copy(alpha = 0.35f)
 private val ChipText = Color.White.copy(alpha = 0.85f)
 
+private val RedundantEpRegex = Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?$", RegexOption.IGNORE_CASE)
+private val PrefixEpRegex = Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?\\s*[:\\-•]\\s*", RegexOption.IGNORE_CASE)
+private val NumberOnlyRegex = Regex("^\\d+(\\.0+)?$")
+
 @Composable
 fun PlayerControlsOverlay(
     animeTitle: String,
@@ -77,6 +81,7 @@ fun PlayerControlsOverlay(
     onSeek: (Long) -> Unit,
     onSkipClick: (Long) -> Unit,
     onEpisodeSelect: (Episode) -> Unit,
+    onEpisodeSheetClick: () -> Unit,
     onSubtitlesClick: () -> Unit,
     onQualityClick: () -> Unit,
     onSpeedClick: () -> Unit,
@@ -86,19 +91,19 @@ fun PlayerControlsOverlay(
     onRotateClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var showPlaylist by remember { mutableStateOf(false) }
+
 
     val currentEp = episodes.find { it.id == currentEpisodeId }
     val epNum = currentEp?.formattedNumber ?: "1"
     val rawTitle = (currentEp?.title ?: episodeTitle).trim()
     val isRedundant = rawTitle.isBlank() ||
             rawTitle.equals("Stream", ignoreCase = true) ||
-            rawTitle.matches(Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?$", RegexOption.IGNORE_CASE))
+            RedundantEpRegex.matches(rawTitle)
     val formattedEpisodeString = if (isRedundant) {
         "Episode $epNum"
     } else {
-        val stripped = rawTitle.replace(Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?\\s*[:\\-•]\\s*", RegexOption.IGNORE_CASE), "").trim()
-        if (stripped.isNotBlank() && !stripped.matches(Regex("^\\d+(\\.0+)?$"))) "Episode $epNum: $stripped" else "Episode $epNum"
+        val stripped = rawTitle.replace(PrefixEpRegex, "").trim()
+        if (stripped.isNotBlank() && !NumberOnlyRegex.matches(stripped)) "Episode $epNum: $stripped" else "Episode $epNum"
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -141,41 +146,7 @@ fun PlayerControlsOverlay(
                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
                 verticalArrangement = Arrangement.Bottom
             ) {
-                AnimatedVisibility(
-                    visible = showPlaylist,
-                    enter = fadeIn(),
-                    exit = fadeOut()
-                ) {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                    ) {
-                        items(episodes) { ep ->
-                            val isCurrent = ep.id == currentEpisodeId
-                            Box(
-                                modifier = Modifier
-                                    .width(220.dp)
-                                    .defaultMinSize(minHeight = 72.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(if (isCurrent) IconPurple.copy(alpha = 0.2f) else GlassCardBg)
-                                    .border(1.dp, if (isCurrent) IconPurple else GlassBorder, RoundedCornerShape(12.dp))
-                                    .bounceClick {
-                                        onEpisodeSelect(ep)
-                                        showPlaylist = false
-                                    }
-                                    .padding(16.dp)
-                            ) {
-                                Column(verticalArrangement = Arrangement.Center) {
-                                    val epNumberText = if (ep.number % 1.0f == 0.0f) ep.number.toInt().toString() else ep.number.toString()
-                                    Text("Episode $epNumberText", color = if (isCurrent) IconPurple else Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(ep.title, color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
-                        }
-                    }
-                }
+
 
                 PlayerBottomBar(
                     positionMs = positionMs,
@@ -186,7 +157,7 @@ fun PlayerControlsOverlay(
                     isLandscape = isLandscape,
                     onSeek = onSeek,
                     onSkipClick = onSkipClick,
-                    onPlaylistToggle = { showPlaylist = !showPlaylist },
+                    onEpisodeSheetClick = onEpisodeSheetClick,
                     onSubtitlesClick = onSubtitlesClick,
                     onServerClick = onMoreClick,
                     onQualityClick = onQualityClick,
@@ -343,7 +314,7 @@ private fun PlayerBottomBar(
     isLandscape: Boolean,
     onSeek: (Long) -> Unit,
     onSkipClick: (Long) -> Unit,
-    onPlaylistToggle: () -> Unit,
+    onEpisodeSheetClick: () -> Unit,
     onSubtitlesClick: () -> Unit,
     onServerClick: () -> Unit,
     onQualityClick: () -> Unit,
@@ -358,9 +329,6 @@ private fun PlayerBottomBar(
     var dragValue by remember { mutableStateOf<Float?>(null) }
     val currentSliderValue = dragValue ?: safePos.toFloat()
 
-    val showSkip = activeSkipInterval != null
-    val skipText = if (activeSkipInterval?.type == "ed" || activeSkipInterval?.type == "mixed-ed") "Skip Outro" else "Skip Intro"
-
     val hPadding = if (isLandscape) 24.dp else 12.dp
     val bPadding = if (isLandscape) 24.dp else 12.dp
     val spacing = if (isLandscape) 16.dp else 8.dp
@@ -374,26 +342,6 @@ private fun PlayerBottomBar(
             .navigationBarsPadding(),
         verticalArrangement = Arrangement.Bottom
     ) {
-        AnimatedVisibility(
-            visible = showSkip,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.End)
-        ) {
-            Row(
-                modifier = Modifier
-                    .padding(bottom = 16.dp)
-                    .clip(RoundedCornerShape(100.dp))
-                    .background(IconPurple)
-                    .bounceClick { activeSkipInterval?.let { onSkipClick((it.endTime * 1000).toLong()) } }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(text = skipText, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.width(6.dp))
-                Icon(imageVector = Icons.Rounded.FastForward, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-            }
-        }
 
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Canvas(
@@ -457,7 +405,7 @@ private fun PlayerBottomBar(
                     icon = Icons.Rounded.PlaylistPlay,
                     size = if (isLandscape) 42.dp else 36.dp,
                     iconSize = if (isLandscape) 22.dp else 18.dp,
-                    onClick = onPlaylistToggle
+                    onClick = onEpisodeSheetClick
                 )
             }
 

@@ -1,6 +1,8 @@
 package com.zenx.yugen.play.domain
 
-class ProviderRegistry(private val providers: List<AnimeProvider>) {
+open class ProviderRegistry(private val providerSupplier: () -> List<AnimeProvider> = { emptyList() }) {
+
+    constructor(providers: List<AnimeProvider>) : this({ providers })
 
     private val fallbackProvider = object : AnimeProvider {
         override val name: String = "None"
@@ -10,13 +12,15 @@ class ProviderRegistry(private val providers: List<AnimeProvider>) {
         override suspend fun extractStreams(episodeId: String, title: String): List<VideoStream> = emptyList()
     }
 
-    fun getDefaultProvider(): AnimeProvider {
-        return providers.firstOrNull() ?: fallbackProvider
+    open fun getDefaultProvider(): AnimeProvider {
+        return providerSupplier().firstOrNull() ?: fallbackProvider
     }
 
-    fun getProvider(name: String): AnimeProvider? {
-        return providers.firstOrNull { it.name.equals(name, ignoreCase = true) }
+    open fun getProvider(name: String): AnimeProvider? {
+        return providerSupplier().firstOrNull { it.name.equals(name, ignoreCase = true) }
     }
 
-    fun getAllProviders(): List<AnimeProvider> = providers.ifEmpty { listOf(fallbackProvider) }
+    open fun getAllProviders(): List<AnimeProvider> = providerSupplier().ifEmpty { listOf(fallbackProvider) }
+
+    fun hasExtensions(): Boolean = providerSupplier().isNotEmpty()
 }

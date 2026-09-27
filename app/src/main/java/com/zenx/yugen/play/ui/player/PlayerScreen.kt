@@ -13,7 +13,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
@@ -36,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -63,10 +67,17 @@ import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
+import androidx.compose.animation.animateContentSize
+
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
 import com.zenx.yugen.play.domain.Episode
+import com.zenx.yugen.play.domain.SkipInterval
 import com.zenx.yugen.play.ui.player.components.*
+import com.zenx.yugen.play.util.rememberDeviceController
+import com.zenx.yugen.play.util.toAnnotatedString
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(UnstableApi::class)
@@ -99,6 +110,7 @@ fun PlayerScreen(
     var showControls by remember { mutableStateOf(true) }
     var isLocked by remember { mutableStateOf(false) }
     var isInPipMode by remember { mutableStateOf(false) }
+    var didSaveOnBack by remember { mutableStateOf(false) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -131,7 +143,9 @@ fun PlayerScreen(
             // Immediately pause and save progress when navigating away
             if (!isInPipMode) {
                 viewModel.player.pause()
-                viewModel.saveCurrentProgress()
+                if (!didSaveOnBack) {
+                    viewModel.saveCurrentProgress()
+                }
             }
             insetsController?.show(WindowInsetsCompat.Type.systemBars())
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -171,47 +185,29 @@ fun PlayerScreen(
         } else if (isLocked) {
             showControls = true
         } else {
+            didSaveOnBack = true
             viewModel.saveCurrentProgress()
             onBackClick()
         }
     }
 
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
-    val subtitleElevationFraction = 0.10f
-    val targetSubtitleLine = 1.0f - subtitleElevationFraction
+    var currentCues by remember { mutableStateOf<List<Cue>>(emptyList()) }
 
-    DisposableEffect(viewModel.player, playerViewRef) {
-        val pv = playerViewRef ?: return@DisposableEffect onDispose {}
-
-        fun adjustCues(cues: List<Cue>): List<Cue> {
-            return cues.map { cue ->
-                val isBottom = cue.line == Cue.DIMEN_UNSET ||
-                    (cue.lineType == Cue.LINE_TYPE_FRACTION && cue.line >= 0.65f) ||
-                    (cue.lineType == Cue.LINE_TYPE_NUMBER && (cue.line < 0f || cue.line >= 10f))
-
-                if (isBottom) {
-                    cue.buildUpon()
-                        .setLine(targetSubtitleLine, Cue.LINE_TYPE_FRACTION)
-                        .setLineAnchor(Cue.ANCHOR_TYPE_END)
-                        .build()
-                } else {
-                    cue
-                }
-            }
-        }
-
-        val cueListener = object : Player.Listener {
+    DisposableEffect(viewModel.player) {
+        val listener = object : Player.Listener {
             override fun onCues(cueGroup: CueGroup) {
-                pv.subtitleView?.setCues(adjustCues(cueGroup.cues))
+                currentCues = cueGroup.cues
             }
         }
-
-        viewModel.player.addListener(cueListener)
-        val current = viewModel.player.currentCues.cues
+        viewModel.player.addListener(listener)
         onDispose {
-            viewModel.player.removeListener(cueListener)
+            viewModel.player.removeListener(listener)
         }
     }
+
+
+    // Native ExoPlayer SubtitleView natively handles overlapping ASS/VTT cues.
 
     Box(
         modifier = Modifier
@@ -230,11 +226,8 @@ fun PlayerScreen(
                     )
                     keepScreenOn = true
 
-                    subtitleView?.apply {
-                        setApplyEmbeddedStyles(false)
-                        setApplyEmbeddedFontSizes(false)
-                        setBottomPaddingFraction(subtitleElevationFraction)
-                    }
+                    // Using CANVAS view type fixes overlapping ASS subtitle rendering issues present in WEB view
+                    subtitleView?.setViewType(SubtitleView.VIEW_TYPE_CANVAS)
 
                     playerViewRef = this
                 }
@@ -243,45 +236,73 @@ fun PlayerScreen(
                 playerViewRef = view
                 val readyState = uiState as? PlayerUiState.Ready
 
-                view.resizeMode = when (readyState?.resizeMode) {
+                val newResizeMode = when (readyState?.resizeMode) {
                     VideoResizeMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                     VideoResizeMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     VideoResizeMode.STRETCH -> AspectRatioFrameLayout.RESIZE_MODE_FILL
                     else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                 }
+                
+                if (view.resizeMode != newResizeMode) {
+                    view.resizeMode = newResizeMode
+                }
 
-                readyState?.let { state ->
-                    view.subtitleView?.apply {
-                        setApplyEmbeddedStyles(false)
-                        setApplyEmbeddedFontSizes(false)
-                        setBottomPaddingFraction(subtitleElevationFraction)
-                        setFractionalTextSize(state.subtitleSize)
-
-                        val textArgb = state.subtitleTextColor.toInt()
-                        val bgColor = android.graphics.Color.argb((state.subtitleBgOpacity * 255).toInt(), 0, 0, 0)
-                        val edgeColor = when (state.subtitleEdgeStyle) {
-                            1 -> android.graphics.Color.BLACK
-                            2 -> android.graphics.Color.parseColor("#80000000")
-                            else -> android.graphics.Color.TRANSPARENT
-                        }
-
-                        setStyle(
-                            CaptionStyleCompat(
-                                textArgb,
-                                bgColor,
-                                android.graphics.Color.TRANSPARENT,
-                                @Suppress("WrongConstant") state.subtitleEdgeStyle,
-                                edgeColor,
-                                null
-                            )
-                        )
-                    }
+                if (view.subtitleView?.visibility != android.view.View.GONE) {
+                    view.subtitleView?.visibility = android.view.View.GONE
                 }
             },
             onRelease = {
                 playerViewRef = null
             }
         )
+
+        // Custom Subtitles Overlay
+        val readyState = uiState as? PlayerUiState.Ready
+        val scale = (readyState?.subtitleSize ?: 0.053f) / 0.053f
+        val calculatedFontSize = 24.sp * scale
+
+        val edgeStyle = readyState?.subtitleEdgeStyle ?: 0
+        val textColor = Color(readyState?.subtitleTextColor ?: 0xFFFFFFFFL)
+        
+        val bgOpacity = readyState?.subtitleBgOpacity ?: 0.4f
+        val bgColor = if (bgOpacity > 0f) Color(0x000000).copy(alpha = bgOpacity) else Color.Transparent
+
+        val textStyle = when (edgeStyle) {
+            1 -> androidx.compose.ui.text.TextStyle(
+                shadow = androidx.compose.ui.graphics.Shadow(color = Color.Black, blurRadius = 4f)
+            ) // Outline approximation
+            2 -> androidx.compose.ui.text.TextStyle(
+                shadow = androidx.compose.ui.graphics.Shadow(color = Color.Black, blurRadius = 8f)
+            ) // Drop Shadow
+            else -> androidx.compose.ui.text.TextStyle.Default
+        }
+
+        if (currentCues.isNotEmpty() && !isInPipMode) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = if (showControls) 130.dp else 64.dp)
+                    .padding(horizontal = 24.dp)
+                    .animateContentSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                currentCues.forEach { cue ->
+                    val text = cue.text?.toAnnotatedString() ?: return@forEach
+                    Text(
+                        text = text,
+                        color = textColor,
+                        fontSize = calculatedFontSize,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        style = textStyle,
+                        modifier = Modifier
+                            .background(bgColor, shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    )
+                }
+            }
+        }
 
         when (val state = uiState) {
             is PlayerUiState.Loading -> {
@@ -388,6 +409,7 @@ fun PlayerScreen(
                             onSeek = { targetMs -> viewModel.seekTo(targetMs) },
                             onSkipClick = { targetMs -> viewModel.seekTo(targetMs) },
                             onEpisodeSelect = { ep -> viewModel.selectEpisode(ep) },
+                            onEpisodeSheetClick = { viewModel.setEpisodeSheetVisibility(true) },
                             onSubtitlesClick = { viewModel.setSubtitleSheetVisibility(true) },
                             onQualityClick = { viewModel.setQualitySheetVisibility(true) },
                             onSpeedClick = { viewModel.setSpeedSheetVisibility(true) },
@@ -397,6 +419,17 @@ fun PlayerScreen(
                             onRotateClick = toggleOrientation
                         )
                     }
+
+                    PhoneSkipIntroOverlay(
+                        activeSkipInterval = playbackProgress.activeSkipInterval,
+                        onSkipClick = { targetMs -> viewModel.seekTo(targetMs) },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(
+                                bottom = if (showControls) 130.dp else 48.dp,
+                                end = if (isLandscape) 32.dp else 16.dp
+                            )
+                    )
 
                     AutoPlayOverlay(
                         nextEpisode = state.nextEpisode,
@@ -442,41 +475,99 @@ private fun AutoPlayOverlay(
             Row(
                 modifier = Modifier
                     .padding(bottom = 120.dp, end = 40.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.Black.copy(alpha = 0.65f))
-                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
-                    .padding(16.dp),
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(Color(0xFF1E1E2E).copy(alpha = 0.95f), Color(0xFF2D2B55).copy(alpha = 0.95f))
+                        )
+                    )
+                    .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = 0.3f), Color.Transparent)), RoundedCornerShape(24.dp))
+                    .padding(horizontal = 24.dp, vertical = 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                Column(modifier = Modifier.widthIn(max = 200.dp)) {
-                    Text("Up Next in ${countdown}s", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Episode ${nextEpisode.formattedNumber}: ${nextEpisode.title}", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Column(modifier = Modifier.widthIn(max = 220.dp)) {
+                    Text("Up Next in ${countdown}s", color = Color(0xFFA78BFA), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Episode ${nextEpisode.formattedNumber}: ${nextEpisode.title}", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.15f))
+                            .background(Color.White.copy(alpha = 0.1f))
                             .clickable { onCancel() }
                             .padding(12.dp)
                     ) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Cancel", tint = Color.White, modifier = Modifier.size(22.dp))
+                        Icon(Icons.Rounded.Close, contentDescription = "Cancel", tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(24.dp))
                     }
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(100.dp))
-                            .background(Color(0xFF8B5CF6))
+                            .background(
+                                Brush.linearGradient(listOf(Color(0xFF8B5CF6), Color(0xFF6D28D9)))
+                            )
                             .clickable { onPlayNext() }
-                            .padding(horizontal = 20.dp, vertical = 12.dp)
+                            .padding(horizontal = 24.dp, vertical = 14.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(20.dp))
-                            Text("Play", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(24.dp))
+                            Text("Play Next", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhoneSkipIntroOverlay(
+    activeSkipInterval: SkipInterval?,
+    onSkipClick: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = activeSkipInterval != null,
+        enter = fadeIn(tween(250)) + slideInHorizontally(initialOffsetX = { it / 2 }, animationSpec = tween(250)),
+        exit = fadeOut(tween(250)) + slideOutHorizontally(targetOffsetX = { it / 2 }, animationSpec = tween(250)),
+        modifier = modifier
+    ) {
+        if (activeSkipInterval != null) {
+            val isOutro = activeSkipInterval.type.contains("ed", ignoreCase = true)
+            val badgeColor = if (isOutro) Color(0xFF38BDF8) else Color(0xFFF59E0B)
+            val label = if (isOutro) "Skip Outro" else "Skip Intro"
+
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(100.dp))
+                    .background(Color(0xFF14141E).copy(alpha = 0.90f))
+                    .border(1.5.dp, badgeColor.copy(alpha = 0.75f), RoundedCornerShape(100.dp))
+                    .clickable { onSkipClick((activeSkipInterval.endTime * 1000).toLong()) }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(badgeColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.FastForward,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = label,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }

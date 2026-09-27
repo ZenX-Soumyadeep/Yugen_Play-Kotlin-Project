@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
 }
@@ -39,9 +40,19 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     //noinspection WrongGradleMethod
     ksp {
         arg("room.schemaLocation", "$projectDir/schemas")
+    }
+}
+
+tasks.withType<Test> {
+    testLogging {
+        showStandardStreams = true
     }
 }
 
@@ -108,4 +119,13 @@ dependencies {
 
     // QR Code Generation for TV Phone Sync
     implementation("com.google.zxing:core:3.5.4")
+
+    // Extension & Provider Dependencies
+    implementation("androidx.preference:preference-ktx:1.2.1")
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json-okio:1.7.3")
+
+    testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
 }

@@ -15,6 +15,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -38,6 +39,7 @@ import com.zenx.yugen.play.data.local.OfflineSyncEntity
 import com.zenx.yugen.play.data.local.PlayerPreferences
 import com.zenx.yugen.play.data.local.WatchHistoryDao
 import com.zenx.yugen.play.data.local.WatchHistoryEntity
+import com.zenx.yugen.play.data.repository.AniSkipRepository
 import com.zenx.yugen.play.di.ProviderClient
 import com.zenx.yugen.play.domain.Episode
 import com.zenx.yugen.play.domain.EpisodeId
@@ -75,6 +77,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import androidx.compose.runtime.Immutable
 import okhttp3.OkHttpClient
 import org.json.JSONObject
 import java.util.Locale
@@ -87,9 +90,13 @@ enum class VideoResizeMode(val label: String) {
     FIT("Fit"), ZOOM("Zoom (Fill)"), STRETCH("Stretch")
 }
 
+@Immutable
 data class SubtitleTrackUiModel(val index: Int, val label: String, val language: String)
+
+@Immutable
 data class VideoQualityUiModel(val height: Int, val label: String)
 
+@Immutable
 data class PlayerPlaybackProgress(
     val currentPosition: Long = 0L,
     val bufferedPosition: Long = 0L,
@@ -99,6 +106,8 @@ data class PlayerPlaybackProgress(
 
 sealed interface PlayerUiState {
     data object Loading : PlayerUiState
+    
+    @Immutable
     data class Ready(
         val animeTitle: String,
         val episodeTitle: String,
@@ -161,6 +170,8 @@ class PlayerViewModel @Inject constructor(
     private val downloadCache: Cache,
     private val playerEngine: PlayerEngine,
     private val castSessionManager: CastSessionManager,
+    private val aniSkipRepository: AniSkipRepository,
+    private val streamDataCache: com.zenx.yugen.play.ui.detail.StreamDataCache,
     @ApplicationScope private val externalScope: CoroutineScope
 ) : ViewModel() {
 
@@ -230,6 +241,7 @@ class PlayerViewModel @Inject constructor(
     private var savedPreferDub: Boolean = PlayerPreferences.DEFAULT_PREFER_DUB
 
     companion object {
+        var activeMediaSession: MediaSession? = null
         private val LANGUAGE_MAP = mapOf(
             "en" to "en", "eng" to "en", "english" to "en",
             "es" to "es", "spa" to "es", "spanish" to "es",
@@ -349,6 +361,69 @@ class PlayerViewModel @Inject constructor(
             val vHeight = getActivePlayer().videoSize.height.takeIf { it > 0 } ?: cachedVideoHeight
             if (vHeight > 0) cachedVideoHeight = vHeight
             val state = _uiState.value as? PlayerUiState.Ready
+            
+            // Auto-select English audio track for Multi-Audio dub streams if standard preference failed
+            if (state != null && state.activeStream != null) {
+                val s = state.activeStream
+                val isDubStream = s.quality.contains("dub", ignoreCase = true) || s.serverName?.contains("dub", ignoreCase = true) == true
+                
+                var targetLanguageFound = false
+                var fallbackTrackGroup: androidx.media3.common.TrackGroup? = null
+                var fallbackTrackIndex = -1
+                
+                for (group in tracks.groups) {
+                    if (group.type == androidx.media3.common.C.TRACK_TYPE_AUDIO) {
+                        for (i in 0 until group.length) {
+                            if (group.isTrackSelected(i)) {
+                                val format = group.getTrackFormat(i)
+                                if (isDubStream) {
+                                    if (format.language?.contains("en", ignoreCase = true) == true || 
+                                        format.label?.contains("eng", ignoreCase = true) == true ||
+                                        format.label?.contains("dub", ignoreCase = true) == true) {
+                                        targetLanguageFound = true
+                                    }
+                                } else {
+                                    if (format.language?.contains("ja", ignoreCase = true) == true || 
+                                        format.label?.contains("jap", ignoreCase = true) == true ||
+                                        format.language.isNullOrBlank()) {
+                                        // Assume blank is Japanese usually
+                                        targetLanguageFound = true
+                                    }
+                                }
+                            } else if (!targetLanguageFound) {
+                                // find a fallback just in case
+                                val format = group.getTrackFormat(i)
+                                if (isDubStream) {
+                                    if (format.language?.contains("en", ignoreCase = true) == true || 
+                                        format.label?.contains("eng", ignoreCase = true) == true ||
+                                        format.label?.contains("dub", ignoreCase = true) == true) {
+                                        fallbackTrackGroup = group.mediaTrackGroup
+                                        fallbackTrackIndex = i
+                                    }
+                                } else {
+                                    if (format.language?.contains("ja", ignoreCase = true) == true || 
+                                        format.label?.contains("jap", ignoreCase = true) == true) {
+                                        fallbackTrackGroup = group.mediaTrackGroup
+                                        fallbackTrackIndex = i
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (!targetLanguageFound && fallbackTrackGroup != null) {
+                    val trackBuilder = playerEngine.exoPlayer.trackSelectionParameters.buildUpon()
+                    trackBuilder.setOverrideForType(
+                        TrackSelectionOverride(
+                            fallbackTrackGroup,
+                            fallbackTrackIndex
+                        )
+                    )
+                    playerEngine.exoPlayer.trackSelectionParameters = trackBuilder.build()
+                }
+            }
+            
             val availableQualities = buildAvailableQualities(
                 activeStream = state?.activeStream,
                 allStreams = state?.streams ?: emptyList(),
@@ -378,10 +453,14 @@ class PlayerViewModel @Inject constructor(
                 val nextStream = state.streams[currentStreamIndex]
                 showTransientWarning("Server died. Switching to backup...")
 
+                if (skipIntervals.isEmpty() && nextStream.skipIntervals.isNotEmpty()) {
+                    skipIntervals = nextStream.skipIntervals
+                }
+
                 updateReadyState {
                     it.copy(
                         activeStream = nextStream,
-                        skipIntervals = nextStream.skipIntervals,
+                        skipIntervals = skipIntervals,
                         isServerSheetVisible = false,
                         isBuffering = true,
                         isPlaying = false
@@ -398,6 +477,9 @@ class PlayerViewModel @Inject constructor(
 
     init {
         mediaSession = MediaSession.Builder(context, playerEngine.exoPlayer).build()
+        activeMediaSession = mediaSession
+        context.startService(android.content.Intent(context, com.zenx.yugen.play.service.PlaybackService::class.java))
+        
         playerEngine.exoPlayer.addListener(playerListener)
 
         viewModelScope.launch {
@@ -458,22 +540,18 @@ class PlayerViewModel @Inject constructor(
             )
         }
 
-        if (currentEpisodeId.isBlank()) {
-            _uiState.value = PlayerUiState.Error("Missing episode identifier.")
-        } else {
-            loadEpisodesAndPlay(currentEpisodeId)
-        }
-
         // Load saved preferences and apply them to cache and Ready state.
         viewModelScope.launch {
-            savedSubtitleSize      = playerPreferences.subtitleSize.first()
-            savedSubtitleEdgeStyle = playerPreferences.subtitleEdgeStyle.first()
-            savedSubtitleTextColor = playerPreferences.subtitleTextColor.first()
-            savedSubtitleBgOpacity = playerPreferences.subtitleBgOpacity.first()
-            savedPlaybackSpeed     = playerPreferences.playbackSpeed.first()
-            savedSeekDurationSec   = playerPreferences.seekDurationSec.first()
-            savedAutoPlayNext      = playerPreferences.autoPlayNext.first()
-            savedPreferDub         = playerPreferences.preferDub.first()
+            val prefs = playerPreferences.dataStore.data.first()
+            
+            savedSubtitleSize      = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_SUBTITLE_SIZE] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_SUBTITLE_SIZE
+            savedSubtitleEdgeStyle = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_SUBTITLE_EDGE_STYLE] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_SUBTITLE_EDGE_STYLE
+            savedSubtitleTextColor = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_SUBTITLE_TEXT_COLOR] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_SUBTITLE_TEXT_COLOR
+            savedSubtitleBgOpacity = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_SUBTITLE_BG_OPACITY] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_SUBTITLE_BG_OPACITY
+            savedPlaybackSpeed     = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_PLAYBACK_SPEED] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_PLAYBACK_SPEED
+            savedSeekDurationSec   = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_SEEK_DURATION_SEC] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_SEEK_DURATION_SEC
+            savedAutoPlayNext      = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_AUTO_PLAY_NEXT] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_AUTO_PLAY_NEXT
+            savedPreferDub         = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_PREFER_DUB] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_PREFER_DUB
 
             updateReadyState {
                 it.copy(
@@ -487,6 +565,12 @@ class PlayerViewModel @Inject constructor(
                 )
             }
             if (savedPlaybackSpeed != 1.0f) getActivePlayer().setPlaybackSpeed(savedPlaybackSpeed)
+            
+            if (currentEpisodeId.isBlank()) {
+                _uiState.value = PlayerUiState.Error("Missing episode identifier.")
+            } else {
+                loadEpisodesAndPlay(currentEpisodeId)
+            }
         }
     }
 
@@ -519,7 +603,7 @@ class PlayerViewModel @Inject constructor(
                     (activeClean.isNotBlank() && sClean.equals(activeClean, ignoreCase = true))
                 activeClean.isNotBlank() && activeClean != "Server" ->
                     sClean.equals(activeClean, ignoreCase = true)
-                else -> s.url == activeStream.url
+                else -> s.url.substringBefore("?") == activeStream.url.substringBefore("?")
             }
 
             isSameServer && sIsDub == activeIsDub
@@ -694,12 +778,20 @@ class PlayerViewModel @Inject constructor(
                 ?: validSubtitles.firstOrNull { it.label.contains("English", ignoreCase = true) }?.label
                 ?: validSubtitles.firstOrNull()?.label
 
-            if (defaultTrackLang != null) {
-                targetPlayer.trackSelectionParameters = targetPlayer.trackSelectionParameters.buildUpon()
-                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                    .setPreferredTextLanguage(parseIsoLanguageCode(defaultTrackLang))
-                    .build()
+            val isDubStream = stream.quality.contains("dub", ignoreCase = true) || stream.serverName?.contains("dub", ignoreCase = true) == true
+            val trackBuilder = targetPlayer.trackSelectionParameters.buildUpon()
+            
+            if (isDubStream) {
+                trackBuilder.setPreferredAudioLanguage("en")
+            } else {
+                trackBuilder.setPreferredAudioLanguage("ja")
             }
+
+            if (defaultTrackLang != null) {
+                trackBuilder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setPreferredTextLanguage(parseIsoLanguageCode(defaultTrackLang))
+            }
+            targetPlayer.trackSelectionParameters = trackBuilder.build()
         } else {
             try {
                 val subtitleConfigs = buildCastSubtitleConfigs(stream.subtitles)
@@ -741,6 +833,7 @@ class PlayerViewModel @Inject constructor(
 
     private fun sanitizeTitleForAnilist(title: String): String {
         return title
+            .substringBefore(" - ")
             .replace(Regex("""(?i)\b(season|part|cour)\s*\d+\b"""), "")
             .replace(Regex("""(?i)\(dub\)|\(sub\)|\b(dub|sub)\b"""), "")
             .replace(Regex("""\s+"""), " ")
@@ -823,7 +916,7 @@ class PlayerViewModel @Inject constructor(
             if (isInitiallyDownloaded && initialMeta != null) {
                 currentEpisodeId = episodeId
                 playOfflineEpisode(initialDownload, initialMeta, episodeId)
-                viewModelScope.launch(Dispatchers.IO) {
+                viewModelScope.launch(Dispatchers.Main) {
                     try {
                         val resolved = episodesDeferred.await()
                         if (resolved.isNotEmpty()) {
@@ -865,9 +958,11 @@ class PlayerViewModel @Inject constructor(
             if (isDownloaded && meta != null) {
                 playOfflineEpisode(download, meta, targetEpId)
             } else {
-                val cachedStreams = StreamDataCache.get(targetEpId)
+                val cachedStreams = streamDataCache.get(targetEpId)
                 val streamResult = if (cachedStreams != null) {
                     Resource.Success(cachedStreams)
+                } else if (!targetStreamUrl.isNullOrBlank()) {
+                    Resource.Success(listOf(VideoStream(quality = "Default", url = targetStreamUrl)))
                 } else {
                     getVideoStreamsUseCase(targetEpId)
                 }
@@ -876,7 +971,8 @@ class PlayerViewModel @Inject constructor(
                     is Resource.Success -> {
                         val streams = streamResult.data ?: emptyList()
                         val activeStream = if (targetStreamUrl != null) {
-                            streams.find { it.url == targetStreamUrl } ?: streams.firstOrNull()
+                            val targetBase = targetStreamUrl.substringBefore("?")
+                            streams.find { it.url.substringBefore("?") == targetBase } ?: streams.firstOrNull()
                         } else {
                             if (savedPreferDub) {
                                 streams.find { it.serverName?.contains("dub", ignoreCase = true) == true || it.quality.contains("dub", ignoreCase = true) }
@@ -890,6 +986,23 @@ class PlayerViewModel @Inject constructor(
                         if (activeStream != null) {
                             currentStreamIndex = streams.indexOf(activeStream).coerceAtLeast(0)
                             skipIntervals = activeStream.skipIntervals
+                            if (skipIntervals.isEmpty()) {
+                                viewModelScope.launch(Dispatchers.IO) {
+                                    val epNum = currentEpisodeNumberInt.get()
+                                    val fallback = aniSkipRepository.getSkipIntervals(
+                                        malId = null,
+                                        anilistId = anilistMediaId,
+                                        episodeNumber = epNum
+                                    )
+                                    if (fallback.isNotEmpty() && currentEpisodeNumberInt.get() == epNum) {
+                                        skipIntervals = fallback
+                                        val ready = _uiState.value as? PlayerUiState.Ready
+                                        if (ready != null && ready.currentEpisodeId == targetEpId) {
+                                            _uiState.value = ready.copy(skipIntervals = fallback)
+                                        }
+                                    }
+                                }
+                            }
 
                             playStream(activeStream, startPositionMs = savedPosition)
 
@@ -992,7 +1105,7 @@ class PlayerViewModel @Inject constructor(
         progressTrackerJob?.cancel()
         progressTrackerJob = viewModelScope.launch(Dispatchers.Main.immediate) {
             var saveCounter = 0
-            while (isActive && getActivePlayer().isPlaying) {
+            while (isActive && getActivePlayer().playbackState != Player.STATE_ENDED && getActivePlayer().playWhenReady) {
                 val player = getActivePlayer()
                 val pos = player.currentPosition.coerceAtLeast(0L)
                 val bufferedPos = player.bufferedPosition.coerceAtLeast(0L)
@@ -1007,8 +1120,9 @@ class PlayerViewModel @Inject constructor(
 
                 val currentSec = pos / 1000.0
 
-                val activeEd = skipIntervals.find { it.type in listOf("ed", "mixed-ed") && currentSec in it.startTime..it.endTime }
-                val activeSkip = skipIntervals.find { it.type in listOf("op", "mixed-op", "recap") && currentSec in it.startTime..it.endTime }
+                val tolerance = 3.0
+                val activeEd = skipIntervals.find { it.type.lowercase() in listOf("ed", "mixed-ed", "outro") && currentSec in (it.startTime - tolerance)..it.endTime }
+                val activeSkip = skipIntervals.find { it.type.lowercase() in listOf("op", "mixed-op", "recap", "intro") && currentSec in (it.startTime - tolerance)..it.endTime }
                     ?: (if ((_uiState.value as? PlayerUiState.Ready)?.autoPlayCountdown == null) activeEd else null)
 
                 if (activeEd != null) {
@@ -1056,7 +1170,7 @@ class PlayerViewModel @Inject constructor(
 
             autoPlayJob?.cancel()
             autoPlayJob = viewModelScope.launch {
-                for (sec in 6 downTo 1) {
+                for (sec in 10 downTo 1) {
                     if (castSessionManager.castPlayer?.isCastSessionAvailable == true) {
                         cancelAutoPlayCountdown()
                         return@launch
@@ -1076,7 +1190,14 @@ class PlayerViewModel @Inject constructor(
         updateReadyState { it.copy(autoPlayCountdown = null) }
     }
 
-    fun skipCurrentInterval() = _playbackProgress.value.activeSkipInterval?.let { seekTo((it.endTime * 1000).toLong()) }
+    fun skipCurrentInterval() {
+        val interval = _playbackProgress.value.activeSkipInterval
+        if (interval != null) {
+            seekTo((interval.endTime * 1000).toLong())
+        } else {
+            showTransientWarning("No active skip interval")
+        }
+    }
 
     fun selectQuality(height: Int) {
         val state = _uiState.value as? PlayerUiState.Ready ?: return
@@ -1096,11 +1217,13 @@ class PlayerViewModel @Inject constructor(
         if (matchingStream != null && matchingStream.url != activeStream.url) {
             val currentPos = getActivePlayer().currentPosition
             currentStreamIndex = state.streams.indexOf(matchingStream).coerceAtLeast(0)
-            skipIntervals = matchingStream.skipIntervals
+            if (skipIntervals.isEmpty() && matchingStream.skipIntervals.isNotEmpty()) {
+                skipIntervals = matchingStream.skipIntervals
+            }
             updateReadyState { it.copy(
                 activeStream = matchingStream,
                 selectedQualityHeight = height,
-                skipIntervals = matchingStream.skipIntervals,
+                skipIntervals = skipIntervals,
                 isQualitySheetVisible = false
             ) }
             playStream(matchingStream, startPositionMs = currentPos)
@@ -1120,8 +1243,18 @@ class PlayerViewModel @Inject constructor(
         currentStreamIndex = state.streams.indexOf(stream).coerceAtLeast(0)
         streamRetryCount = 0
 
+        val isDub = stream.serverName?.contains("dub", ignoreCase = true) == true || stream.quality.contains("dub", ignoreCase = true)
+        if (savedPreferDub != isDub) {
+            savedPreferDub = isDub
+            viewModelScope.launch {
+                playerPreferences.setPreferDub(isDub)
+            }
+        }
+
         val currentPos = getActivePlayer().currentPosition
-        skipIntervals = stream.skipIntervals
+        if (skipIntervals.isEmpty() && stream.skipIntervals.isNotEmpty()) {
+            skipIntervals = stream.skipIntervals
+        }
 
         val newQualities = buildAvailableQualities(
             activeStream = stream,
@@ -1133,7 +1266,7 @@ class PlayerViewModel @Inject constructor(
 
         updateReadyState { it.copy(
             activeStream = stream,
-            skipIntervals = stream.skipIntervals,
+            skipIntervals = skipIntervals,
             qualities = newQualities,
             isServerSheetVisible = false
         ) }
@@ -1152,11 +1285,17 @@ class PlayerViewModel @Inject constructor(
     fun selectSubtitleTrack(index: Int) {
         val state = _uiState.value as? PlayerUiState.Ready ?: return
         val targetPlayer = getActivePlayer()
+        val exoPlayer = playerEngine.exoPlayer
 
         if (index == -1) {
             targetPlayer.trackSelectionParameters = targetPlayer.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
                 .build()
+            if (targetPlayer !== exoPlayer) {
+                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                    .build()
+            }
             if (castSessionManager.castPlayer?.isCastSessionAvailable == true) {
                 castSessionManager.disableSubtitles()
             }
@@ -1169,14 +1308,16 @@ class PlayerViewModel @Inject constructor(
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                 .setPreferredTextLanguage(safeTrackLang)
                 .build()
+            if (targetPlayer !== exoPlayer) {
+                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setPreferredTextLanguage(safeTrackLang)
+                    .build()
+            }
 
             if (castSessionManager.castPlayer?.isCastSessionAvailable == true) {
                 castSessionManager.setActiveSubtitleTrack(safeTrackLang.ifBlank { label })
             }
-        }
-
-        if (targetPlayer !== playerEngine.exoPlayer) {
-            playerEngine.exoPlayer.trackSelectionParameters = targetPlayer.trackSelectionParameters
         }
 
         updateReadyState { it.copy(selectedSubtitleIndex = index, isSubtitleSheetVisible = false) }
@@ -1331,6 +1472,8 @@ class PlayerViewModel @Inject constructor(
         val epId = currentEpisodeId
         val mediaId = anilistMediaId
         val epNum = currentEpisodeNumberInt.get()
+        val currentAnimeTitle = animeTitle
+        val currentPosterUrl = posterUrl
 
         if (position >= 15_000L && duration > 0) {
             externalScope.launch {
@@ -1339,7 +1482,7 @@ class PlayerViewModel @Inject constructor(
                         val isNearEnd = (position.toDouble() / duration.toDouble()) >= 0.85
                         if (isNearEnd && hasSyncedThisEpisodeToCloud.compareAndSet(false, true)) {
                             if (authPreferences.authState.value.token != null && mediaId != null) {
-                                val historyForAnime = watchHistoryDao.getHistoryForAnime(animeTitle)
+                                val historyForAnime = watchHistoryDao.getHistoryForAnime(currentAnimeTitle)
                                 val maxWatchedLocally = historyForAnime.maxOfOrNull {
                                     EpisodeId.parse(it.episodeId).episodeNumberInt
                                 } ?: 0
@@ -1367,8 +1510,8 @@ class PlayerViewModel @Inject constructor(
                         watchHistoryDao.saveProgress(
                             WatchHistoryEntity(
                                 episodeId = epId,
-                                animeTitle = animeTitle,
-                                posterUrl = posterUrl,
+                                animeTitle = currentAnimeTitle,
+                                posterUrl = currentPosterUrl,
                                 progressMs = position,
                                 durationMs = duration,
                                 lastWatchedAt = System.currentTimeMillis()
@@ -1383,8 +1526,7 @@ class PlayerViewModel @Inject constructor(
     private fun updateReadyState(update: (PlayerUiState.Ready) -> PlayerUiState.Ready) {
         _uiState.update { current ->
             if (current is PlayerUiState.Ready) {
-                val next = update(current)
-                if (next == current) current else next
+                update(current)
             } else {
                 current
             }
@@ -1401,11 +1543,14 @@ class PlayerViewModel @Inject constructor(
         stopCastProxy()
 
         playerEngine.exoPlayer.removeListener(playerListener)
+        
+        context.stopService(android.content.Intent(context, com.zenx.yugen.play.service.PlaybackService::class.java))
         mediaSession?.run {
             player.pause()
             release()
         }
         mediaSession = null
+        activeMediaSession = null
 
         playerEngine.release()
         castSessionManager.release()

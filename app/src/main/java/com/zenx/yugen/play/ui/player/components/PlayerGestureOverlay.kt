@@ -202,25 +202,9 @@ fun PlayerGestureOverlay(
     ) {
         DoubleTapSeekRipple(isForward = false, isVisible = showRewindRipple, seconds = seekDurationSeconds, modifier = Modifier.align(Alignment.CenterStart))
         DoubleTapSeekRipple(isForward = true, isVisible = showForwardRipple, seconds = seekDurationSeconds, modifier = Modifier.align(Alignment.CenterEnd))
-        // Position HUD on the OPPOSITE side of where the thumb swiped for a completely clear, unobstructed view:
-        // - Volume gesture (swiped on RIGHT edge) -> HUD displays on LEFT edge (CenterStart)
-        // - Brightness gesture (swiped on LEFT edge) -> HUD displays on RIGHT edge (CenterEnd)
-        val hudAlignment = when (hudState.type) {
-            HudType.VOLUME -> Alignment.CenterStart
-            HudType.BRIGHTNESS -> Alignment.CenterEnd
-            HudType.SEEK -> Alignment.Center
-        }
         CenterHudOverlay(
             state = hudState,
-            modifier = Modifier
-                .align(hudAlignment)
-                .then(
-                    when (hudAlignment) {
-                        Alignment.CenterStart -> Modifier.padding(start = 40.dp)
-                        Alignment.CenterEnd -> Modifier.padding(end = 40.dp)
-                        else -> Modifier
-                    }
-                )
+            modifier = Modifier.align(Alignment.Center)
         )
     }
 }

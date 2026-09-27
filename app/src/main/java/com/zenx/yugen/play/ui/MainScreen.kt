@@ -234,7 +234,9 @@ fun MainScreen(
             }
 
             composable("settings") {
-                SettingsScreen(onBackClick = { navController.popBackStack() })
+                SettingsScreen(
+                    onBackClick = { navController.popBackStack() }
+                )
             }
 
             composable("profile") {

@@ -17,6 +17,11 @@ class YugenApplication : Application(), Configuration.Provider { // <-- Renamed 
     @Inject lateinit var animeDetailsDao: AnimeDetailsDao
     @Inject @ApplicationScope lateinit var applicationScope: CoroutineScope
 
+    companion object {
+        lateinit var instance: YugenApplication
+            private set
+    }
+
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
@@ -24,6 +29,7 @@ class YugenApplication : Application(), Configuration.Provider { // <-- Renamed 
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         applicationScope.launch {
             try {
                 animeDetailsDao.deleteExpired(

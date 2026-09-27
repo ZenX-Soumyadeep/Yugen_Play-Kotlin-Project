@@ -11,6 +11,7 @@ data class AnimeDetails(
     val id: String,
     val idMal: Int?,
     val title: String,
+    val romajiTitle: String,
     val description: String,
     val bannerImage: String,
     val posterImage: String,

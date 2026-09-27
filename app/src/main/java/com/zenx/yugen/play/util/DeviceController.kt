@@ -2,6 +2,7 @@ package com.zenx.yugen.play.util
 
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.media.AudioManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -20,7 +21,19 @@ class DeviceController(private val context: Context, private val activity: Activ
         }
 
     var currentBrightness: Float
-        get() = activity?.window?.attributes?.screenBrightness?.takeIf { it >= 0f } ?: 0.5f
+        get() {
+            val winBrightness = activity?.window?.attributes?.screenBrightness ?: -1f
+            if (winBrightness >= 0f) return winBrightness
+            return try {
+                val sys = android.provider.Settings.System.getInt(
+                    context.contentResolver,
+                    android.provider.Settings.System.SCREEN_BRIGHTNESS
+                )
+                sys / 255f
+            } catch (e: Exception) {
+                0.5f
+            }
+        }
         set(value) {
             activity?.window?.let { window ->
                 val lp = window.attributes
@@ -36,6 +49,12 @@ class DeviceController(private val context: Context, private val activity: Activ
 @Composable
 fun rememberDeviceController(): DeviceController {
     val context = LocalContext.current
-    val activity = context as? Activity
+    val activity = remember(context) { context.findActivity() }
     return remember(context, activity) { DeviceController(context, activity) }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
