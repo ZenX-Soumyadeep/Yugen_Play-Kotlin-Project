@@ -968,11 +968,12 @@ private fun TvPlayerOverlay(
                         onClick = onOpenServerSheet
                     )
 
-                    val qLabel = if (state.selectedQualityHeight == -1) {
-                        val h = if (state.currentPlayingHeight > 0) "${state.currentPlayingHeight}p" else "1080p"
-                        "$h • Auto"
-                    } else {
+                    val qLabel = if (state.selectedQualityHeight > 0) {
                         "${state.selectedQualityHeight}p"
+                    } else if (state.currentPlayingHeight > 0) {
+                        "${state.currentPlayingHeight}p • Auto"
+                    } else {
+                        "Auto"
                     }
                     TvActionPill(
                         icon = Icons.Rounded.HighQuality,
@@ -2010,29 +2011,25 @@ private fun TvEpisodeSidePanel(
                         }
 
                         Column(modifier = Modifier.weight(1f)) {
-                            val formattedNum = if (ep.number % 1.0 == 0.0) ep.number.toInt().toString() else ep.number.toString()
-                            val epNumStr = if (ep.number > 0) "Episode $formattedNum" else "Episode ?"
+                            val epNumStr = "Episode ${ep.formattedNumber}"
+                            val displayTitle = ep.title.ifBlank { epNumStr }
                             
-                            val displayTitle = if (ep.title.isNotBlank() && !ep.title.lowercase().startsWith("episode ")) ep.title else epNumStr
+                            Text(
+                                text = epNumStr,
+                                color = if (isSelected) AccentPurple else Color.White.copy(alpha = 0.7f),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                             
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = displayTitle,
                                 color = if (isSelected) Color.White else Color.White.copy(alpha = 0.9f),
                                 fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 modifier = Modifier.basicMarquee()
                             )
-                            
-                            if (displayTitle != epNumStr) {
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = epNumStr,
-                                    color = Color.White.copy(alpha = 0.6f),
-                                    fontSize = 12.sp,
-                                    maxLines = 1
-                                )
-                            }
                         }
                         
                         if (isSelected) {

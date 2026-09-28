@@ -724,8 +724,14 @@ class PlayerViewModel @Inject constructor(
             val isDefaultTrack = sub.isDefault || (!hasDefault && sub.label.contains("English", ignoreCase = true))
             val langCode = parseIsoLanguageCode(sub.label)
 
+            val mimeType = if (sub.format.equals("ASS", ignoreCase = true) || actualUrl.endsWith(".ass", ignoreCase = true)) {
+                MimeTypes.TEXT_SSA
+            } else {
+                MimeTypes.TEXT_VTT
+            }
+
             MediaItem.SubtitleConfiguration.Builder(CastProxy.getProxyUrl(actualUrl).toUri())
-                .setMimeType(MimeTypes.TEXT_VTT)
+                .setMimeType(mimeType)
                 .setLanguage(langCode)
                 .setLabel(sub.label)
                 .setRoleFlags(C.ROLE_FLAG_SUBTITLE)
@@ -782,8 +788,14 @@ class PlayerViewModel @Inject constructor(
                 val actualLabel = sub.label.ifBlank { "Track ${index + 1}" }
                 val isDefaultTrack = sub.isDefault || (!hasDefault && (actualLabel.contains("English", ignoreCase = true) || index == 0))
 
+                val mimeType = if (sub.format.equals("ASS", ignoreCase = true) || sub.url.endsWith(".ass", ignoreCase = true)) {
+                    MimeTypes.TEXT_SSA
+                } else {
+                    MimeTypes.TEXT_VTT
+                }
+
                 MediaItem.SubtitleConfiguration.Builder(sub.url.toUri())
-                    .setMimeType(MimeTypes.TEXT_VTT)
+                    .setMimeType(mimeType)
                     .setLanguage(parseIsoLanguageCode(actualLabel))
                     .setLabel(actualLabel)
                     .setRoleFlags(C.ROLE_FLAG_SUBTITLE)

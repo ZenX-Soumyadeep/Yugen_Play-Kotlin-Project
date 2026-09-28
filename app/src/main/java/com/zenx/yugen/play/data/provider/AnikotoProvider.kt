@@ -330,7 +330,7 @@ class AnikotoProvider(
                 async {
                     try {
                         val formattedName = server.serverName
-                        val qualityTag = "1080p [${server.type}]"
+                        val qualityTag = "Auto [${server.type}]"
 
                         if (extractor.isMegaPlayServer(server.serverName) || extractor.isMegaPlayUrl(server.serverId)) {
                             val embedUrl = if (server.serverId.startsWith("http")) server.serverId
