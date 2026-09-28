@@ -30,6 +30,9 @@ import androidx.compose.ui.input.key.onKeyEvent
 import com.zenx.yugen.play.domain.VideoStream
 import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.components.tvFocusable
+import com.zenx.yugen.play.domain.AudioTrackType
+import com.zenx.yugen.play.domain.audioTrackType
+import com.zenx.yugen.play.domain.cleanServerName
 import com.zenx.yugen.play.ui.player.PlayerUiState
 import com.zenx.yugen.play.ui.player.PlayerViewModel
 
@@ -38,31 +41,7 @@ private val ItemBg = Color.White.copy(alpha = 0.08f)
 private val GlassBorder = Color.White.copy(alpha = 0.15f)
 private val AccentPurple = Color(0xFF8B5CF6)
 
-private enum class AudioTrackType(val label: String, val badge: String) {
-    SUB("Japanese (Sub)", "SUB"),
-    DUB("English (Dub)", "DUB"),
-    HSUB("Hardsub", "HSUB"),
-    HDUB("Hindi (Dub)", "HDUB")
-}
 
-private fun VideoStream.audioTrackType(): AudioTrackType {
-    val q = quality.uppercase()
-    val n = (serverName ?: "").uppercase()
-    return when {
-        q.contains("HDUB") || n.contains("HDUB") -> AudioTrackType.HDUB
-        q.contains("HSUB") || n.contains("HSUB") || q.contains("HARDSUB") || n.contains("HARDSUB") -> AudioTrackType.HSUB
-        q.contains("DUB") || n.contains("DUB") -> AudioTrackType.DUB
-        else -> AudioTrackType.SUB
-    }
-}
-
-private fun VideoStream.cleanServerName(): String {
-    val rawName = serverName?.takeIf { it.isNotBlank() } ?: quality
-    return rawName
-        .replace(Regex("\\[?(sub|dub|hsub|hardsub|hdub)\\]?", RegexOption.IGNORE_CASE), "")
-        .replace(Regex("\\(.*\\)|\\[.*?\\]"), "")
-        .trim()
-}
 
 @Composable
 fun PlayerSidePanels(

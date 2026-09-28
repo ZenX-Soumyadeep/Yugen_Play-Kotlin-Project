@@ -20,6 +20,8 @@ import com.zenx.yugen.play.data.local.AuthPreferences
 import com.zenx.yugen.play.data.local.FavoriteDao
 import com.zenx.yugen.play.data.local.FavoriteEntity
 import com.zenx.yugen.play.data.local.PlayerPreferences
+import com.zenx.yugen.play.domain.AudioTrackType
+import com.zenx.yugen.play.domain.audioTrackType
 import com.zenx.yugen.play.data.local.WatchHistoryDao
 import com.zenx.yugen.play.data.local.WatchHistoryEntity
 import com.zenx.yugen.play.data.remote.AnilistService
@@ -250,7 +252,10 @@ class DetailViewModel @Inject constructor(
         }
     }
 
-    fun showMappingSheet() { _isMappingSheetVisible.value = true }
+    fun showMappingSheet() { 
+        _isMappingSheetVisible.value = true
+        triggerMappingSearch(force = true)
+    }
     fun hideMappingSheet() { _isMappingSheetVisible.value = false }
     fun showSourceSheet() { _isSourceSheetVisible.value = true }
     fun hideSourceSheet() { _isSourceSheetVisible.value = false }
@@ -332,12 +337,13 @@ class DetailViewModel @Inject constructor(
     }
 
     fun searchProviderForMapping(query: String) {
-        _mappingSearchQuery.value = query
+        val cleanQuery = query.replace(Regex("""\(\d{4}\)"""), "").trim()
+        _mappingSearchQuery.value = cleanQuery
         searchJob?.cancel()
 
         searchJob = viewModelScope.launch {
             delay(500)
-            if (query.isBlank()) {
+            if (cleanQuery.isBlank()) {
                 _mappingSearchResults.value = Resource.Success(emptyList())
                 return@launch
             }
@@ -719,11 +725,9 @@ class DetailViewModel @Inject constructor(
 
                     if (streams.isNotEmpty()) {
                         val stream = if (preferDub) {
-                            streams.find { it.serverName?.contains("dub", ignoreCase = true) == true || it.quality.contains("dub", ignoreCase = true) }
-                                ?: streams.first()
+                            streams.find { it.audioTrackType() == AudioTrackType.DUB || it.audioTrackType() == AudioTrackType.HDUB } ?: streams.first()
                         } else {
-                            streams.find { it.serverName?.contains("dub", ignoreCase = true) != true && !it.quality.contains("dub", ignoreCase = true) }
-                                ?: streams.first()
+                            streams.find { it.audioTrackType() != AudioTrackType.DUB && it.audioTrackType() != AudioTrackType.HDUB } ?: streams.first()
                         }
 
                         performEnqueueDownload(ep, stream)
@@ -797,4 +801,5 @@ class DetailViewModel @Inject constructor(
         collectorJob?.cancel()
         loadEpisodesJob?.cancel()
     }
+
 }

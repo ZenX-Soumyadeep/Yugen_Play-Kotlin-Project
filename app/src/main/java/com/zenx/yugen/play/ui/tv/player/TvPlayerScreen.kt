@@ -17,9 +17,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -40,6 +44,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -55,6 +60,9 @@ import kotlinx.coroutines.Job
 import com.zenx.yugen.play.domain.Episode
 import com.zenx.yugen.play.domain.SkipInterval
 import com.zenx.yugen.play.domain.VideoStream
+import com.zenx.yugen.play.domain.AudioTrackType
+import com.zenx.yugen.play.domain.audioTrackType
+import com.zenx.yugen.play.domain.cleanServerName
 import com.zenx.yugen.play.ui.home.AppLoadingIndicator
 import com.zenx.yugen.play.ui.player.PlayerPlaybackProgress
 import com.zenx.yugen.play.ui.player.PlayerUiState
@@ -62,6 +70,7 @@ import com.zenx.yugen.play.ui.player.PlayerViewModel
 import com.zenx.yugen.play.ui.player.VideoResizeMode
 import com.zenx.yugen.play.ui.player.components.PlayerToastOverlay
 import com.zenx.yugen.play.ui.tv.components.tvButtonFocusable
+import com.zenx.yugen.play.util.toAnnotatedString
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -99,8 +108,9 @@ fun TvPlayerScreen(
     var showQualitySheet by remember { mutableStateOf(false) }
     var showSubtitleSheet by remember { mutableStateOf(false) }
     var showSpeedSheet by remember { mutableStateOf(false) }
+    var showEpisodeSheet by remember { mutableStateOf(false) }
 
-    val isAnyPanelVisible = showServerSheet || showQualitySheet || showSubtitleSheet || showSpeedSheet
+    val isAnyPanelVisible = showServerSheet || showQualitySheet || showSubtitleSheet || showSpeedSheet || showEpisodeSheet
     val readyState = uiState as? PlayerUiState.Ready
 
     var currentTimeString by remember { mutableStateOf("") }
@@ -120,6 +130,7 @@ fun TvPlayerScreen(
                 showQualitySheet = false
                 showSubtitleSheet = false
                 showSpeedSheet = false
+                showEpisodeSheet = false
                 coroutineScope.launch {
                     delay(50)
                     try { playPauseFocusRequester.requestFocus() } catch (_: Exception) {}
@@ -173,6 +184,7 @@ fun TvPlayerScreen(
                         showQualitySheet = false
                         showSubtitleSheet = false
                         showSpeedSheet = false
+                        showEpisodeSheet = false
                         coroutineScope.launch {
                             delay(60)
                             try { playPauseFocusRequester.requestFocus() } catch (_: Exception) {}
@@ -302,7 +314,21 @@ fun TvPlayerScreen(
                 }
             }
     ) {
-        var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
+        var currentCues by remember { mutableStateOf<List<androidx.media3.common.text.Cue>>(emptyList()) }
+
+        DisposableEffect(viewModel.player) {
+            val listener = object : androidx.media3.common.Player.Listener {
+                override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
+                    currentCues = cueGroup.cues
+                }
+            }
+            viewModel.player.addListener(listener)
+            onDispose {
+                viewModel.player.removeListener(listener)
+            }
+        }
+
+        var playerViewRef by remember { mutableStateOf<androidx.media3.ui.PlayerView?>(null) }
 
         AndroidView(
             factory = { ctx ->
@@ -325,30 +351,59 @@ fun TvPlayerScreen(
                     else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                 }
 
-                // Hardware accelerated subtitle rendering
-                view.subtitleView?.apply {
-                    visibility = android.view.View.VISIBLE
-                    val scale = (readyState?.subtitleSize ?: 0.053f) / 0.053f
-                    setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * scale)
-
-                    val bgOpacity = readyState?.subtitleBgOpacity ?: 0.4f
-                    val bgColorInt = if (bgOpacity > 0f) android.graphics.Color.argb((bgOpacity * 255).toInt(), 0, 0, 0) else android.graphics.Color.TRANSPARENT
-
-                    setStyle(
-                        CaptionStyleCompat(
-                            android.graphics.Color.WHITE,
-                            bgColorInt,
-                            android.graphics.Color.TRANSPARENT,
-                            CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
-                            android.graphics.Color.BLACK,
-                            Typeface.DEFAULT_BOLD
-                        )
-                    )
+                // Hide native subtitle view
+                if (view.subtitleView?.visibility != android.view.View.GONE) {
+                    view.subtitleView?.visibility = android.view.View.GONE
                 }
             },
             onRelease = { playerViewRef = null },
             modifier = Modifier.fillMaxSize()
         )
+
+        // Subtitle Overlay
+        val scale = (readyState?.subtitleSize ?: 0.053f) / 0.053f
+        val calculatedFontSize = 28.sp * scale // Base size for TV
+        val edgeStyle = readyState?.subtitleEdgeStyle ?: 0
+        val textColor = Color(readyState?.subtitleTextColor ?: 0xFFFFFFFFL)
+        val bgOpacity = readyState?.subtitleBgOpacity ?: 0.4f
+        val bgColor = if (bgOpacity > 0f) Color.Black.copy(alpha = bgOpacity) else Color.Transparent
+
+        val textStyle = when (edgeStyle) {
+            1 -> androidx.compose.ui.text.TextStyle(
+                shadow = androidx.compose.ui.graphics.Shadow(color = Color.Black, blurRadius = 4f)
+            )
+            2 -> androidx.compose.ui.text.TextStyle(
+                shadow = androidx.compose.ui.graphics.Shadow(color = Color.Black, blurRadius = 8f)
+            )
+            else -> androidx.compose.ui.text.TextStyle.Default
+        }
+
+        if (currentCues.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = if (showControls) 140.dp else 48.dp)
+                    .padding(horizontal = 48.dp)
+                    .animateContentSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                currentCues.forEach { cue ->
+                    val text = cue.text?.toAnnotatedString() ?: return@forEach
+                    Text(
+                        text = text,
+                        color = textColor,
+                        fontSize = calculatedFontSize,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        style = textStyle,
+                        modifier = Modifier
+                            .background(bgColor, shape = RoundedCornerShape(8.dp))
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                    )
+                }
+            }
+        }
 
         when (val state = uiState) {
             is PlayerUiState.Loading -> {
@@ -444,6 +499,7 @@ fun TvPlayerScreen(
                         onOpenQualitySheet = { showQualitySheet = true },
                         onOpenSubtitleSheet = { showSubtitleSheet = true },
                         onOpenSpeedSheet = { showSpeedSheet = true },
+                        onOpenEpisodeSheet = { showEpisodeSheet = true },
                         onCycleResize = { viewModel.cycleResizeMode() }
                     )
                 }
@@ -516,7 +572,11 @@ fun TvPlayerScreen(
                             viewModel.selectSubtitleTrack(index)
                             showSubtitleSheet = false
                         },
+                        onSelectStream = { stream ->
+                            viewModel.selectStream(stream)
+                        },
                         onAdjustSize = { size -> viewModel.setSubtitleSize(size) },
+                        onAdjustOpacity = { opacity -> viewModel.setSubtitleBgOpacity(opacity) },
                         onClose = { showSubtitleSheet = false }
                     )
                 }
@@ -529,6 +589,17 @@ fun TvPlayerScreen(
                             showSpeedSheet = false
                         },
                         onClose = { showSpeedSheet = false }
+                    )
+                }
+
+                if (showEpisodeSheet) {
+                    TvEpisodeSidePanel(
+                        state = state,
+                        onSelectEpisode = { ep ->
+                            viewModel.selectEpisode(ep)
+                            showEpisodeSheet = false
+                        },
+                        onClose = { showEpisodeSheet = false }
                     )
                 }
             }
@@ -557,6 +628,7 @@ private fun TvPlayerOverlay(
     onOpenQualitySheet: () -> Unit,
     onOpenSubtitleSheet: () -> Unit,
     onOpenSpeedSheet: () -> Unit,
+    onOpenEpisodeSheet: () -> Unit,
     onCycleResize: () -> Unit
 ) {
     Box(
@@ -926,6 +998,13 @@ private fun TvPlayerOverlay(
                         modifier = Modifier.focusProperties { up = playPauseFocusRequester },
                         onClick = onOpenSpeedSheet
                     )
+                    
+                    TvActionPill(
+                        icon = Icons.Rounded.FormatListNumbered,
+                        label = "Episodes",
+                        modifier = Modifier.focusProperties { up = playPauseFocusRequester },
+                        onClick = onOpenEpisodeSheet
+                    )
                 }
 
                 val resizeLabel = when (state.resizeMode) {
@@ -983,7 +1062,7 @@ private fun TvActionPill(
 
 private data class TvServerGroup(
     val serverName: String,
-    val isDub: Boolean,
+    val badgeText: String,
     val streams: List<VideoStream>,
     val maxResolution: String?
 )
@@ -994,59 +1073,32 @@ private fun TvServerSidePanel(
     onSelectStream: (VideoStream) -> Unit,
     onClose: () -> Unit
 ) {
-    val activeIsDub = remember(state.activeStream) {
-        val s = state.activeStream
-        s?.quality?.contains("dub", ignoreCase = true) == true || s?.serverName?.contains("dub", ignoreCase = true) == true
-    }
-
-    val hasDub = remember(state.streams) {
-        state.streams.any { it.quality.contains("dub", ignoreCase = true) || it.serverName?.contains("dub", ignoreCase = true) == true }
-    }
-    val hasSub = remember(state.streams) {
-        state.streams.any { !it.quality.contains("dub", ignoreCase = true) && it.serverName?.contains("dub", ignoreCase = true) != true }
-    }
-
-    var isDubTab by remember(activeIsDub, hasDub, hasSub) {
-        mutableStateOf(if (hasDub && hasSub) activeIsDub else hasDub && !hasSub)
-    }
-
-    val filteredStreams = remember(state.streams, isDubTab, hasSub, hasDub) {
-        if (hasSub && hasDub) {
-            state.streams.filter {
-                val dub = it.quality.contains("dub", ignoreCase = true) || it.serverName?.contains("dub", ignoreCase = true) == true
-                dub == isDubTab
-            }
-        } else {
-            state.streams
-        }
-    }
-
-    val serverGroups = remember(filteredStreams) {
-        filteredStreams.groupBy { stream ->
-            val rawName = stream.serverName?.takeIf { it.isNotBlank() } ?: stream.quality
-            val cleanServerName = rawName
-                .replace(Regex("\\[?(sub|dub)\\]?", RegexOption.IGNORE_CASE), "")
-                .replace(Regex("\\(.*\\)|\\[.*?\\]"), "")
-                .trim()
-                .ifBlank { "Server" }
-            val isDub = stream.quality.contains("dub", ignoreCase = true) || stream.serverName?.contains("dub", ignoreCase = true) == true
-            cleanServerName to isDub
-        }.map { (key, groupStreams) ->
-            val (cleanName, isDub) = key
+    val serverGroups = remember(state.streams) {
+        state.streams.groupBy { stream ->
+            stream.cleanServerName().ifBlank { "Server" }
+        }.map { (cleanName, groupStreams) ->
+            val trackTypes = groupStreams.map { it.audioTrackType() }.toSet()
+            
+            val validBadges = mutableListOf<String>()
+            if (AudioTrackType.SUB in trackTypes) validBadges.add(AudioTrackType.SUB.badge)
+            if (AudioTrackType.DUB in trackTypes) validBadges.add(AudioTrackType.DUB.badge)
+            if (AudioTrackType.HSUB in trackTypes) validBadges.add(AudioTrackType.HSUB.badge)
+            if (AudioTrackType.HDUB in trackTypes) validBadges.add(AudioTrackType.HDUB.badge)
+            
+            val badge = if (validBadges.size > 1) "Multi" else validBadges.firstOrNull() ?: "SUB"
             val maxRes = groupStreams.mapNotNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() }.maxOrNull()
-            val resLabel = if (maxRes != null && maxRes > 0) "${maxRes}p" else null
+            
             TvServerGroup(
                 serverName = cleanName,
-                isDub = isDub,
+                badgeText = badge,
                 streams = groupStreams,
-                maxResolution = resLabel
+                maxResolution = if (maxRes != null && maxRes > 0) "${maxRes}p" else null
             )
         }
     }
 
-    val selectedGroupIndex = remember(serverGroups, state.activeStream, isDubTab, activeIsDub, hasSub, hasDub) {
+    val selectedGroupIndex = remember(serverGroups, state.activeStream) {
         val currentStream = state.activeStream ?: return@remember -1
-        if (hasSub && hasDub && isDubTab != activeIsDub) return@remember -1
 
         val byRef = serverGroups.indexOfFirst { group -> group.streams.any { it === currentStream } }
         if (byRef != -1) return@remember byRef
@@ -1054,13 +1106,7 @@ private fun TvServerSidePanel(
         val byUrl = serverGroups.indexOfFirst { group -> group.streams.any { it.url == currentStream.url } }
         if (byUrl != -1) return@remember byUrl
 
-        val currentRaw = currentStream.serverName?.takeIf { it.isNotBlank() } ?: currentStream.quality
-        val currentClean = currentRaw
-            .replace(Regex("\\[?(sub|dub)\\]?", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("\\(.*\\)|\\[.*?\\]"), "")
-            .trim()
-            .ifBlank { "Server" }
-        serverGroups.indexOfFirst { it.isDub == activeIsDub && it.serverName.equals(currentClean, ignoreCase = true) }
+        serverGroups.indexOfFirst { group -> group.serverName.equals(currentStream.cleanServerName().ifBlank { "Server" }, ignoreCase = true) }
     }
 
     val panelFocusRequester = remember { FocusRequester() }
@@ -1078,7 +1124,7 @@ private fun TvServerSidePanel(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.6f))
-                .clickable(onClick = onClose)
+                .pointerInput(Unit) { detectTapGestures { onClose() } }
         )
 
         Column(
@@ -1115,43 +1161,6 @@ private fun TvServerSidePanel(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (hasSub && hasDub) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .tvButtonFocusable(
-                                onClick = { isDubTab = false },
-                                shape = RoundedCornerShape(10.dp),
-                                focusedBackgroundColor = AccentPurple,
-                                unfocusedBackgroundColor = if (!isDubTab) AccentPurple.copy(alpha = 0.8f) else ItemBg,
-                                focusedBorderColor = Color.White
-                            )
-                            .padding(vertical = 9.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("SUB", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .tvButtonFocusable(
-                                onClick = { isDubTab = true },
-                                shape = RoundedCornerShape(10.dp),
-                                focusedBackgroundColor = AccentPurple,
-                                unfocusedBackgroundColor = if (isDubTab) AccentPurple.copy(alpha = 0.8f) else ItemBg,
-                                focusedBorderColor = Color.White
-                            )
-                            .padding(vertical = 9.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("DUB", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1159,7 +1168,7 @@ private fun TvServerSidePanel(
                 if (serverGroups.isEmpty()) {
                     item {
                         Text(
-                            "No ${if (isDubTab) "DUB" else "SUB"} servers available.",
+                            "No servers available.",
                             color = Color.White.copy(alpha = 0.6f),
                             fontSize = 13.sp
                         )
@@ -1185,13 +1194,18 @@ private fun TvServerSidePanel(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Column {
-                                Text(
-                                    text = group.serverName,
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                )
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = group.serverName,
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
                                 if (!group.maxResolution.isNullOrBlank()) {
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
@@ -1200,8 +1214,24 @@ private fun TvServerSidePanel(
                                         fontSize = 11.sp
                                     )
                                 }
+                                }
+                                
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(if (isSelected) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = group.badgeText,
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                             if (isSelected) {
+                                Spacer(modifier = Modifier.width(12.dp))
                                 Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(20.dp))
                             }
                         }
@@ -1233,7 +1263,7 @@ private fun TvQualitySidePanel(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.6f))
-                .clickable(onClick = onClose)
+                .pointerInput(Unit) { detectTapGestures { onClose() } }
         )
 
         Column(
@@ -1346,13 +1376,28 @@ private fun TvQualitySidePanel(
 private fun TvSubtitleSidePanel(
     state: PlayerUiState.Ready,
     onSelectSubtitle: (Int) -> Unit,
+    onSelectStream: (VideoStream) -> Unit,
     onAdjustSize: (Float) -> Unit,
+    onAdjustOpacity: (Float) -> Unit,
     onClose: () -> Unit
 ) {
     val panelFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         delay(100)
         try { panelFocusRequester.requestFocus() } catch (_: Exception) {}
+    }
+
+    val activeStream = state.activeStream
+    val audioOptions = remember(state.streams, activeStream) {
+        if (activeStream != null) {
+            val currentClean = activeStream.cleanServerName()
+            val currentServerStreams = state.streams.filter { s ->
+                s.cleanServerName().equals(currentClean, ignoreCase = true)
+            }
+            currentServerStreams.groupBy { it.audioTrackType() }
+        } else {
+            emptyMap()
+        }
     }
 
     Box(
@@ -1364,7 +1409,7 @@ private fun TvSubtitleSidePanel(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.6f))
-                .clickable(onClick = onClose)
+                .pointerInput(Unit) { detectTapGestures { onClose() } }
         )
 
         Column(
@@ -1401,35 +1446,70 @@ private fun TvSubtitleSidePanel(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text("Size", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Small" to 0.045f, "Medium" to 0.055f, "Large" to 0.070f).forEach { (label, size) ->
-                    val isCur = kotlin.math.abs(state.subtitleSize - size) < 0.005f
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .tvButtonFocusable(
-                                onClick = { onAdjustSize(size) },
-                                shape = RoundedCornerShape(8.dp),
-                                focusedBackgroundColor = AccentPurple,
-                                unfocusedBackgroundColor = if (isCur) AccentPurple.copy(alpha = 0.7f) else ItemBg,
-                                focusedBorderColor = Color.White
-                            )
-                            .padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                if (activeStream != null && (audioOptions.size > 1 || audioOptions.keys.firstOrNull() != null)) {
+                    item {
+                        Text(
+                            "AUDIO TRACKS",
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(bottom = 2.dp, top = 8.dp)
+                        )
+                    }
+
+                    val currentCategory = activeStream.audioTrackType()
+
+                    audioOptions.forEach { (type, streams) ->
+                        item {
+                            val isSelected = type == currentCategory
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .tvButtonFocusable(
+                                        onClick = {
+                                            if (type != currentCategory) {
+                                                val chosenStream = streams.maxByOrNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() ?: 0 } ?: streams.first()
+                                                onSelectStream(chosenStream)
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        focusedBackgroundColor = AccentPurple,
+                                        unfocusedBackgroundColor = if (isSelected) AccentPurple.copy(alpha = 0.25f) else ItemBg,
+                                        focusedBorderColor = Color.White
+                                    )
+                                    .padding(horizontal = 16.dp, vertical = 13.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(type.label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                if (isSelected) {
+                                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = GlassBorder, modifier = Modifier.padding(vertical = 4.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                }
+
+                item {
+                    Text(
+                        "SUBTITLE TRACKS",
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
+                }
+                
                 item {
                     val isOff = state.selectedSubtitleIndex == -1
                     Row(
@@ -1469,14 +1549,71 @@ private fun TvSubtitleSidePanel(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
+                        val locale = java.util.Locale(track.language)
+                        val displayLang = locale.displayLanguage.ifBlank { track.language }.let {
+                            if (it.length <= 3) java.util.Locale(it).displayLanguage.ifBlank { it } else it
+                        }.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
+                        
                         Text(
-                            text = track.language,
+                            text = displayLang,
                             color = Color.White,
                             fontSize = 14.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                         )
                         if (isSelected) {
                             Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+                
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("SUBTITLE SIZE", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("Small" to 0.045f, "Medium" to 0.055f, "Large" to 0.070f).forEach { (label, size) ->
+                            val isCur = kotlin.math.abs(state.subtitleSize - size) < 0.005f
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .tvButtonFocusable(
+                                        onClick = { onAdjustSize(size) },
+                                        shape = RoundedCornerShape(8.dp),
+                                        focusedBackgroundColor = AccentPurple,
+                                        unfocusedBackgroundColor = if (isCur) AccentPurple.copy(alpha = 0.7f) else ItemBg,
+                                        focusedBorderColor = Color.White
+                                    )
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+                
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("BACKGROUND BOX", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("None" to 0f, "Light" to 0.4f, "Dark" to 0.75f).forEach { (label, opacity) ->
+                            val isCur = kotlin.math.abs(state.subtitleBgOpacity - opacity) < 0.05f
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .tvButtonFocusable(
+                                        onClick = { onAdjustOpacity(opacity) },
+                                        shape = RoundedCornerShape(8.dp),
+                                        focusedBackgroundColor = AccentPurple,
+                                        unfocusedBackgroundColor = if (isCur) AccentPurple.copy(alpha = 0.7f) else ItemBg,
+                                        focusedBorderColor = Color.White
+                                    )
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
@@ -1507,7 +1644,7 @@ private fun TvSpeedSidePanel(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.6f))
-                .clickable(onClick = onClose)
+                .pointerInput(Unit) { detectTapGestures { onClose() } }
         )
 
         Column(
@@ -1760,6 +1897,149 @@ private fun TvSkipIntroOverlay(
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold
                 )
+            }
+        }
+    }
+}
+@Composable
+private fun TvEpisodeSidePanel(
+    state: PlayerUiState.Ready,
+    onSelectEpisode: (com.zenx.yugen.play.domain.Episode) -> Unit,
+    onClose: () -> Unit
+) {
+    val panelFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        delay(100)
+        try { panelFocusRequester.requestFocus() } catch (_: Exception) {}
+    }
+    
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    
+    LaunchedEffect(state.currentEpisodeId, state.episodes) {
+        val index = state.episodes.indexOfFirst { it.id == state.currentEpisodeId }
+        if (index >= 0) {
+            listState.scrollToItem(index)
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(100f)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .pointerInput(Unit) { detectTapGestures { onClose() } }
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(440.dp)
+                .align(Alignment.CenterEnd)
+                .background(DarkSurface)
+                .border(1.dp, GlassBorder)
+                .padding(24.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Episodes", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Box(
+                    modifier = Modifier
+                        .focusRequester(panelFocusRequester)
+                        .tvButtonFocusable(
+                            onClick = onClose,
+                            shape = CircleShape,
+                            focusedBackgroundColor = AccentPurple,
+                            unfocusedBackgroundColor = Color.White.copy(alpha = 0.15f),
+                            focusedBorderColor = Color.White
+                        )
+                        .size(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                itemsIndexed(state.episodes, key = { _, ep -> ep.id }) { _, ep ->
+                    val isSelected = ep.id == state.currentEpisodeId
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .tvButtonFocusable(
+                                onClick = { onSelectEpisode(ep) },
+                                shape = RoundedCornerShape(12.dp),
+                                focusedBackgroundColor = AccentPurple,
+                                unfocusedBackgroundColor = if (isSelected) AccentPurple.copy(alpha = 0.25f) else ItemBg,
+                                focusedBorderColor = Color.White
+                            )
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        val imageUrl = ep.thumbnail
+                        if (!imageUrl.isNullOrBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 100.dp, height = 56.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.Black.copy(alpha = 0.5f))
+                            ) {
+                                coil.compose.AsyncImage(
+                                    model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                                        .data(imageUrl)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = "Thumbnail",
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            val formattedNum = if (ep.number % 1.0 == 0.0) ep.number.toInt().toString() else ep.number.toString()
+                            val epNumStr = if (ep.number > 0) "Episode $formattedNum" else "Episode ?"
+                            
+                            val displayTitle = if (ep.title.isNotBlank() && !ep.title.lowercase().startsWith("episode ")) ep.title else epNumStr
+                            
+                            Text(
+                                text = displayTitle,
+                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.9f),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                modifier = Modifier.basicMarquee()
+                            )
+                            
+                            if (displayTitle != epNumStr) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = epNumStr,
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    fontSize = 12.sp,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                        
+                        if (isSelected) {
+                            Icon(Icons.Rounded.PlayArrow, contentDescription = "Playing", tint = AccentPurple, modifier = Modifier.size(24.dp))
+                        }
+                    }
+                }
             }
         }
     }

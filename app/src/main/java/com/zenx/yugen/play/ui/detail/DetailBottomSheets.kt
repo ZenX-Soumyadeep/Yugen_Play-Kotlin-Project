@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -579,7 +580,42 @@ fun BatchDownloadBottomSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            // Episodes Pagination
+            var selectedChunkIndex by remember { mutableIntStateOf(0) }
+            val chunkSize = 50
+            val chunks = remember(allEpisodes) { allEpisodes.chunked(chunkSize) }
+
+            if (chunks.size > 1) {
+                ScrollableTabRow(
+                    selectedTabIndex = selectedChunkIndex,
+                    containerColor = Color.Transparent,
+                    contentColor = accentPurple,
+                    edgePadding = 0.dp,
+                    indicator = { tabPositions ->
+                        if (selectedChunkIndex < tabPositions.size) {
+                            TabRowDefaults.Indicator(
+                                Modifier.tabIndicatorOffset(tabPositions[selectedChunkIndex]),
+                                color = accentPurple
+                            )
+                        }
+                    },
+                    divider = {},
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                ) {
+                    chunks.forEachIndexed { index, chunk ->
+                        val firstEp = chunk.first().number.toInt()
+                        val lastEp = chunk.last().number.toInt()
+                        Tab(
+                            selected = selectedChunkIndex == index,
+                            onClick = { selectedChunkIndex = index },
+                            text = { Text("EP $firstEp-$lastEp", color = if (selectedChunkIndex == index) Color.White else Color.LightGray, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                        )
+                    }
+                }
+            }
+
             // Episodes List
+            val currentChunk = if (chunks.isNotEmpty()) chunks[selectedChunkIndex] else emptyList()
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -587,7 +623,7 @@ fun BatchDownloadBottomSheet(
                     .nestedScroll(stopNestedScrollConnection),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(allEpisodes, key = { it.id }) { ep ->
+                items(currentChunk, key = { it.id }) { ep ->
                     val isDownloaded = ep.downloadState == DownloadState.COMPLETED
                     val isDownloading = ep.downloadState == DownloadState.DOWNLOADING || ep.isPreparing
                     val isSelected = selectedIds.contains(ep.id)
@@ -655,7 +691,14 @@ fun BatchDownloadBottomSheet(
                         Column(modifier = Modifier.weight(1f)) {
                             // Added basicMarquee modifier here as well for long episode titles
                             Text(
-                                text = "EP ${ep.number} • ${ep.title}",
+                                text = run {
+                                    val raw = ep.title.trim()
+                                    val isRedundant = raw.isBlank() || Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?$", RegexOption.IGNORE_CASE).matches(raw)
+                                    val hasPrefix = Regex("^(Episode|Ep\\.?|EP)\\s*\\d+\\b", RegexOption.IGNORE_CASE).containsMatchIn(raw) || raw.startsWith("${ep.number.toInt()}")
+                                    if (isRedundant) "EP ${ep.number.toInt()}"
+                                    else if (hasPrefix) raw
+                                    else "EP ${ep.number.toInt()} • $raw"
+                                },
                                 color = if (isDownloaded) Color.White.copy(alpha = 0.5f) else Color.White,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,

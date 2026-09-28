@@ -401,7 +401,14 @@ fun EpisodeItemRow(
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "${ep.number}. ${ep.title}",
+                text = run {
+                    val raw = ep.title.trim()
+                    val isRedundant = raw.isBlank() || Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?$", RegexOption.IGNORE_CASE).matches(raw)
+                    val hasPrefix = Regex("^(Episode|Ep\\.?|EP)\\s*\\d+\\b", RegexOption.IGNORE_CASE).containsMatchIn(raw) || raw.startsWith("${ep.number.toInt()}")
+                    if (isRedundant) "${ep.number.toInt()}."
+                    else if (hasPrefix) raw
+                    else "${ep.number.toInt()}. $raw"
+                },
                 color = titleColor,
                 fontSize = 14.5.sp,
                 fontWeight = FontWeight.Bold,

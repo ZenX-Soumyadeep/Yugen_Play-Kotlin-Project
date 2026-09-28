@@ -302,7 +302,12 @@ fun TvCalendarScreen(
 
                         rawFiltered
                             .filter { it.airingAt in startUnix..endUnix }
-                            .sortedBy { it.airingAt }
+                            .sortedWith(
+                                compareByDescending<AiringAnimeItem> {
+                                    state.bookmarkedMediaIds.contains(it.id) ||
+                                            state.bookmarkedTitles.contains(viewModel.normalizeTitleForComparison(it.title))
+                                }.thenBy { it.airingAt }
+                            )
                     }
 
                     if (dayAnime.isEmpty()) {
@@ -361,7 +366,12 @@ fun TvCalendarScreen(
                     )
                     val groupedByDay = remember(rawFiltered) {
                         val cal = Calendar.getInstance()
-                        val sorted = rawFiltered.sortedBy { it.airingAt }
+                        val sorted = rawFiltered.sortedWith(
+                            compareByDescending<AiringAnimeItem> {
+                                state.bookmarkedMediaIds.contains(it.id) ||
+                                        state.bookmarkedTitles.contains(viewModel.normalizeTitleForComparison(it.title))
+                            }.thenBy { it.airingAt }
+                        )
                         dayOrder.mapNotNull { dayKey ->
                             val items = sorted.filter { item ->
                                 cal.timeInMillis = item.airingAt * 1000L

@@ -222,3 +222,28 @@ data class SkipInterval(
     val endTime: Double,
     val type: String
 )
+enum class AudioTrackType(val label: String, val badge: String) {
+    SUB("Japanese (Sub)", "SUB"),
+    DUB("English (Dub)", "DUB"),
+    HSUB("Hardsub", "HSUB"),
+    HDUB("Hindi (Dub)", "HDUB")
+}
+
+fun VideoStream.audioTrackType(): AudioTrackType {
+    val q = quality.uppercase()
+    val n = (serverName ?: "").uppercase()
+    val u = url.uppercase()
+    return when {
+        q.contains("HDUB") || n.contains("HDUB") || u.contains("/HDUB/") -> AudioTrackType.HDUB
+        q.contains("HSUB") || n.contains("HSUB") || q.contains("HARDSUB") || n.contains("HARDSUB") || u.contains("/HSUB/") -> AudioTrackType.HSUB
+        q.contains("DUB") || n.contains("DUB") || u.contains("/DUB/") -> AudioTrackType.DUB
+        else -> AudioTrackType.SUB
+    }
+}
+
+fun VideoStream.cleanServerName(): String {
+    val rawName = serverName?.takeIf { it.isNotBlank() } ?: quality
+    return rawName.replace(Regex("\\[?(sub|dub|hsub|hardsub|hdub)\\]?", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("\\(.*?\\)|\\[.*?\\]"), "")
+        .trim()
+}

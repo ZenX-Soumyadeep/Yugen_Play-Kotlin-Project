@@ -268,7 +268,12 @@ fun CalendarScreen(
 
                         state.data
                             .filter { it.airingAt in startOfDayUnix..endOfDayUnix }
-                            .sortedBy { it.airingAt }
+                            .sortedWith(
+                                compareByDescending<AiringAnimeItem> {
+                                    state.bookmarkedMediaIds.contains(it.id) ||
+                                            state.bookmarkedTitles.contains(viewModel.normalizeTitleForComparison(it.title))
+                                }.thenBy { it.airingAt }
+                            )
                     }
 
                     if (filteredAnime.isEmpty()) {

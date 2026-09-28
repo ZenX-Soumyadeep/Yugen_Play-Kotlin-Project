@@ -6,5 +6,5 @@
         <domain includeSubdomains="false">localhost</domain>
     </domain-config>
 
-    <base-config cleartextTrafficPermitted="false" />
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

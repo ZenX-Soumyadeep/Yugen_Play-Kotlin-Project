@@ -13,6 +13,8 @@ import androidx.media3.exoplayer.SeekParameters
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.scopes.ViewModelScoped
 import javax.inject.Inject
+import android.media.audiofx.LoudnessEnhancer
+import android.util.Log
 
 @OptIn(UnstableApi::class)
 @ViewModelScoped
@@ -21,18 +23,23 @@ class PlayerEngine @Inject constructor(
     private val downloadCache: Cache
 ) {
     val exoPlayer: ExoPlayer
+    private var loudnessEnhancer: LoudnessEnhancer? = null
 
     @Volatile
     private var isReleased = false
 
     init {
+        val uiModeManager = context.getSystemService(Context.UI_MODE_SERVICE) as android.app.UiModeManager
+        val isTv = uiModeManager.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+
         val robustLoadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 60_000,
+                /* minBufferMs = */ if (isTv) 90_000 else 60_000,
                 /* maxBufferMs = */ 180_000,
-                /* bufferForPlaybackMs = */ 2_500,
-                /* bufferForPlaybackAfterRebufferMs = */ 5_000
+                /* bufferForPlaybackMs = */ if (isTv) 5_000 else 2_500,
+                /* bufferForPlaybackAfterRebufferMs = */ if (isTv) 15_000 else 5_000
             )
+            .setTargetBufferBytes(if (isTv) C.LENGTH_UNSET else DefaultLoadControl.DEFAULT_TARGET_BUFFER_BYTES)
             .setBackBuffer(/* backBufferDurationMs = */ 60_000, /* retainBackBufferFromKeyframe = */ true)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
@@ -60,11 +67,23 @@ class PlayerEngine @Inject constructor(
                     .setSelectUndeterminedTextLanguage(true)
                     .build()
             }
+            
+        // Attach Loudness Enhancer for VLC-like volume boost capability
+        try {
+            loudnessEnhancer = LoudnessEnhancer(exoPlayer.audioSessionId).apply {
+                setTargetGain(1500) // 15dB boost (similar to VLC's 200%)
+                enabled = true
+            }
+        } catch (e: Exception) {
+            Log.e("PlayerEngine", "Failed to initialize LoudnessEnhancer", e)
+        }
     }
 
     fun release() {
         if (isReleased) return
         isReleased = true
+        loudnessEnhancer?.release()
+        loudnessEnhancer = null
         exoPlayer.playWhenReady = false
         exoPlayer.stop()
         exoPlayer.clearMediaItems()

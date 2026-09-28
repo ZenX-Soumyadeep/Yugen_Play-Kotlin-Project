@@ -48,6 +48,8 @@ import com.zenx.yugen.play.domain.Resource
 import com.zenx.yugen.play.domain.SkipInterval
 import com.zenx.yugen.play.domain.Subtitle
 import com.zenx.yugen.play.domain.VideoStream
+import com.zenx.yugen.play.domain.AudioTrackType
+import com.zenx.yugen.play.domain.audioTrackType
 import com.zenx.yugen.play.domain.usecase.GetAnimeDetailsUseCase
 import com.zenx.yugen.play.domain.usecase.GetEpisodesUseCase
 import com.zenx.yugen.play.domain.usecase.GetVideoStreamsUseCase
@@ -238,7 +240,7 @@ class PlayerViewModel @Inject constructor(
     private var savedPlaybackSpeed: Float = PlayerPreferences.DEFAULT_PLAYBACK_SPEED
     private var savedSeekDurationSec: Int = PlayerPreferences.DEFAULT_SEEK_DURATION_SEC
     private var savedAutoPlayNext: Boolean = PlayerPreferences.DEFAULT_AUTO_PLAY_NEXT
-    private var savedPreferDub: Boolean = PlayerPreferences.DEFAULT_PREFER_DUB
+
 
     companion object {
         var activeMediaSession: MediaSession? = null
@@ -447,27 +449,52 @@ class PlayerViewModel @Inject constructor(
                 ?: getActivePlayer().currentPosition.takeIf { it > 0L }
                 ?: 0L
 
-            if (state.streams.size > 1 && currentStreamIndex < state.streams.size - 1) {
-                currentStreamIndex++
-                streamRetryCount = 0
-                val nextStream = state.streams[currentStreamIndex]
-                showTransientWarning("Server died. Switching to backup...")
-
-                if (skipIntervals.isEmpty() && nextStream.skipIntervals.isNotEmpty()) {
-                    skipIntervals = nextStream.skipIntervals
-                }
-
-                updateReadyState {
-                    it.copy(
-                        activeStream = nextStream,
-                        skipIntervals = skipIntervals,
-                        isServerSheetVisible = false,
-                        isBuffering = true,
-                        isPlaying = false
-                    )
-                }
-                playStream(nextStream, startPositionMs = lastValidPos)
+            val currentStream = state.activeStream
+            if (streamRetryCount < 2 && currentStream != null) {
+                streamRetryCount++
+                showTransientWarning("Playback failed. Retrying... ($streamRetryCount/2)")
+                updateReadyState { it.copy(isBuffering = true, isPlaying = false) }
+                playStream(currentStream, startPositionMs = lastValidPos)
                 return
+            }
+
+            if (state.streams.size > 1) {
+                streamRetryCount = 0
+                val currentType = currentStream?.audioTrackType()
+                
+                var nextStreamIdx = -1
+                for (i in currentStreamIndex + 1 until state.streams.size) {
+                    if (state.streams[i].audioTrackType() == currentType) {
+                        nextStreamIdx = i
+                        break
+                    }
+                }
+                
+                if (nextStreamIdx == -1 && currentStreamIndex < state.streams.size - 1) {
+                    nextStreamIdx = currentStreamIndex + 1
+                }
+
+                if (nextStreamIdx != -1) {
+                    currentStreamIndex = nextStreamIdx
+                    val nextStream = state.streams[currentStreamIndex]
+                    showTransientWarning("Server died. Switching to backup...")
+
+                    if (skipIntervals.isEmpty() && nextStream.skipIntervals.isNotEmpty()) {
+                        skipIntervals = nextStream.skipIntervals
+                    }
+
+                    updateReadyState {
+                        it.copy(
+                            activeStream = nextStream,
+                            skipIntervals = skipIntervals,
+                            isServerSheetVisible = false,
+                            isBuffering = true,
+                            isPlaying = false
+                        )
+                    }
+                    playStream(nextStream, startPositionMs = lastValidPos)
+                    return
+                }
             }
 
             playerEngine.exoPlayer.pause()
@@ -551,7 +578,6 @@ class PlayerViewModel @Inject constructor(
             savedPlaybackSpeed     = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_PLAYBACK_SPEED] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_PLAYBACK_SPEED
             savedSeekDurationSec   = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_SEEK_DURATION_SEC] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_SEEK_DURATION_SEC
             savedAutoPlayNext      = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_AUTO_PLAY_NEXT] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_AUTO_PLAY_NEXT
-            savedPreferDub         = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_PREFER_DUB] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_PREFER_DUB
 
             updateReadyState {
                 it.copy(
@@ -724,7 +750,7 @@ class PlayerViewModel @Inject constructor(
         if (targetPlayer === playerEngine.exoPlayer) {
             // Uses OkHttp to enforce JunkBytesInterceptor stripping CDN garbage bytes
             val httpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-                .setUserAgent(stream.headers["User-Agent"] ?: "Mozilla/5.0")
+                .setUserAgent(stream.headers["User-Agent"] ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 .setDefaultRequestProperties(stream.headers)
 
             val resolvingDataSourceFactory = ResolvingDataSource.Factory(httpDataSourceFactory) { dataSpec ->
@@ -974,11 +1000,12 @@ class PlayerViewModel @Inject constructor(
                             val targetBase = targetStreamUrl.substringBefore("?")
                             streams.find { it.url.substringBefore("?") == targetBase } ?: streams.firstOrNull()
                         } else {
-                            if (savedPreferDub) {
-                                streams.find { it.serverName?.contains("dub", ignoreCase = true) == true || it.quality.contains("dub", ignoreCase = true) }
+                            val preferDub = playerPreferences.preferDub.first()
+                            if (preferDub) {
+                                streams.find { it.audioTrackType() == AudioTrackType.DUB || it.audioTrackType() == AudioTrackType.HDUB }
                                     ?: streams.firstOrNull()
                             } else {
-                                streams.find { it.serverName?.contains("dub", ignoreCase = true) != true && !it.quality.contains("dub", ignoreCase = true) }
+                                streams.find { it.audioTrackType() == AudioTrackType.SUB || it.audioTrackType() == AudioTrackType.HSUB }
                                     ?: streams.firstOrNull()
                             }
                         }
@@ -1243,10 +1270,10 @@ class PlayerViewModel @Inject constructor(
         currentStreamIndex = state.streams.indexOf(stream).coerceAtLeast(0)
         streamRetryCount = 0
 
-        val isDub = stream.serverName?.contains("dub", ignoreCase = true) == true || stream.quality.contains("dub", ignoreCase = true)
-        if (savedPreferDub != isDub) {
-            savedPreferDub = isDub
-            viewModelScope.launch {
+        val isDub = stream.audioTrackType() == AudioTrackType.DUB || stream.audioTrackType() == AudioTrackType.HDUB
+        viewModelScope.launch {
+            val oldPref = playerPreferences.preferDub.first()
+            if (oldPref != isDub) {
                 playerPreferences.setPreferDub(isDub)
             }
         }

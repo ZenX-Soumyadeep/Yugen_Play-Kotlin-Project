@@ -18,7 +18,17 @@ class ProviderSearchRepository @Inject constructor(
 
                 val results = provider.search(query)
                 if (results.isNotEmpty()) {
-                    Resource.Success(results)
+                    val normalizedQuery = com.zenx.yugen.play.util.StringUtils.normalizeTitleForComparison(query)
+                    val sortedResults = results.sortedByDescending { result ->
+                        val resultTitle = com.zenx.yugen.play.util.StringUtils.normalizeTitleForComparison(result.title)
+                        when {
+                            resultTitle == normalizedQuery -> 100
+                            resultTitle.contains(normalizedQuery) -> 50
+                            normalizedQuery.contains(resultTitle) -> 25
+                            else -> 0
+                        }
+                    }
+                    Resource.Success(sortedResults)
                 } else {
                     Resource.Error("No results found for '$query' on $providerName.")
                 }
