@@ -203,43 +203,59 @@ object ReleaseNotesParser {
     fun fallbackReleaseNotes(version: String): ReleaseNotes {
         return ReleaseNotes(
             version = version,
-            overview = "A critical hotfix and UX polish update addressing playback segment loading across Mobile and Android TV, integrating updated MegaPlay stream token signatures, and improving bottom bar reachability.",
+            overview = "A major UI/UX redesign and design system overhaul across all 19 Phone and Android TV screens, introducing unified dark cinematic theme tokens, enhanced playback controls, timeline schedule navigation, and refined D-pad TV ergonomics.",
             sections = listOf(
                 ReleaseSection(
-                    title = "🎬 Critical Playback & Scraper Fixes",
-                    category = ReleaseCategory.PLAYBACK,
+                    title = "🎨 Complete UI/UX & Design System Overhaul",
+                    category = ReleaseCategory.UI_UX,
                     items = listOf(
                         ReleaseItem(
-                            title = "Resolved Segment 404 Playback Failures",
+                            title = "Unified Dark Cinematic Theme Tokens",
                             bullets = listOf(
-                                "Fixed an issue where HLS media segment requests were incorrectly rewritten to an index-only host, causing immediate 404 playback errors.",
-                                "Preserved direct authoritative segment routing (bb.akirax.buzz), restoring instant video playback across both Phone and Android TV."
+                                "Eliminated hundreds of raw color definitions in favor of unified design tokens (YugenBackground, YugenCardSurface, YugenPurple, YugenAccentViolet, YugenTvOutroCyan).",
+                                "Harmonized typography, rounded surfaces, glassmorphism borders, and elevation tokens across every screen."
                             ),
-                            category = ReleaseCategory.PLAYBACK,
-                            tag = "Playback"
+                            category = ReleaseCategory.UI_UX,
+                            tag = "Design System"
                         ),
                         ReleaseItem(
-                            title = "MegaPlay HMAC-SHA256 Token Signing",
+                            title = "Full Suite of Redesigned Screens (19 Modules)",
                             bullets = listOf(
-                                "Synced with the latest Anikoto updates by adding HMAC-SHA256 signature verification for decrypted MegaPlay streams, preventing token expiration."
+                                "Redesigned Phone suite: Home, Detail, Player HUD & Side Panels, Search with Genre Filters, Library, Schedule Timeline, Downloads, Settings, and Profile.",
+                                "Redesigned Android TV suite: Cinematic Billboard Home, TV Detail, TV Leanback Player, TV Search, TV Library, TV Calendar, TV Settings, and TV Profile."
                             ),
-                            category = ReleaseCategory.PLAYBACK,
-                            tag = "Scraper"
+                            category = ReleaseCategory.UI_UX,
+                            tag = "UI & UX"
                         )
                     )
                 ),
                 ReleaseSection(
-                    title = "📱 UI & Ergonomics",
-                    category = ReleaseCategory.UI_UX,
+                    title = "📺 Android TV 10-Foot Ergonomics",
+                    category = ReleaseCategory.TV,
                     items = listOf(
                         ReleaseItem(
-                            title = "Thumb-Sized Floating Bottom Bar",
+                            title = "D-Pad Focus Traversal & Safety Delays",
                             bullets = listOf(
-                                "Increased touch target height from 42dp to 52dp for effortless one-handed thumb interaction.",
-                                "Increased icon size to 24dp and optimized vertical padding (11dp) while maintaining the compact horizontal pill width."
+                                "Standardized TV overscan margins (48dp H, 32dp V) and seamless Navigation Rail expansion.",
+                                "Added focus trap delays on deletion and confirmation dialogs to prevent accidental remote trigger upon releasing long-press."
                             ),
-                            category = ReleaseCategory.UI_UX,
-                            tag = "UI & UX"
+                            category = ReleaseCategory.TV,
+                            tag = "Android TV"
+                        )
+                    )
+                ),
+                ReleaseSection(
+                    title = "⚡ Schedule, Search & Performance Enhancements",
+                    category = ReleaseCategory.HIGHLIGHTS,
+                    items = listOf(
+                        ReleaseItem(
+                            title = "Schedule Timeline & Donghua Filter",
+                            bullets = listOf(
+                                "Added quick filter toggle between Japanese Anime and Chinese Donghua releases on both Phone and Android TV.",
+                                "Visual bookmark indicators prioritize user's AniList and local favorites in broadcast schedules."
+                            ),
+                            category = ReleaseCategory.HIGHLIGHTS,
+                            tag = "Features"
                         )
                     )
                 )
