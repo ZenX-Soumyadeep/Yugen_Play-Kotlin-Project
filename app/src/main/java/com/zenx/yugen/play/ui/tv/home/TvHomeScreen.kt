@@ -774,7 +774,7 @@ private fun TvHomeContent(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Remove '${target.animeTitle}' from your continue watching? Your saved progress will be deleted.",
+                        text = "Remove '${target.animeTitle}' from your continue watching list? Your watch history in Library and episodes will be preserved.",
                         color = Color.White.copy(alpha = 0.7f),
                         fontSize = 13.5.sp,
                         textAlign = TextAlign.Center
@@ -818,7 +818,7 @@ private fun TvHomeContent(
                                 .padding(vertical = 12.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("Delete", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                            Text("Remove", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

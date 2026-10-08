@@ -601,7 +601,8 @@ private fun TvScheduleCard(
                     focusedBorderColor = YugenPurple,
                     focusedBorderWidth = 3.dp
                 )
-                .background(YugenCardSurface, YugenShape.card)
+                .background(com.zenx.yugen.play.ui.theme.YugenGlassSurface, YugenShape.card)
+                .border(1.dp, com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush, YugenShape.card)
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)

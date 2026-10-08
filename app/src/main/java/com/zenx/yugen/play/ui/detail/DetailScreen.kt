@@ -125,11 +125,11 @@ fun DetailScreen(
                             // Source Provider Selector Pill
                             Row(
                                 modifier = Modifier
-                                    .clip(YugenShape.card)
-                                    .background(YugenCardSurface)
-                                    .border(1.dp, YugenOverlayMedium, YugenShape.card)
+                                    .clip(YugenShape.pill)
+                                    .background(YugenGlassSurface)
+                                    .border(1.dp, YugenGlassBorderBrush, YugenShape.pill)
                                     .bounceClick { viewModel.showSourceSheet() }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -156,17 +156,17 @@ fun DetailScreen(
 
                             // Title Match Status Pill
                             val mapBtnColor = if (state.isMapped) StarYellow else TextSecondary
-                            val mapBgColor = if (state.isMapped) StarYellow.copy(alpha = 0.12f) else YugenCardSurface
-                            val mapBorderColor = if (state.isMapped) StarYellow.copy(alpha = 0.45f) else YugenOverlayMedium
+                            val mapBgColor = if (state.isMapped) StarYellow.copy(alpha = 0.12f) else YugenGlassSurface
+                            val mapBorderBrush = if (state.isMapped) Brush.verticalGradient(listOf(StarYellow.copy(alpha = 0.6f), StarYellow.copy(alpha = 0.25f))) else YugenGlassBorderBrush
                             Row(
                                 modifier = Modifier
-                                    .clip(YugenShape.card)
+                                    .clip(YugenShape.pill)
                                     .background(mapBgColor)
-                                    .border(1.dp, mapBorderColor, YugenShape.card)
+                                    .border(1.dp, mapBorderBrush, YugenShape.pill)
                                     .bounceClick {
                                         if (state.isMapped) viewModel.clearTitleMapping() else viewModel.showMappingSheet()
                                     }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -217,9 +217,9 @@ fun DetailScreen(
                                     if (episodeChunks.isNotEmpty()) {
                                         Row(
                                             modifier = Modifier
-                                                .clip(YugenShape.sm)
-                                                .background(YugenOverlayLight)
-                                                .border(1.dp, YugenOverlayMedium, YugenShape.sm)
+                                                .clip(YugenShape.pill)
+                                                .background(YugenGlassSurfaceLight)
+                                                .border(1.dp, YugenGlassBorderBrush, YugenShape.pill)
                                                 .bounceClick { viewModel.showBatchDownloadSheet() }
                                                 .padding(horizontal = 12.dp, vertical = 6.dp),
                                             verticalAlignment = Alignment.CenterVertically,
@@ -241,9 +241,9 @@ fun DetailScreen(
                                     }
                                     Row(
                                         modifier = Modifier
-                                            .clip(YugenShape.sm)
-                                            .background(YugenOverlayLight)
-                                            .border(1.dp, YugenOverlayMedium, YugenShape.sm)
+                                            .clip(YugenShape.pill)
+                                            .background(YugenGlassSurfaceLight)
+                                            .border(1.dp, YugenGlassBorderBrush, YugenShape.pill)
                                             .bounceClick { onDownloadsClick() }
                                             .padding(horizontal = 12.dp, vertical = 6.dp),
                                         verticalAlignment = Alignment.CenterVertically,
@@ -278,12 +278,12 @@ fun DetailScreen(
                                         val isSelected = selectedChunkIndex == index
                                         Box(
                                             modifier = Modifier
-                                                .clip(YugenShape.chip)
-                                                .background(if (isSelected) YugenPurple.copy(alpha = 0.2f) else YugenOverlayLight)
+                                                .clip(YugenShape.pill)
+                                                .background(if (isSelected) YugenPurple.copy(alpha = 0.22f) else YugenGlassSurfaceLight)
                                                 .border(
                                                     1.dp,
-                                                    if (isSelected) YugenPurple.copy(alpha = 0.6f) else YugenOverlayMedium,
-                                                    YugenShape.chip
+                                                    if (isSelected) YugenActiveGlassBorderBrush else YugenGlassBorderBrush,
+                                                    YugenShape.pill
                                                 )
                                                 .bounceClick { selectedChunkIndex = index }
                                                 .padding(horizontal = 14.dp, vertical = 7.dp)
@@ -328,9 +328,9 @@ fun DetailScreen(
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Box(
                                     modifier = Modifier
-                                        .clip(YugenShape.card)
+                                        .clip(YugenShape.button)
                                         .background(YugenPurple.copy(alpha = 0.15f))
-                                        .border(1.dp, YugenPurple.copy(alpha = 0.4f), YugenShape.card)
+                                        .border(1.dp, YugenActiveGlassBorderBrush, YugenShape.button)
                                         .bounceClick { viewModel.retryEpisodes() }
                                         .padding(horizontal = 16.dp, vertical = 8.dp)
                                 ) {
@@ -415,8 +415,8 @@ fun DetailScreen(
                         modifier = Modifier
                             .size(44.dp)
                             .clip(CircleShape)
-                            .background(YugenSurface.copy(alpha = 0.75f))
-                            .border(1.dp, YugenOverlayMedium, CircleShape)
+                            .background(YugenGlassSurface)
+                            .border(1.dp, YugenGlassBorderBrush, CircleShape)
                             .bounceClick(onClick = onBackClick),
                         contentAlignment = Alignment.Center
                     ) {
@@ -432,10 +432,10 @@ fun DetailScreen(
                         modifier = Modifier
                             .size(44.dp)
                             .clip(CircleShape)
-                            .background(YugenSurface.copy(alpha = 0.75f))
+                            .background(YugenGlassSurface)
                             .border(
                                 1.dp,
-                                if (isBookmarked) YugenPurple.copy(alpha = 0.6f) else YugenOverlayMedium,
+                                if (isBookmarked) YugenActiveGlassBorderBrush else YugenGlassBorderBrush,
                                 CircleShape
                             )
                             .bounceClick {

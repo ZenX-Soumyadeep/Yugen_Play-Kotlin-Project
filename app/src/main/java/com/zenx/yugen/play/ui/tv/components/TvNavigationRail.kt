@@ -102,13 +102,18 @@ fun TvNavigationRail(
                 brush = Brush.horizontalGradient(
                     colors = listOf(
                         YugenBillboardBg.copy(alpha = 0.98f),
-                        YugenSurface.copy(alpha = 0.95f)
+                        com.zenx.yugen.play.ui.theme.YugenGlassSurface
                     )
                 )
             )
             .border(
-                BorderStroke(1.dp, YugenOverlayMedium.copy(alpha = 0.40f)),
-                shape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
+                BorderStroke(
+                    1.dp,
+                    Brush.verticalGradient(
+                        listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.05f))
+                    )
+                ),
+                shape = RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp)
             )
             .onFocusChanged { focusState ->
                 railHasFocus = focusState.hasFocus

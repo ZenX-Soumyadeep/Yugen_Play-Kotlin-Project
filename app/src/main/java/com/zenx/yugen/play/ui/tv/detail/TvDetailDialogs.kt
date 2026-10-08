@@ -1,8 +1,10 @@
 package com.zenx.yugen.play.ui.tv.detail
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -39,6 +41,14 @@ import com.zenx.yugen.play.ui.theme.YugenPurple
 import com.zenx.yugen.play.ui.theme.YugenDialogSurface
 import com.zenx.yugen.play.ui.theme.YugenCardBorder
 import com.zenx.yugen.play.ui.theme.YugenSurfaceVariant
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.focus.onFocusChanged
+import com.zenx.yugen.play.ui.player.components.shared.YugenLogoLoadingSpinner
 
 /**
  * TV Fix Title Match Dialog: Search and manually map anime to alternative title on active provider.
@@ -55,13 +65,38 @@ fun TvFixTitleDialog(
     onDismiss: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf(initialQuery) }
+    var isEditing by remember { mutableStateOf(false) }
 
-    val searchFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val searchInputFocusRequester = remember { FocusRequester() }
+    val textFieldFocusRequester = remember { FocusRequester() }
+    val searchActionFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(isEditing) {
+        if (isEditing) {
+            delay(100)
+            try { textFieldFocusRequester.requestFocus() } catch (_: Exception) {}
+            keyboardController?.show()
+        } else {
+            keyboardController?.hide()
+        }
+    }
+
     LaunchedEffect(Unit) {
         delay(150)
         try {
-            searchFocusRequester.requestFocus()
+            searchActionFocusRequester.requestFocus()
         } catch (_: Exception) {}
+    }
+
+    BackHandler {
+        if (isEditing) {
+            isEditing = false
+            keyboardController?.hide()
+            try { searchInputFocusRequester.requestFocus() } catch (_: Exception) {}
+        } else {
+            onDismiss()
+        }
     }
 
     Dialog(
@@ -71,7 +106,23 @@ fun TvFixTitleDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.75f)),
+                .background(Color.Black.copy(alpha = 0.75f))
+                .onKeyEvent { keyEvent ->
+                    if (keyEvent.nativeKeyEvent.action == android.view.KeyEvent.ACTION_UP &&
+                        keyEvent.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK) {
+                        if (isEditing) {
+                            isEditing = false
+                            keyboardController?.hide()
+                            try { searchInputFocusRequester.requestFocus() } catch (_: Exception) {}
+                            true
+                        } else {
+                            onDismiss()
+                            true
+                        }
+                    } else {
+                        false
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -149,30 +200,93 @@ fun TvFixTitleDialog(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search title on ${activeProvider.uppercase()}...", color = Color.White.copy(alpha = 0.4f), fontSize = 13.5.sp) },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = YugenSurfaceVariant,
-                            unfocusedContainerColor = YugenSurfaceVariant,
-                            focusedBorderColor = YugenPurple,
-                            unfocusedBorderColor = YugenCardBorder,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { onSearch(searchQuery) })
-                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .focusRequester(searchInputFocusRequester)
+                            .then(
+                                if (!isEditing) {
+                                    Modifier.tvButtonFocusable(
+                                        onClick = { isEditing = true },
+                                        shape = RoundedCornerShape(12.dp),
+                                        focusedBackgroundColor = YugenSurfaceVariant,
+                                        unfocusedBackgroundColor = YugenSurfaceVariant,
+                                        focusedBorderColor = YugenPurple,
+                                        unfocusedBorderColor = YugenCardBorder
+                                    )
+                                } else {
+                                    Modifier
+                                        .background(YugenSurfaceVariant, RoundedCornerShape(12.dp))
+                                        .border(BorderStroke(2.dp, YugenPurple), RoundedCornerShape(12.dp))
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            keyboardController?.show()
+                                            try { textFieldFocusRequester.requestFocus() } catch (_: Exception) {}
+                                        }
+                                }
+                            )
+                            .padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (isEditing) {
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(textFieldFocusRequester),
+                                textStyle = TextStyle(
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                singleLine = true,
+                                cursorBrush = SolidColor(YugenPurple),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(
+                                    onSearch = {
+                                        isEditing = false
+                                        keyboardController?.hide()
+                                        onSearch(searchQuery)
+                                        try { searchInputFocusRequester.requestFocus() } catch (_: Exception) {}
+                                    }
+                                ),
+                                decorationBox = { inner ->
+                                    if (searchQuery.isEmpty()) {
+                                        Text(
+                                            "Search title on ${activeProvider.uppercase()}...",
+                                            color = Color.White.copy(alpha = 0.4f),
+                                            fontSize = 13.5.sp
+                                        )
+                                    }
+                                    inner()
+                                }
+                            )
+                        } else {
+                            Text(
+                                text = if (searchQuery.isNotEmpty()) searchQuery else "Search title on ${activeProvider.uppercase()}... (Press Center to edit)",
+                                color = if (searchQuery.isNotEmpty()) Color.White else Color.White.copy(alpha = 0.5f),
+                                fontSize = 13.5.sp,
+                                fontWeight = if (searchQuery.isNotEmpty()) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
 
                     Box(
                         modifier = Modifier
-                            .focusRequester(searchFocusRequester)
+                            .focusRequester(searchActionFocusRequester)
                             .tvButtonFocusable(
-                                onClick = { onSearch(searchQuery) },
+                                onClick = {
+                                    isEditing = false
+                                    keyboardController?.hide()
+                                    onSearch(searchQuery)
+                                },
                                 shape = RoundedCornerShape(12.dp),
                                 focusedBackgroundColor = YugenPurple,
                                 unfocusedBackgroundColor = YugenPurple.copy(alpha = 0.85f),
@@ -196,7 +310,7 @@ fun TvFixTitleDialog(
                     when (searchResults) {
                         is Resource.Loading -> {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = YugenPurple, strokeWidth = 3.dp)
+                                YugenLogoLoadingSpinner(size = 52.dp)
                             }
                         }
                         is Resource.Error -> {

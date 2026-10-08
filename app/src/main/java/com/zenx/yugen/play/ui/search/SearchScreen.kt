@@ -50,9 +50,13 @@ import com.zenx.yugen.play.ui.theme.TextMuted
 import com.zenx.yugen.play.ui.theme.TextPrimary
 import com.zenx.yugen.play.ui.theme.TextSecondary
 import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenActiveGlassBorderBrush
 import com.zenx.yugen.play.ui.theme.YugenBackground
 import com.zenx.yugen.play.ui.theme.YugenCardSurface
 import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush
+import com.zenx.yugen.play.ui.theme.YugenGlassSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight
 import com.zenx.yugen.play.ui.theme.YugenOverlayLight
 import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
 import com.zenx.yugen.play.ui.theme.YugenPurple
@@ -132,8 +136,8 @@ fun SearchScreen(
                 modifier = Modifier
                     .size(46.dp)
                     .clip(CircleShape)
-                    .background(YugenOverlayLight)
-                    .border(1.dp, YugenOverlayMedium, CircleShape)
+                    .background(YugenGlassSurfaceLight)
+                    .border(1.dp, YugenGlassBorderBrush, CircleShape)
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -185,15 +189,15 @@ fun SearchScreen(
                     }
                 },
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = YugenOverlayLight,
-                    unfocusedContainerColor = YugenOverlayLight,
+                    focusedContainerColor = YugenGlassSurface,
+                    unfocusedContainerColor = YugenGlassSurfaceLight,
                     focusedBorderColor = YugenPurple,
-                    unfocusedBorderColor = YugenOverlayMedium,
+                    unfocusedBorderColor = Color.White.copy(alpha = 0.14f),
                     cursorColor = YugenPurple,
                     focusedTextColor = TextPrimary,
                     unfocusedTextColor = TextPrimary
                 ),
-                shape = YugenShape.md,
+                shape = YugenShape.card,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = {
@@ -211,12 +215,12 @@ fun SearchScreen(
             Box(
                 modifier = Modifier
                     .size(46.dp)
-                    .clip(YugenShape.md)
-                    .background(if (hasFilters) YugenPurple else YugenOverlayLight)
+                    .clip(YugenShape.card)
+                    .background(if (hasFilters) YugenPurple else YugenGlassSurfaceLight)
                     .border(
                         1.dp,
-                        if (hasFilters) YugenAccentViolet else YugenOverlayMedium,
-                        YugenShape.md
+                        if (hasFilters) YugenActiveGlassBorderBrush else YugenGlassBorderBrush,
+                        YugenShape.card
                     )
                     .bounceClick {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -353,14 +357,14 @@ fun SearchScreen(
                                     recentSearches.forEach { searchItem ->
                                         Row(
                                             modifier = Modifier
-                                                .clip(YugenShape.sm)
-                                                .background(YugenOverlayLight)
-                                                .border(1.dp, YugenOverlayMedium, YugenShape.sm)
+                                                .clip(YugenShape.pill)
+                                                .background(YugenGlassSurfaceLight)
+                                                .border(1.dp, YugenGlassBorderBrush, YugenShape.pill)
                                                 .bounceClick {
                                                     focusManager.clearFocus()
                                                     viewModel.executeSearch(searchItem)
                                                 }
-                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                .padding(horizontal = 14.dp, vertical = 8.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
@@ -412,14 +416,14 @@ fun SearchScreen(
                                 popularSuggestions.forEach { suggestion ->
                                     Box(
                                         modifier = Modifier
-                                            .clip(YugenShape.sm)
-                                            .background(YugenPurple.copy(alpha = 0.12f))
-                                            .border(1.dp, YugenPurple.copy(alpha = 0.28f), YugenShape.sm)
+                                            .clip(YugenShape.pill)
+                                            .background(YugenPurple.copy(alpha = 0.15f))
+                                            .border(1.dp, YugenPurple.copy(alpha = 0.35f), YugenShape.pill)
                                             .bounceClick {
                                                 focusManager.clearFocus()
                                                 viewModel.executeSearch(suggestion)
                                             }
-                                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                                            .padding(horizontal = 14.dp, vertical = 8.dp)
                                     ) {
                                         Text(
                                             text = suggestion,
@@ -461,14 +465,14 @@ fun SearchScreen(
                                 viewModel.anilistGenres.take(12).forEach { genre ->
                                     Box(
                                         modifier = Modifier
-                                            .clip(YugenShape.sm)
-                                            .background(YugenOverlayLight)
-                                            .border(1.dp, YugenOverlayMedium, YugenShape.sm)
+                                            .clip(YugenShape.pill)
+                                            .background(YugenGlassSurfaceLight)
+                                            .border(1.dp, YugenGlassBorderBrush, YugenShape.pill)
                                             .bounceClick {
                                                 viewModel.toggleGenre(genre)
                                                 viewModel.executeSearch()
                                             }
-                                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                                            .padding(horizontal = 14.dp, vertical = 8.dp)
                                     ) {
                                         Text(
                                             text = genre,
@@ -604,9 +608,9 @@ fun SearchScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .aspectRatio(0.7f)
-                                            .clip(YugenShape.md)
-                                            .border(1.dp, YugenOverlayMedium, YugenShape.md)
-                                            .background(YugenCardSurface)
+                                            .clip(YugenShape.card)
+                                            .background(YugenGlassSurface)
+                                            .border(1.dp, YugenGlassBorderBrush, YugenShape.card)
                                     ) {
                                         AsyncImage(
                                             model = ImageRequest.Builder(context)
@@ -849,12 +853,12 @@ private fun FilterSectionTitle(title: String) {
 private fun SelectableChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .clip(YugenShape.sm)
-            .background(if (isSelected) YugenPurple else YugenOverlayLight)
+            .clip(YugenShape.pill)
+            .background(if (isSelected) YugenPurple else YugenGlassSurfaceLight)
             .border(
                 1.dp,
-                if (isSelected) YugenAccentViolet else YugenOverlayMedium,
-                YugenShape.sm
+                if (isSelected) YugenActiveGlassBorderBrush else YugenGlassBorderBrush,
+                YugenShape.pill
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp)
@@ -872,11 +876,11 @@ private fun SelectableChip(label: String, isSelected: Boolean, onClick: () -> Un
 private fun FilterPill(text: String, onRemove: () -> Unit) {
     Row(
         modifier = Modifier
-            .clip(YugenShape.sm)
+            .clip(YugenShape.pill)
             .background(YugenPurple.copy(alpha = 0.20f))
-            .border(1.dp, YugenPurple.copy(alpha = 0.45f), YugenShape.sm)
-            .clickable(onClick = onRemove)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .border(1.dp, YugenPurple.copy(alpha = 0.45f), YugenShape.pill)
+        .clickable(onClick = onRemove)
+        .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(

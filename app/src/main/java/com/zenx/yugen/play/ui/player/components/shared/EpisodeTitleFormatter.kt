@@ -31,17 +31,37 @@ object EpisodeTitleFormatter {
 
     /**
      * Compact card title format:
-     * e.g., "1. The Beginning" or "1."
+     * e.g., "1. The Beginning" or "Episode 1"
      */
     fun formatCardTitle(number: Float, rawTitle: String): String {
         val numInt = if (number % 1f == 0f) number.toInt().toString() else number.toString()
         val raw = rawTitle.trim()
-        val isRedundant = raw.isBlank() || REDUNDANT_REGEX.matches(raw)
-        val hasPrefix = Regex("^(Episode|Ep\\.?|EP)\\s*\\d+\\b", RegexOption.IGNORE_CASE).containsMatchIn(raw) || raw.startsWith(numInt)
-        return when {
-            isRedundant -> "$numInt."
-            hasPrefix -> raw
-            else -> "$numInt. $raw"
+        val isRedundant = raw.isBlank() || raw.equals("Stream", ignoreCase = true) || REDUNDANT_REGEX.matches(raw)
+        if (isRedundant) {
+            return "Episode $numInt"
+        }
+        val stripped = raw.replace(PREFIX_STRIP_REGEX, "").trim()
+        return if (stripped.isNotBlank() && !stripped.matches(Regex("^\\d+(\\.0+)?$"))) {
+            "$numInt. $stripped"
+        } else {
+            "Episode $numInt"
+        }
+    }
+
+    /**
+     * Extracts only the unique episode subtitle (e.g. "The Beginning"),
+     * or null if the title is redundant.
+     */
+    fun extractSubtitle(number: Float, rawTitle: String): String? {
+        val raw = rawTitle.trim()
+        if (raw.isBlank() || raw.equals("Stream", ignoreCase = true) || REDUNDANT_REGEX.matches(raw)) {
+            return null
+        }
+        val stripped = raw.replace(PREFIX_STRIP_REGEX, "").trim()
+        return if (stripped.isNotBlank() && !stripped.matches(Regex("^\\d+(\\.0+)?$"))) {
+            stripped
+        } else {
+            null
         }
     }
 }

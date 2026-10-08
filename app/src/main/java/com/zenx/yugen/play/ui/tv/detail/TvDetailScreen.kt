@@ -84,11 +84,14 @@ fun TvDetailScreen(
     val chunkRowFocusRequester = remember { FocusRequester() }
     val firstEpisodeFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(uiState) {
-        if (uiState is DetailsUiState.Success) {
+    var hasRequestedInitialFocus by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(uiState is DetailsUiState.Success) {
+        if (uiState is DetailsUiState.Success && !hasRequestedInitialFocus) {
             delay(150)
             try {
                 playFocusRequester.requestFocus()
+                hasRequestedInitialFocus = true
             } catch (_: Exception) {}
         }
     }
@@ -219,9 +222,9 @@ fun TvDetailScreen(
                                 modifier = Modifier
                                     .width(175.dp)
                                     .height(255.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(YugenCardSurface)
-                                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(com.zenx.yugen.play.ui.theme.YugenGlassSurface)
+                                    .border(1.dp, com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush, RoundedCornerShape(16.dp))
                             ) {
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
@@ -391,8 +394,6 @@ fun TvDetailScreen(
                                     else -> "Play Episode 1"
                                 }
 
-                                val nextDown = if (episodeChunks.size > 1) chunkRowFocusRequester else firstEpisodeFocusRequester
-
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -404,7 +405,6 @@ fun TvDetailScreen(
                                             .focusRequester(playFocusRequester)
                                             .focusProperties {
                                                 up = backFocusRequester
-                                                down = nextDown
                                                 right = favFocusRequester
                                             }
                                             .tvButtonFocusable(
@@ -413,7 +413,7 @@ fun TvDetailScreen(
                                                         onEpisodeClick(ep.id, state.animeUrl, state.activeProvider, viewModel.animeTitle, state.posterUrl, null, state.id, ep.number.toIntOrNull() ?: 1)
                                                     }
                                                 },
-                                                shape = RoundedCornerShape(12.dp),
+                                                shape = com.zenx.yugen.play.ui.theme.YugenShape.button,
                                                 focusedBackgroundColor = YugenPurple,
                                                 unfocusedBackgroundColor = YugenPurple.copy(alpha = 0.9f),
                                                 focusedBorderColor = Color.White
@@ -456,7 +456,6 @@ fun TvDetailScreen(
                                             .focusRequester(favFocusRequester)
                                             .focusProperties {
                                                 up = backFocusRequester
-                                                down = nextDown
                                                 left = playFocusRequester
                                                 right = fixTitleFocusRequester
                                             }
@@ -468,11 +467,11 @@ fun TvDetailScreen(
                                                         viewModel.toggleFavorite()
                                                     }
                                                 },
-                                                shape = RoundedCornerShape(12.dp),
+                                                shape = com.zenx.yugen.play.ui.theme.YugenShape.button,
                                                 focusedBackgroundColor = Color.White.copy(alpha = 0.25f),
-                                                unfocusedBackgroundColor = if (isBookmarked) YugenPurple.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.12f),
+                                                unfocusedBackgroundColor = if (isBookmarked) YugenPurple.copy(alpha = 0.2f) else com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight,
                                                 focusedBorderColor = YugenAccentViolet,
-                                                unfocusedBorderColor = if (isBookmarked) YugenPurple.copy(alpha = 0.4f) else Color.Transparent
+                                                unfocusedBorderColor = if (isBookmarked) YugenPurple.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.12f)
                                             )
                                             .height(44.dp)
                                             .padding(horizontal = 16.dp),
@@ -507,7 +506,6 @@ fun TvDetailScreen(
                                             .focusRequester(fixTitleFocusRequester)
                                             .focusProperties {
                                                 up = providerFocusRequester
-                                                down = nextDown
                                                 left = favFocusRequester
                                             }
                                             .tvButtonFocusable(
@@ -520,9 +518,9 @@ fun TvDetailScreen(
                                                         showFixTitleDialog = true
                                                     }
                                                 },
-                                                shape = RoundedCornerShape(12.dp),
+                                                shape = com.zenx.yugen.play.ui.theme.YugenShape.button,
                                                 focusedBackgroundColor = if (isMapped) YugenRed.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.25f),
-                                                unfocusedBackgroundColor = if (isMapped) YugenRed.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.12f),
+                                                unfocusedBackgroundColor = if (isMapped) YugenRed.copy(alpha = 0.18f) else com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight,
                                                 focusedBorderColor = if (isMapped) YugenRed else YugenAccentViolet
                                             )
                                             .height(44.dp)
@@ -583,17 +581,9 @@ fun TvDetailScreen(
                                         val endNum = ((index + 1) * 25).coerceAtMost(allEpisodes.size.takeIf { it > 0 } ?: ((index + 1) * 25))
 
                                         val chunkModifier = if (index == 0) {
-                                            Modifier
-                                                .focusRequester(chunkRowFocusRequester)
-                                                .focusProperties {
-                                                    up = playFocusRequester
-                                                    down = firstEpisodeFocusRequester
-                                                }
+                                            Modifier.focusRequester(chunkRowFocusRequester)
                                         } else {
-                                            Modifier.focusProperties {
-                                                up = playFocusRequester
-                                                down = firstEpisodeFocusRequester
-                                            }
+                                            Modifier
                                         }
 
                                         Box(
@@ -602,11 +592,11 @@ fun TvDetailScreen(
                                                 .then(chunkModifier)
                                                 .tvButtonFocusable(
                                                     onClick = { selectedChunkIndex = index },
-                                                    shape = RoundedCornerShape(10.dp),
+                                                    shape = com.zenx.yugen.play.ui.theme.YugenShape.pill,
                                                     focusedBackgroundColor = YugenPurple,
-                                                    unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
+                                                    unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight,
                                                     focusedBorderColor = YugenAccentViolet,
-                                                    unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.5f) else Color.Transparent
+                                                    unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.12f)
                                                 )
                                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                                             contentAlignment = Alignment.Center
@@ -635,15 +625,9 @@ fun TvDetailScreen(
                                 items(currentChunk, key = { it.id }) { ep ->
                                     val isFirst = currentChunk.firstOrNull()?.id == ep.id
                                     val cardFocusModifier = if (isFirst) {
-                                        Modifier
-                                            .focusRequester(firstEpisodeFocusRequester)
-                                            .focusProperties {
-                                                up = if (episodeChunks.size > 1) chunkRowFocusRequester else playFocusRequester
-                                            }
+                                        Modifier.focusRequester(firstEpisodeFocusRequester)
                                     } else {
-                                        Modifier.focusProperties {
-                                            up = if (episodeChunks.size > 1) chunkRowFocusRequester else playFocusRequester
-                                        }
+                                        Modifier
                                     }
 
                                     TvEpisodeCard(

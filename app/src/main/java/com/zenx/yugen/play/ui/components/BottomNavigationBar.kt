@@ -37,6 +37,8 @@ import com.zenx.yugen.play.ui.BottomNavItem
 import com.zenx.yugen.play.ui.theme.TextSecondary
 import com.zenx.yugen.play.ui.theme.YugenAccentViolet
 import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush
+import com.zenx.yugen.play.ui.theme.YugenGlassSurface
 import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
 import com.zenx.yugen.play.ui.theme.YugenPurple
 import com.zenx.yugen.play.ui.theme.YugenPurpleGlow
@@ -49,20 +51,19 @@ fun FloatingAnimatedBottomBar(
     onItemClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val glassPillBg = YugenCardSurface.copy(alpha = 0.94f)
-    val glassBorder = YugenOverlayMedium
+    val glassPillBg = YugenGlassSurface.copy(alpha = 0.95f)
 
     Row(
         modifier = modifier
             .shadow(
-                elevation = 16.dp,
+                elevation = 18.dp,
                 shape = YugenShape.pill,
                 ambientColor = YugenPurpleGlow,
                 spotColor = Color.Black
             )
             .clip(YugenShape.pill)
             .background(glassPillBg)
-            .border(1.dp, glassBorder, YugenShape.pill)
+            .border(1.dp, YugenGlassBorderBrush, YugenShape.pill)
             .padding(horizontal = 6.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically

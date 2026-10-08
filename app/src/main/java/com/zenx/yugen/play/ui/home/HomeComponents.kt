@@ -58,6 +58,9 @@ import com.zenx.yugen.play.ui.theme.YugenOverlayLight
 import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
 import com.zenx.yugen.play.ui.theme.YugenPurple
 import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenGlassSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassBorder
+import com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush
 import com.zenx.yugen.play.ui.theme.YugenShape
 import com.zenx.yugen.play.ui.theme.YugenSpacing
 import kotlin.math.absoluteValue
@@ -65,8 +68,9 @@ import kotlin.time.Duration.Companion.milliseconds
 
 private val accentPurple = YugenPurple
 private val accentViolet = YugenAccentViolet
-private val cardBg = YugenCardSurface
-private val glassBorder = YugenOverlayMedium
+private val cardBg = YugenGlassSurface
+private val glassBorder = YugenGlassBorder
+private val glassBorderBrush = YugenGlassBorderBrush
 private val bgColor = YugenBackground
 
 /**
@@ -563,9 +567,9 @@ fun ContinueWatchingSection(
                     modifier = Modifier
                         .width(240.dp)
                         .height(138.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(18.dp))
                         .background(cardBg)
-                        .border(1.dp, glassBorder, RoundedCornerShape(16.dp))
+                        .border(1.dp, glassBorderBrush, RoundedCornerShape(18.dp))
                         .bounceClick {
                             if (history.isCloudSync) {
                                 val mediaId = history.mediaId ?: history.episodeId.split("_").getOrNull(2) ?: ""
@@ -952,7 +956,7 @@ fun AnimeGridCard(
                 .aspectRatio(0.68f)
                 .clip(YugenShape.card)
                 .background(cardBg)
-                .border(1.dp, Color.White.copy(alpha = 0.08f), YugenShape.card)
+                .border(1.dp, glassBorderBrush, YugenShape.card)
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)

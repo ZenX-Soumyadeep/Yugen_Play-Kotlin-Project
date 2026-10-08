@@ -86,6 +86,10 @@ import com.zenx.yugen.play.ui.theme.YugenRed
 import com.zenx.yugen.play.ui.theme.YugenShape
 import com.zenx.yugen.play.ui.theme.YugenTvIntroAmber
 import com.zenx.yugen.play.ui.theme.YugenTvOutroCyan
+import com.zenx.yugen.play.ui.theme.YugenGlassSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight
+import com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush
+import com.zenx.yugen.play.ui.theme.YugenActiveGlassBorderBrush
 import com.zenx.yugen.play.ui.player.components.*
 import com.zenx.yugen.play.util.rememberDeviceController
 import com.zenx.yugen.play.util.toAnnotatedString
@@ -319,7 +323,9 @@ fun PlayerScreen(
 
         when (val state = uiState) {
             is PlayerUiState.Loading -> {
-                CircularProgressIndicator(color = YugenPurple, modifier = Modifier.align(Alignment.Center))
+                com.zenx.yugen.play.ui.player.components.shared.YugenLogoLoadingSpinner(
+                    modifier = Modifier.align(Alignment.Center)
+                )
             }
             is PlayerUiState.Error -> {
                 Column(
@@ -368,7 +374,9 @@ fun PlayerScreen(
                 }
 
                 if (state.isBuffering && !isLocked && !isInPipMode) {
-                    CircularProgressIndicator(color = YugenPurple, modifier = Modifier.align(Alignment.Center))
+                    com.zenx.yugen.play.ui.player.components.shared.YugenLogoLoadingSpinner(
+                        modifier = Modifier.align(Alignment.Center)
+                    )
                 }
 
                 if (!isInPipMode) {
@@ -490,8 +498,8 @@ private fun AutoPlayOverlay(
                 modifier = Modifier
                     .padding(bottom = 120.dp, end = 40.dp)
                     .clip(YugenShape.dialog)
-                    .background(YugenDialogSurface)
-                    .border(1.dp, YugenOverlayMedium, YugenShape.dialog)
+                    .background(YugenGlassSurface)
+                    .border(1.dp, YugenGlassBorderBrush, YugenShape.dialog)
                     .padding(horizontal = 24.dp, vertical = 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(24.dp)
@@ -518,8 +526,8 @@ private fun AutoPlayOverlay(
                     Box(
                         modifier = Modifier
                             .clip(CircleShape)
-                            .background(YugenOverlayLight)
-                            .border(1.dp, YugenOverlayMedium, CircleShape)
+                            .background(YugenGlassSurfaceLight)
+                            .border(1.dp, YugenGlassBorderBrush, CircleShape)
                             .clickable { onCancel() }
                             .padding(12.dp)
                     ) {
@@ -536,6 +544,7 @@ private fun AutoPlayOverlay(
                             .background(
                                 Brush.horizontalGradient(listOf(YugenPurple, YugenPurpleDark))
                             )
+                            .border(1.dp, YugenActiveGlassBorderBrush, YugenShape.pill)
                             .clickable { onPlayNext() }
                             .padding(horizontal = 22.dp, vertical = 13.dp)
                     ) {
@@ -570,7 +579,7 @@ private fun PhoneSkipIntroOverlay(
             Row(
                 modifier = Modifier
                     .clip(YugenShape.pill)
-                    .background(YugenDialogSurface.copy(alpha = 0.92f))
+                    .background(YugenGlassSurface)
                     .border(1.5.dp, badgeColor.copy(alpha = 0.75f), YugenShape.pill)
                     .clickable { onSkipClick((activeSkipInterval.endTime * 1000).toLong()) }
                     .padding(horizontal = 16.dp, vertical = 10.dp),

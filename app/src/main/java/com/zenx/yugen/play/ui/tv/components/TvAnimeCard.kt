@@ -30,6 +30,8 @@ import com.zenx.yugen.play.ui.home.ContinueWatchingUiModel
 import com.zenx.yugen.play.ui.theme.StarYellow
 import com.zenx.yugen.play.ui.theme.YugenAccentViolet
 import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush
+import com.zenx.yugen.play.ui.theme.YugenGlassSurface
 import com.zenx.yugen.play.ui.theme.YugenPurple
 import com.zenx.yugen.play.ui.tv.TvSpacing
 import com.zenx.yugen.play.ui.tv.TvType
@@ -43,7 +45,7 @@ fun TvAnimeCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(16.dp)
 
     Column(
         modifier = modifier
@@ -63,7 +65,8 @@ fun TvAnimeCard(
                     focusedBorderColor = YugenPurple,
                     focusedBorderWidth = 3.dp
                 )
-                .background(YugenCardSurface, shape)
+                .background(YugenGlassSurface, shape)
+                .border(1.dp, YugenGlassBorderBrush, shape)
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -179,7 +182,7 @@ fun TvContinueWatchingCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(16.dp)
 
     Column(
         modifier = modifier
@@ -199,7 +202,8 @@ fun TvContinueWatchingCard(
                     focusedBorderColor = YugenPurple,
                     focusedBorderWidth = 3.dp
                 )
-                .background(YugenCardSurface, shape)
+                .background(YugenGlassSurface, shape)
+                .border(1.dp, YugenGlassBorderBrush, shape)
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)

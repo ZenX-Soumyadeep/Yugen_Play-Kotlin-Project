@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -36,6 +37,7 @@ import com.zenx.yugen.play.ui.theme.YugenAccentViolet
 import com.zenx.yugen.play.ui.theme.YugenBackground
 import com.zenx.yugen.play.ui.theme.YugenCardSurface
 import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassSurface
 import com.zenx.yugen.play.ui.theme.YugenGreen
 import com.zenx.yugen.play.ui.theme.YugenOverlayLight
 import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
@@ -149,9 +151,9 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(YugenShape.sm)
-                        .background(YugenCardSurface)
-                        .border(1.dp, YugenOverlayMedium, YugenShape.sm)
+                        .clip(YugenShape.cardLg)
+                        .background(YugenGlassSurface)
+                        .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))), YugenShape.cardLg)
                 ) {
                     Row(
                         modifier = Modifier
@@ -231,27 +233,27 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(YugenShape.sm)
-                        .background(YugenCardSurface)
-                        .border(1.dp, YugenOverlayMedium, YugenShape.sm)
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                        .clip(YugenShape.cardLg)
+                        .background(YugenGlassSurface)
+                        .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))), YugenShape.cardLg)
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(13.dp)
                 ) {
                     // Double-tap Seek Duration
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Box(
                                 modifier = Modifier
-                                    .size(36.dp)
+                                    .size(32.dp)
                                     .clip(YugenShape.xs)
                                     .background(YugenPurple.copy(alpha = 0.14f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.FastForward, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.FastForward, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(16.dp))
                             }
                             Column {
-                                Text("Double-Tap Seek", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp)
-                                Text("Duration when double-tapping to skip forward/backward", color = TextSecondary, fontSize = 12.sp)
+                                Text("Double-Tap Seek", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text("Duration when double-tapping to skip forward/backward", color = TextSecondary, fontSize = 11.5.sp)
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -267,13 +269,13 @@ fun SettingsScreen(
                                         .background(bg)
                                         .border(1.dp, border, YugenShape.xs)
                                         .bounceClick { viewModel.setSeekDuration(sec) }
-                                        .padding(horizontal = 16.dp, vertical = 9.dp)
+                                        .padding(horizontal = 14.dp, vertical = 7.dp)
                                 ) {
                                     Text(
                                         "${sec}s",
                                         color = textColor,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        fontSize = 13.sp
+                                        fontSize = 12.5.sp
                                     )
                                 }
                             }
@@ -291,17 +293,17 @@ fun SettingsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
                             Box(
                                 modifier = Modifier
-                                    .size(36.dp)
+                                    .size(32.dp)
                                     .clip(YugenShape.xs)
                                     .background(YugenGreen.copy(alpha = 0.14f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.PlayCircle, contentDescription = null, tint = YugenGreen, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.PlayCircle, contentDescription = null, tint = YugenGreen, modifier = Modifier.size(16.dp))
                             }
                             Column {
-                                Text("Auto-Play Next Episode", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp)
+                                Text("Auto-Play Next Episode", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                                 Spacer(modifier = Modifier.height(2.dp))
-                                Text("Countdown & auto-advance at episode finish", color = TextSecondary, fontSize = 12.sp)
+                                Text("Countdown & auto-advance at episode finish", color = TextSecondary, fontSize = 11.5.sp)
                             }
                         }
                         Switch(
@@ -328,17 +330,17 @@ fun SettingsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
                             Box(
                                 modifier = Modifier
-                                    .size(36.dp)
+                                    .size(32.dp)
                                     .clip(YugenShape.xs)
                                     .background(YugenTvOutroCyan.copy(alpha = 0.14f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = YugenTvOutroCyan, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = YugenTvOutroCyan, modifier = Modifier.size(16.dp))
                             }
                             Column {
-                                Text("Prefer Dub Streams", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp)
+                                Text("Prefer Dub Streams", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                                 Spacer(modifier = Modifier.height(2.dp))
-                                Text("Prioritize English dub audio streams when available", color = TextSecondary, fontSize = 12.sp)
+                                Text("Prioritize English dub audio streams when available", color = TextSecondary, fontSize = 11.5.sp)
                             }
                         }
                         Switch(
@@ -363,9 +365,9 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(YugenShape.sm)
-                        .background(YugenCardSurface)
-                        .border(1.dp, YugenOverlayMedium, YugenShape.sm)
+                        .clip(YugenShape.cardLg)
+                        .background(YugenGlassSurface)
+                        .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))), YugenShape.cardLg)
                 ) {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -448,9 +450,9 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(YugenShape.sm)
-                        .background(YugenCardSurface)
-                        .border(1.dp, YugenOverlayMedium, YugenShape.sm)
+                        .clip(YugenShape.cardLg)
+                        .background(YugenGlassSurface)
+                        .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))), YugenShape.cardLg)
                 ) {
                     SettingsItem(
                         icon = Icons.Default.Info,
@@ -508,9 +510,9 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(YugenShape.sm)
-                        .background(YugenCardSurface)
-                        .border(1.dp, YugenOverlayMedium, YugenShape.sm)
+                        .clip(YugenShape.cardLg)
+                        .background(YugenGlassSurface)
+                        .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))), YugenShape.cardLg)
                 ) {
                     SettingsItem(
                         icon = Icons.Default.PlayCircle,
@@ -537,9 +539,9 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(YugenShape.sm)
-                        .background(YugenCardSurface)
-                        .border(1.dp, YugenOverlayMedium, YugenShape.sm)
+                        .clip(YugenShape.cardLg)
+                        .background(YugenGlassSurface)
+                        .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))), YugenShape.cardLg)
                 ) {
                     SettingsItem(
                         icon = Icons.Default.Code,

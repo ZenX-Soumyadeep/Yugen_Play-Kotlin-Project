@@ -1,5 +1,9 @@
 package com.zenx.yugen.play.ui.tv.search
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -62,6 +66,8 @@ import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
 import com.zenx.yugen.play.ui.theme.YugenPurple
 import com.zenx.yugen.play.ui.theme.YugenRed
 import com.zenx.yugen.play.ui.theme.YugenShape
+import com.zenx.yugen.play.ui.theme.YugenSurfaceVariant
+import kotlinx.coroutines.delay
 import com.zenx.yugen.play.ui.tv.TvSpacing
 import com.zenx.yugen.play.ui.tv.TvType
 import com.zenx.yugen.play.ui.tv.components.TvAnimeCard
@@ -82,24 +88,25 @@ fun TvSearchScreen(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    val searchFocusRequester = remember { FocusRequester() }
-    var isSearchFocused by remember { mutableStateOf(false) }
-    var isKeyboardDismissed by remember { mutableStateOf(false) }
+    var isEditing by remember { mutableStateOf(false) }
+    val textFieldFocusRequester = remember { FocusRequester() }
+    val searchBoxFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(isSearchFocused) {
-        if (isSearchFocused) {
-            isKeyboardDismissed = false
+    LaunchedEffect(isEditing) {
+        if (isEditing) {
+            delay(100)
+            try { textFieldFocusRequester.requestFocus() } catch (_: Exception) {}
+            keyboardController?.show()
+        } else {
+            keyboardController?.hide()
         }
     }
 
     BackHandler {
-        if (isSearchFocused && !isKeyboardDismissed) {
+        if (isEditing) {
+            isEditing = false
             keyboardController?.hide()
-            isKeyboardDismissed = true
-        } else if (query.isNotEmpty() || viewModel.hasActiveFilters()) {
-            viewModel.onQueryChange("")
-            viewModel.clearAllFilters()
-            isKeyboardDismissed = false
+            try { searchBoxFocusRequester.requestFocus() } catch (_: Exception) {}
         } else {
             onBackClick()
         }
@@ -110,6 +117,19 @@ fun TvSearchScreen(
             .fillMaxSize()
             .background(YugenBackground)
             .padding(horizontal = TvSpacing.overscanH, vertical = TvSpacing.overscanV)
+            .onPreviewKeyEvent { keyEvent ->
+                if (keyEvent.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK &&
+                    keyEvent.nativeKeyEvent.action == android.view.KeyEvent.ACTION_UP
+                ) {
+                    if (isEditing) {
+                        isEditing = false
+                        keyboardController?.hide()
+                        try { searchBoxFocusRequester.requestFocus() } catch (_: Exception) {}
+                        return@onPreviewKeyEvent true
+                    }
+                }
+                false
+            }
     ) {
         // --- 1. TOP TV SEARCH BAR ---
         Row(
@@ -145,17 +165,35 @@ fun TvSearchScreen(
                 )
             }
 
-            // Search Input Box
+            // Search Input Box (Focusable container - clicking opens keyboard)
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .height(52.dp)
                     .clip(YugenShape.md)
-                    .background(YugenCardSurface)
-                    .border(
-                        width = if (isSearchFocused) 2.dp else 1.dp,
-                        color = if (isSearchFocused) YugenPurple else YugenOverlayMedium,
-                        shape = YugenShape.md
+                    .focusRequester(searchBoxFocusRequester)
+                    .then(
+                        if (!isEditing) {
+                            Modifier.tvButtonFocusable(
+                                onClick = { isEditing = true },
+                                shape = YugenShape.md,
+                                focusedBackgroundColor = YugenSurfaceVariant,
+                                unfocusedBackgroundColor = YugenCardSurface,
+                                focusedBorderColor = YugenPurple,
+                                unfocusedBorderColor = YugenOverlayMedium
+                            )
+                        } else {
+                            Modifier
+                                .background(YugenSurfaceVariant, YugenShape.md)
+                                .border(BorderStroke(2.dp, YugenPurple), YugenShape.md)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    keyboardController?.show()
+                                    try { textFieldFocusRequester.requestFocus() } catch (_: Exception) {}
+                                }
+                        }
                     )
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.CenterStart
@@ -167,44 +205,55 @@ fun TvSearchScreen(
                     Icon(
                         imageVector = Icons.Rounded.Search,
                         contentDescription = "Search",
-                        tint = if (isSearchFocused) YugenAccentViolet else TextMuted,
+                        tint = if (isEditing) YugenAccentViolet else TextMuted,
                         modifier = Modifier.size(20.dp)
                     )
 
                     Spacer(modifier = Modifier.width(12.dp))
 
-                    BasicTextField(
-                        value = query,
-                        onValueChange = { viewModel.onQueryChange(it) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .focusRequester(searchFocusRequester)
-                            .onFocusChanged { isSearchFocused = it.isFocused },
-                        textStyle = TextStyle(
-                            color = TextPrimary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium
-                        ),
-                        singleLine = true,
-                        cursorBrush = SolidColor(YugenPurple),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(
-                            onSearch = {
-                                focusManager.clearFocus()
-                                viewModel.executeSearch()
+                    if (isEditing) {
+                        BasicTextField(
+                            value = query,
+                            onValueChange = { viewModel.onQueryChange(it) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(textFieldFocusRequester),
+                            textStyle = TextStyle(
+                                color = TextPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            singleLine = true,
+                            cursorBrush = SolidColor(YugenPurple),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(
+                                onSearch = {
+                                    isEditing = false
+                                    keyboardController?.hide()
+                                    viewModel.executeSearch()
+                                    try { searchBoxFocusRequester.requestFocus() } catch (_: Exception) {}
+                                }
+                            ),
+                            decorationBox = { innerTextField ->
+                                if (query.isEmpty()) {
+                                    Text(
+                                        text = "Search anime by title, character, or studio...",
+                                        color = TextMuted,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                                innerTextField()
                             }
-                        ),
-                        decorationBox = { innerTextField ->
-                            if (query.isEmpty()) {
-                                Text(
-                                    text = "Search anime by title, character, or studio...",
-                                    color = TextMuted,
-                                    fontSize = 14.sp
-                                )
-                            }
-                            innerTextField()
-                        }
-                    )
+                        )
+                    } else {
+                        Text(
+                            text = if (query.isNotEmpty()) query else "Search anime by title, character, or studio... (Press Center to type)",
+                            color = if (query.isNotEmpty()) TextPrimary else TextMuted,
+                            fontSize = 14.5.sp,
+                            fontWeight = if (query.isNotEmpty()) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
 
                     if (query.isNotEmpty()) {
                         Box(

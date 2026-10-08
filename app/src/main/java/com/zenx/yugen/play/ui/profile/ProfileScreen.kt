@@ -48,6 +48,9 @@ import com.zenx.yugen.play.ui.theme.YugenBackground
 import com.zenx.yugen.play.ui.theme.YugenCardBorder
 import com.zenx.yugen.play.ui.theme.YugenCardSurface
 import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush
+import com.zenx.yugen.play.ui.theme.YugenGlassSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight
 import com.zenx.yugen.play.ui.theme.YugenOverlayLight
 import com.zenx.yugen.play.ui.theme.YugenPurple
 import com.zenx.yugen.play.ui.theme.YugenRed
@@ -495,9 +498,9 @@ private fun ProfileStatCard(
 ) {
     Column(
         modifier = modifier
-            .clip(YugenShape.md)
-            .background(YugenCardSurface)
-            .border(1.dp, YugenCardBorder, YugenShape.md)
+            .clip(YugenShape.card)
+            .background(YugenGlassSurface)
+            .border(1.dp, YugenGlassBorderBrush, YugenShape.card)
             .padding(vertical = 14.dp, horizontal = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -538,7 +541,8 @@ fun AnilistEntryCard(entry: AnilistListEntry, accentColor: Color, onClick: () ->
                 .fillMaxWidth()
                 .aspectRatio(0.7f)
                 .clip(YugenShape.card)
-                .border(1.dp, YugenCardBorder, YugenShape.card)
+                .background(YugenGlassSurface)
+                .border(1.dp, YugenGlassBorderBrush, YugenShape.card)
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)

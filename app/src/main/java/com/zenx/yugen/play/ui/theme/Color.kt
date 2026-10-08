@@ -1,5 +1,6 @@
 package com.zenx.yugen.play.ui.theme
 
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
 val YugenBackground = Color(0xFF08070D)
@@ -17,7 +18,7 @@ val TextMuted = Color(0xFF6B7280)
 val StarYellow = Color(0xFFFBBF24)
 
 val YugenAccentViolet = Color(0xFFA78BFA)
-val YugenCardSurface = Color(0xFF16161D)
+val YugenCardSurface = Color(0xFF14131D)
 val YugenDialogSurface = Color(0xFF12121A)
 val YugenBillboardBg = Color(0xFF09090C)
 val YugenRed = Color(0xFFEF4444)
@@ -33,3 +34,16 @@ val YugenOverlayMedium = Color(0x1FFFFFFF)  // ~12% white — card border, glass
 val YugenOverlayStrong = Color(0x33FFFFFF)  // ~20% white — hover state
 val YugenScrim = Color(0xCC09090C)          // 80% scrim — bottom vignette
 val YugenTopScrim = Color(0x9909090C)       // 60% scrim — top vignette on hero
+
+// Glassmorphism Surfaces & Specular Borders
+val YugenGlassSurface = Color(0xCC161424)         // Frosted dark translucent obsidian glass (~80% opacity)
+val YugenGlassSurfaceLight = Color(0x991C1A2E)    // Lighter translucent glass for pills, buttons, toolbars (~60% opacity)
+val YugenGlassBorder = Color(0x2EFFFFFF)          // ~18% white specular edge
+val YugenGlassBorderLight = Color(0x1AFFFFFF)     // ~10% white subtle edge
+
+val YugenGlassBorderBrush = Brush.verticalGradient(
+    listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.05f))
+)
+val YugenActiveGlassBorderBrush = Brush.verticalGradient(
+    listOf(YugenPurple.copy(alpha = 0.75f), YugenAccentViolet.copy(alpha = 0.35f))
+)

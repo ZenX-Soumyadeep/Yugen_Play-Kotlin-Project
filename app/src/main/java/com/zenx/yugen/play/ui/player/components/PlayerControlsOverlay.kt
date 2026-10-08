@@ -46,8 +46,13 @@ import com.zenx.yugen.play.ui.theme.TextSecondary
 import com.zenx.yugen.play.ui.theme.YugenOverlayLight
 import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
 import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenPurpleDark
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.zenx.yugen.play.ui.theme.YugenShape
 import com.zenx.yugen.play.ui.theme.YugenSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight
 import com.zenx.yugen.play.ui.theme.YugenTvIntroAmber
 import com.zenx.yugen.play.ui.theme.YugenTvOutroCyan
 
@@ -384,40 +389,89 @@ private fun PlayerBottomBar(
             .navigationBarsPadding(),
         verticalArrangement = Arrangement.Bottom
     ) {
-        // Sleek 6dp Scrubber with Ambient Buffer & Colored Skip Markers
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        // Sleek rounded and stylish scrubber with gradient progress, buffer, skip markers, and floating seek badge
+        val isDragging = dragValue != null
+        val scrubberTrackHeight = if (isDragging) 8.dp else 6.dp
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(6.dp)
-                    .padding(horizontal = 10.dp)
+                    .height(scrubberTrackHeight)
+                    .padding(horizontal = 8.dp)
             ) {
                 val trackWidth = size.width
                 val trackHeight = size.height
                 val corner = CornerRadius(trackHeight / 2, trackHeight / 2)
 
-                // Background track
-                drawRoundRect(color = Color.White.copy(alpha = 0.18f), size = size, cornerRadius = corner)
-                // Buffer track
+                // 1. Background rounded track
                 drawRoundRect(
-                    color = Color.White.copy(alpha = 0.35f),
-                    size = Size(trackWidth * bufferPercent, trackHeight),
+                    color = Color.White.copy(alpha = 0.20f),
+                    size = size,
                     cornerRadius = corner
                 )
 
-                // Skip interval markers (Intro = Amber, Outro = Cyan)
+                // 2. Buffer track
+                if (bufferPercent > 0f) {
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.38f),
+                        size = Size((trackWidth * bufferPercent).coerceAtMost(trackWidth), trackHeight),
+                        cornerRadius = corner
+                    )
+                }
+
+                // 3. Skip interval markers (Intro = Amber, Outro = Cyan)
                 skipIntervals.forEach { skip ->
                     val startX = ((skip.startTime * 1000) / maxDur).coerceIn(0.0, 1.0).toFloat() * trackWidth
                     val endX = ((skip.endTime * 1000) / maxDur).coerceIn(0.0, 1.0).toFloat() * trackWidth
-                    val highlightWidth = (endX - startX).coerceAtLeast(2f)
-
+                    val highlightWidth = (endX - startX).coerceAtLeast(3f)
                     val markerColor = if (skip.isOutro) YugenTvOutroCyan else YugenTvIntroAmber
 
                     drawRoundRect(
-                        color = markerColor,
+                        color = markerColor.copy(alpha = 0.85f),
                         topLeft = Offset(startX, 0f),
                         size = Size(highlightWidth, trackHeight),
                         cornerRadius = corner
+                    )
+                }
+
+                // 4. Active Played Progress (Smooth rounded gradient track)
+                val activeRatio = if (maxDur > 0) (currentSliderValue / maxDur).coerceIn(0f, 1f) else 0f
+                if (activeRatio > 0f) {
+                    val playedWidth = trackWidth * activeRatio
+                    drawRoundRect(
+                        brush = Brush.horizontalGradient(
+                            listOf(YugenPurpleDark, YugenPurple, YugenAccentViolet),
+                            startX = 0f,
+                            endX = playedWidth
+                        ),
+                        size = Size(playedWidth, trackHeight),
+                        cornerRadius = corner
+                    )
+                }
+            }
+
+            // Floating time tooltip when dragging
+            if (isDragging) {
+                Box(
+                    modifier = Modifier
+                        .offset(y = (-32).dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.85f))
+                        .border(1.dp, YugenPurple.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "${formatDuration(currentSliderValue.toLong())} / ${formatDuration(maxDur)}",
+                        color = Color.White,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -432,11 +486,13 @@ private fun PlayerBottomBar(
                     },
                     valueRange = 0f..maxDur.toFloat(),
                     colors = SliderDefaults.colors(
-                        activeTrackColor = YugenPurple,
+                        activeTrackColor = Color.Transparent,
                         inactiveTrackColor = Color.Transparent,
                         thumbColor = Color.White
                     ),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp)
                 )
             }
         }
@@ -463,11 +519,15 @@ private fun PlayerBottomBar(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(
                     modifier = Modifier
-                        .clip(YugenShape.xs)
-                        .background(YugenSurface.copy(alpha = 0.65f))
-                        .border(1.dp, YugenOverlayMedium, YugenShape.xs)
+                        .clip(YugenShape.pill)
+                        .background(YugenGlassSurface)
+                        .border(
+                            1.dp,
+                            Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.24f), Color.White.copy(alpha = 0.06f))),
+                            YugenShape.pill
+                        )
                         .padding(
-                            horizontal = if (isLandscape) 8.dp else 4.dp,
+                            horizontal = if (isLandscape) 10.dp else 6.dp,
                             vertical = if (isLandscape) 6.dp else 4.dp
                         ),
                     horizontalArrangement = Arrangement.spacedBy(toolSpacing),
@@ -493,7 +553,7 @@ fun GlassyIconButton(
     tint: Color = TextPrimary,
     size: Dp = 42.dp,
     iconSize: Dp = 22.dp,
-    shape: Shape = YugenShape.xs,
+    shape: Shape = YugenShape.button,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -502,10 +562,11 @@ fun GlassyIconButton(
         modifier = modifier
             .size(size)
             .clip(shape)
-            .background(if (isFocused) YugenPurple.copy(alpha = 0.35f) else YugenSurface.copy(alpha = 0.65f))
+            .background(if (isFocused) YugenPurple.copy(alpha = 0.35f) else YugenGlassSurfaceLight)
             .border(
                 width = if (isFocused) 1.5.dp else 1.dp,
-                color = if (isFocused) YugenPurple else YugenOverlayMedium,
+                brush = if (isFocused) Brush.verticalGradient(listOf(YugenPurple, YugenAccentViolet))
+                        else Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.24f), Color.White.copy(alpha = 0.06f))),
                 shape = shape
             )
             .onFocusChanged { isFocused = it.isFocused }
@@ -539,10 +600,14 @@ fun GlassyIconButton(
 private fun TopBarChip(text: String, tint: Color = TextSecondary, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .clip(YugenShape.xs)
-            .background(YugenOverlayLight)
-            .border(1.dp, YugenOverlayMedium, YugenShape.xs)
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .clip(YugenShape.pill)
+            .background(YugenGlassSurfaceLight)
+            .border(
+                1.dp,
+                Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))),
+                YugenShape.pill
+            )
+            .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
         Text(
             text = text,
@@ -556,21 +621,29 @@ private fun TopBarChip(text: String, tint: Color = TextSecondary, modifier: Modi
 }
 
 @Composable
-private fun GlassyLabel(text: String, isCompact: Boolean = false) {
+private fun GlassyLabel(
+    text: String,
+    modifier: Modifier = Modifier,
+    isCompact: Boolean = false
+) {
     Box(
-        modifier = Modifier
-            .clip(YugenShape.xs)
-            .background(YugenSurface.copy(alpha = 0.65f))
-            .border(1.dp, YugenOverlayMedium, YugenShape.xs)
+        modifier = modifier
+            .clip(YugenShape.pill)
+            .background(YugenGlassSurfaceLight)
+            .border(
+                1.dp,
+                Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.05f))),
+                YugenShape.pill
+            )
             .padding(
-                horizontal = if (isCompact) 10.dp else 14.dp,
+                horizontal = if (isCompact) 12.dp else 16.dp,
                 vertical = if (isCompact) 6.dp else 8.dp
             )
     ) {
         Text(
             text = text,
             color = TextPrimary,
-            fontSize = if (isCompact) 11.sp else 13.sp,
+            fontSize = if (isCompact) 11.5.sp else 13.sp,
             fontWeight = FontWeight.SemiBold
         )
     }

@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -48,9 +49,13 @@ import com.zenx.yugen.play.ui.theme.TextMuted
 import com.zenx.yugen.play.ui.theme.TextPrimary
 import com.zenx.yugen.play.ui.theme.TextSecondary
 import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenActiveGlassBorderBrush
 import com.zenx.yugen.play.ui.theme.YugenBackground
 import com.zenx.yugen.play.ui.theme.YugenCardBorder
 import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush
+import com.zenx.yugen.play.ui.theme.YugenGlassSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight
 import com.zenx.yugen.play.ui.theme.YugenOverlayLight
 import com.zenx.yugen.play.ui.theme.YugenPurple
 import com.zenx.yugen.play.ui.theme.YugenPurpleDark
@@ -181,10 +186,10 @@ fun CalendarScreen(
                     Box(
                         modifier = Modifier
                             .clip(YugenShape.pill)
-                            .background(if (hideChineseDonghua) YugenPurple.copy(alpha = 0.22f) else YugenOverlayLight)
+                            .background(if (hideChineseDonghua) YugenPurple.copy(alpha = 0.22f) else YugenGlassSurfaceLight)
                             .border(
                                 1.dp,
-                                if (hideChineseDonghua) YugenPurple.copy(alpha = 0.6f) else YugenCardBorder,
+                                if (hideChineseDonghua) YugenActiveGlassBorderBrush else YugenGlassBorderBrush,
                                 YugenShape.pill
                             )
                             .bounceClick {
@@ -253,12 +258,12 @@ fun CalendarScreen(
                                 if (isSelected) {
                                     Brush.linearGradient(listOf(YugenPurple, YugenPurpleDark))
                                 } else {
-                                    Brush.linearGradient(listOf(YugenCardSurface, YugenCardSurface.copy(alpha = 0.85f)))
+                                    SolidColor(YugenGlassSurface)
                                 }
                             )
                             .border(
                                 width = if (isSelected) 1.5.dp else 1.dp,
-                                color = if (isSelected) YugenAccentViolet else YugenCardBorder,
+                                brush = if (isSelected) YugenActiveGlassBorderBrush else YugenGlassBorderBrush,
                                 shape = YugenShape.md
                             )
                             .bounceClick {
@@ -560,10 +565,10 @@ fun CalendarScreen(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clip(YugenShape.card)
-                                                .background(YugenCardSurface)
+                                                .background(YugenGlassSurface)
                                                 .border(
                                                     1.dp,
-                                                    if (isBookmarked || isReminded) YugenPurple.copy(alpha = 0.65f) else YugenCardBorder,
+                                                    if (isBookmarked || isReminded) YugenActiveGlassBorderBrush else YugenGlassBorderBrush,
                                                     YugenShape.card
                                                 )
                                                 .bounceClick {

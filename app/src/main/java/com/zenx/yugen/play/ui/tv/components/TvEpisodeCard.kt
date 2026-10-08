@@ -32,6 +32,8 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.zenx.yugen.play.ui.detail.EpisodeUiModel
 import com.zenx.yugen.play.ui.player.components.shared.EpisodeTitleFormatter
+import com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush
+import com.zenx.yugen.play.ui.theme.YugenGlassSurface
 import com.zenx.yugen.play.ui.theme.YugenPurple
 import com.zenx.yugen.play.ui.theme.YugenSurfaceVariant
 import com.zenx.yugen.play.ui.tv.TvSpacing
@@ -50,7 +52,7 @@ fun TvEpisodeCard(
     cardModifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(16.dp)
     var isFocused by remember { mutableStateOf(false) }
 
     val playAlpha by animateFloatAsState(
@@ -80,7 +82,8 @@ fun TvEpisodeCard(
                     focusedBorderColor = YugenPurple,
                     focusedBorderWidth = 2.5.dp
                 )
-                .background(YugenSurfaceVariant, shape)
+                .background(YugenGlassSurface, shape)
+                .border(1.dp, YugenGlassBorderBrush, shape)
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)

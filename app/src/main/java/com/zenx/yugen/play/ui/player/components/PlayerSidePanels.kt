@@ -33,13 +33,19 @@ import com.zenx.yugen.play.domain.cleanServerName
 import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.player.PlayerUiState
 import com.zenx.yugen.play.ui.player.PlayerViewModel
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.graphics.Brush
 import com.zenx.yugen.play.ui.theme.TextMuted
 import com.zenx.yugen.play.ui.theme.TextPrimary
 import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
 import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight
 import com.zenx.yugen.play.ui.theme.YugenOverlayLight
 import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
 import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenPurpleDark
 import com.zenx.yugen.play.ui.theme.YugenShape
 
 @Composable
@@ -93,13 +99,13 @@ fun PlayerSidePanels(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(YugenDialogSurface.copy(alpha = 0.96f))
+                    .background(YugenGlassSurface)
                     .border(
                         1.dp,
-                        YugenOverlayMedium,
-                        RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
+                        Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.05f))),
+                        RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp)
                     )
-                    .clip(RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
+                    .clip(RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -491,13 +497,17 @@ private fun SegmentedButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val bg = if (isSelected) YugenPurple else YugenOverlayLight
+    val shape = YugenShape.pill
+    val bg = if (isSelected) YugenPurple else YugenGlassSurfaceLight
+    val borderBrush = if (isSelected) Brush.horizontalGradient(listOf(YugenPurple, YugenAccentViolet))
+                      else Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.18f), Color.White.copy(alpha = 0.04f)))
     val textColor = if (isSelected) Color.White else TextSecondary
 
     Box(
         modifier = modifier
-            .clip(YugenShape.xs)
+            .clip(shape)
             .background(bg)
+            .border(1.dp, borderBrush, shape)
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
         contentAlignment = Alignment.Center
@@ -514,16 +524,19 @@ private fun PanelItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val bg = if (isSelected) YugenPurple.copy(alpha = 0.16f) else YugenOverlayLight
-    val border = if (isSelected) YugenPurple else Color.Transparent
+    val itemShape = RoundedCornerShape(14.dp)
+    val bg = if (isSelected) YugenPurple.copy(alpha = 0.22f) else YugenGlassSurfaceLight
+    val borderBrush = if (isSelected) Brush.horizontalGradient(listOf(YugenPurple, YugenAccentViolet))
+                      else Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.18f), Color.White.copy(alpha = 0.04f)))
+    val borderWidth = if (isSelected) 1.5.dp else 1.dp
     val textColor = if (isSelected) TextPrimary else TextPrimary.copy(alpha = 0.85f)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(YugenShape.xs)
+            .clip(itemShape)
             .background(bg)
-            .border(1.dp, border, YugenShape.xs)
+            .border(borderWidth, borderBrush, itemShape)
             .bounceClick(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -536,7 +549,7 @@ private fun PanelItem(
                     Spacer(modifier = Modifier.width(8.dp))
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(RoundedCornerShape(6.dp))
                             .background(if (isSelected) YugenPurple else YugenOverlayMedium)
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
@@ -580,16 +593,19 @@ private fun EpisodePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel)
     ) {
         items(state.episodes, key = { ep -> ep.id }) { ep ->
             val isSelected = ep.id == state.currentEpisodeId
-            val bg = if (isSelected) YugenPurple.copy(alpha = 0.16f) else YugenOverlayLight
-            val border = if (isSelected) YugenPurple else Color.Transparent
+            val itemShape = RoundedCornerShape(14.dp)
+            val bg = if (isSelected) YugenPurple.copy(alpha = 0.22f) else YugenGlassSurfaceLight
+            val borderBrush = if (isSelected) Brush.horizontalGradient(listOf(YugenPurple, YugenAccentViolet))
+                              else Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.18f), Color.White.copy(alpha = 0.04f)))
+            val borderWidth = if (isSelected) 1.5.dp else 1.dp
             val textColor = if (isSelected) TextPrimary else TextPrimary.copy(alpha = 0.85f)
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(YugenShape.xs)
+                    .clip(itemShape)
                     .background(bg)
-                    .border(1.dp, border, YugenShape.xs)
+                    .border(borderWidth, borderBrush, itemShape)
                     .bounceClick(onClick = { viewModel.selectEpisode(ep) })
                     .padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -601,7 +617,7 @@ private fun EpisodePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel)
                     Box(
                         modifier = Modifier
                             .size(width = 100.dp, height = 56.dp)
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(Color.Black.copy(alpha = 0.5f))
                     ) {
                         coil.compose.AsyncImage(

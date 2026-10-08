@@ -51,6 +51,10 @@ import com.zenx.yugen.play.ui.theme.YugenAccentViolet
 import com.zenx.yugen.play.ui.theme.YugenBackground
 import com.zenx.yugen.play.ui.theme.YugenCardSurface
 import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenActiveGlassBorderBrush
+import com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush
+import com.zenx.yugen.play.ui.theme.YugenGlassSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight
 import com.zenx.yugen.play.ui.theme.YugenGreen
 import com.zenx.yugen.play.ui.theme.YugenOverlayLight
 import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
@@ -145,10 +149,10 @@ fun DownloadsScreen(
                 if (freeStorage > 0L || totalStorage > 0L) {
                     Box(
                         modifier = Modifier
-                            .clip(YugenShape.xs)
-                            .background(YugenOverlayLight)
-                            .border(1.dp, YugenOverlayMedium, YugenShape.xs)
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                            .clip(YugenShape.pill)
+                            .background(YugenGlassSurfaceLight)
+                            .border(1.dp, YugenGlassBorderBrush, YugenShape.pill)
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -406,12 +410,12 @@ private fun AnimeDownloadGroupItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(YugenShape.sm)
-                .background(YugenCardSurface)
+                .clip(YugenShape.card)
+                .background(YugenGlassSurface)
                 .border(
                     1.dp,
-                    if (group.activeDownloadsCount > 0) YugenPurple.copy(alpha = 0.45f) else YugenOverlayMedium,
-                    YugenShape.sm
+                    if (group.activeDownloadsCount > 0) YugenActiveGlassBorderBrush else YugenGlassBorderBrush,
+                    YugenShape.card
                 )
                 .bounceClick {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -579,26 +583,26 @@ private fun DownloadCard(
         DownloadState.DOWNLOADING -> {
             Modifier.border(
                 width = 1.dp,
-                color = YugenPurple.copy(alpha = 0.6f),
-                shape = YugenShape.sm
+                color = YugenPurple.copy(alpha = 0.65f),
+                shape = YugenShape.card
             )
         }
         DownloadState.PAUSED -> {
-            Modifier.border(1.dp, YugenTvIntroAmber.copy(alpha = 0.4f), YugenShape.sm)
+            Modifier.border(1.dp, YugenTvIntroAmber.copy(alpha = 0.45f), YugenShape.card)
         }
         DownloadState.FAILED -> {
-            Modifier.border(1.dp, YugenRed.copy(alpha = 0.4f), YugenShape.sm)
+            Modifier.border(1.dp, YugenRed.copy(alpha = 0.45f), YugenShape.card)
         }
         else -> {
-            Modifier.border(1.dp, YugenOverlayMedium, YugenShape.sm)
+            Modifier.border(1.dp, YugenGlassBorderBrush, YugenShape.card)
         }
     }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(YugenShape.sm)
-            .background(YugenCardSurface)
+            .clip(YugenShape.card)
+            .background(YugenGlassSurface)
             .then(borderModifier)
             .clickable(enabled = isCompleted, onClick = onPlayClick)
     ) {

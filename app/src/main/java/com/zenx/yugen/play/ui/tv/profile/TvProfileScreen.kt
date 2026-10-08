@@ -566,10 +566,10 @@ fun TvProfileScreen(
 private fun ProfileStatItem(label: String, value: String) {
     Column(
         modifier = Modifier
-            .clip(YugenShape.sm)
-            .background(YugenOverlayLight)
-            .border(1.dp, YugenOverlayMedium, YugenShape.sm)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .clip(YugenShape.card)
+            .background(com.zenx.yugen.play.ui.theme.YugenGlassSurface)
+            .border(1.dp, com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush, YugenShape.card)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
@@ -612,7 +612,8 @@ private fun TvProfileAnimeCard(
                     focusedBorderColor = YugenPurple,
                     focusedBorderWidth = 3.dp
                 )
-                .background(YugenCardSurface, YugenShape.card)
+                .background(com.zenx.yugen.play.ui.theme.YugenGlassSurface, YugenShape.card)
+                .border(1.dp, com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush, YugenShape.card)
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)

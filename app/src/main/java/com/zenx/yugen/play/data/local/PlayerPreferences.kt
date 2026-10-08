@@ -45,6 +45,7 @@ class PlayerPreferences @Inject constructor(
         val KEY_LAST_SEEN_VERSION    = stringPreferencesKey("last_seen_version")
         val KEY_MAX_PARALLEL_DOWNLOADS = intPreferencesKey("max_parallel_downloads")
         val KEY_DISMISSED_NOTIFICATION_IDS = stringSetPreferencesKey("dismissed_notification_ids")
+        val KEY_DISMISSED_CONTINUE_WATCHING_SERIES = stringSetPreferencesKey("dismissed_continue_watching_series")
         val KEY_CACHED_RELEASE_NOTES_VERSION = stringPreferencesKey("cached_release_notes_version")
         val KEY_CACHED_RELEASE_NOTES_BODY = stringPreferencesKey("cached_release_notes_body")
         val KEY_PLAYBACK_CACHE_MAX_MB = intPreferencesKey("playback_cache_max_mb")
@@ -174,6 +175,30 @@ class PlayerPreferences @Inject constructor(
     suspend fun clearDismissedNotificationIds() {
         dataStore.edit { prefs ->
             prefs.remove(KEY_DISMISSED_NOTIFICATION_IDS)
+        }
+    }
+
+    val dismissedContinueWatchingSeries: Flow<Set<String>> = safeData.map {
+        it[KEY_DISMISSED_CONTINUE_WATCHING_SERIES] ?: emptySet()
+    }
+
+    suspend fun addDismissedContinueWatchingSeries(seriesKeys: Collection<String>) {
+        dataStore.edit { prefs ->
+            val current = prefs[KEY_DISMISSED_CONTINUE_WATCHING_SERIES] ?: emptySet()
+            prefs[KEY_DISMISSED_CONTINUE_WATCHING_SERIES] = current + seriesKeys
+        }
+    }
+
+    suspend fun removeDismissedContinueWatchingSeries(seriesKeys: Collection<String>) {
+        dataStore.edit { prefs ->
+            val current = prefs[KEY_DISMISSED_CONTINUE_WATCHING_SERIES] ?: emptySet()
+            prefs[KEY_DISMISSED_CONTINUE_WATCHING_SERIES] = current - seriesKeys.toSet()
+        }
+    }
+
+    suspend fun clearDismissedContinueWatchingSeries() {
+        dataStore.edit { prefs ->
+            prefs.remove(KEY_DISMISSED_CONTINUE_WATCHING_SERIES)
         }
     }
 }

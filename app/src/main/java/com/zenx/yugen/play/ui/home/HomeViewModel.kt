@@ -281,16 +281,49 @@ class HomeViewModel @Inject constructor(
     fun deleteHistoryItem(episodeId: String) {
         if (episodeId.startsWith("CLOUD_SYNC_")) {
             dismissedCloudSyncIds.update { it + episodeId }
+            val mediaId = episodeId.split("_").getOrNull(2)
+            if (mediaId != null) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    playerPreferences.addDismissedContinueWatchingSeries(listOf("anilist_$mediaId"))
+                }
+            }
         } else {
             viewModelScope.launch(Dispatchers.IO) {
-                watchHistoryDao.deleteHistoryItem(episodeId)
+                // Remove anime series from Continue Watching on Home Screen,
+                // while preserving the episode progress & watch history for Detail screen, Library, etc.
+                val item = watchHistoryDao.getProgressForEpisode(episodeId)
+                if (item != null) {
+                    val keys = mutableListOf<String>()
+                    keys.add("title_${StringUtils.normalizeTitleForComparison(item.animeTitle)}")
+                    item.anilistId?.let { keys.add("anilist_$it") }
+                    playerPreferences.addDismissedContinueWatchingSeries(keys)
+                } else {
+                    val currentList = (uiState.value as? HomeUiState.Success)?.watchHistory
+                    val match = currentList?.find { it.episodeId == episodeId }
+                    if (match != null) {
+                        val keys = mutableListOf<String>()
+                        keys.add("title_${StringUtils.normalizeTitleForComparison(match.animeTitle)}")
+                        match.mediaId?.let { keys.add("anilist_$it") }
+                        playerPreferences.addDismissedContinueWatchingSeries(keys)
+                    }
+                }
             }
         }
     }
 
     fun clearAllHistory() {
+        // On Home Screen, clearing continue watching dismisses all currently visible series from Home Screen
+        // without wiping the user's entire watch history database.
         viewModelScope.launch(Dispatchers.IO) {
-            watchHistoryDao.clearAllHistory()
+            val currentList = (uiState.value as? HomeUiState.Success)?.watchHistory.orEmpty()
+            val keys = mutableListOf<String>()
+            currentList.forEach { item ->
+                keys.add("title_${StringUtils.normalizeTitleForComparison(item.animeTitle)}")
+                item.mediaId?.let { keys.add("anilist_$it") }
+            }
+            if (keys.isNotEmpty()) {
+                playerPreferences.addDismissedContinueWatchingSeries(keys)
+            }
         }
         val cloudIds = anilistWatchingFlow.value.map { "CLOUD_SYNC_${it.mediaId}_${it.progress + 1}" }.toSet()
         dismissedCloudSyncIds.update { it + cloudIds }
@@ -356,10 +389,18 @@ class HomeViewModel @Inject constructor(
 
     fun expandMovies() = toggleMoviesExpanded()
 
-    private val activeAnilistWatchingFlow = combine(anilistWatchingFlow, dismissedCloudSyncIds) { watching, dismissed ->
+    private val activeAnilistWatchingFlow = combine(
+        anilistWatchingFlow,
+        dismissedCloudSyncIds,
+        playerPreferences.dismissedContinueWatchingSeries
+    ) { watching, dismissed, dismissedSeries ->
         watching.filter {
             val nextEpNum = it.progress + 1
-            "CLOUD_SYNC_${it.mediaId}_$nextEpNum" !in dismissed
+            val anilistKey = "anilist_${it.mediaId}"
+            val titleKey = "title_${com.zenx.yugen.play.util.StringUtils.normalizeTitleForComparison(it.title)}"
+            "CLOUD_SYNC_${it.mediaId}_$nextEpNum" !in dismissed &&
+            anilistKey !in dismissedSeries &&
+            titleKey !in dismissedSeries
         }
     }.distinctUntilChanged()
 
@@ -379,8 +420,18 @@ class HomeViewModel @Inject constructor(
         )
     }
 
-    private val sortedHistoryFlow = watchHistoryDao.getAllHistory().map { history ->
-        val validHistory = history.filter { it.durationMs > 0L || it.progressMs > 0L }
+    private val sortedHistoryFlow = combine(
+        watchHistoryDao.getAllHistory(),
+        playerPreferences.dismissedContinueWatchingSeries
+    ) { history, dismissedSeries ->
+        val validHistory = history.filter { entity ->
+            val hasProgress = entity.durationMs > 0L || entity.progressMs > 0L
+            if (!hasProgress) return@filter false
+
+            val anilistKey = entity.anilistId?.let { "anilist_$it" }
+            val titleKey = "title_${com.zenx.yugen.play.util.StringUtils.normalizeTitleForComparison(entity.animeTitle)}"
+            (anilistKey == null || anilistKey !in dismissedSeries) && titleKey !in dismissedSeries
+        }
         val groupedBySeries = validHistory.groupBy { entity ->
             entity.anilistId?.let { "anilist_$it" }
                 ?: "title_${com.zenx.yugen.play.util.StringUtils.normalizeTitleForComparison(entity.animeTitle)}"

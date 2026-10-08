@@ -11,8 +11,13 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.MarqueeAnimationMode
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -134,3 +139,31 @@ fun Modifier.subtleMarquee(): Modifier = this
         spacing = androidx.compose.foundation.MarqueeSpacing(32.dp),
         velocity = 35.dp
     )
+
+/**
+ * Hardware-Accelerated Glassmorphism Modifier
+ * Applies a translucent frosted glass surface with a specular gradient border.
+ */
+fun Modifier.glassmorphism(
+    shape: Shape = com.zenx.yugen.play.ui.theme.YugenShape.card,
+    backgroundColor: Color = com.zenx.yugen.play.ui.theme.YugenGlassSurface,
+    borderBrush: Brush = com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush,
+    borderWidth: Dp = 1.dp
+): Modifier = this
+    .clip(shape)
+    .background(backgroundColor, shape)
+    .border(borderWidth, borderBrush, shape)
+
+/**
+ * Active / Focused Glassmorphism Modifier
+ * Translucent violet aura with rich purple gradient border for selected states.
+ */
+fun Modifier.activeGlassmorphism(
+    shape: Shape = com.zenx.yugen.play.ui.theme.YugenShape.card,
+    backgroundColor: Color = com.zenx.yugen.play.ui.theme.YugenPurple.copy(alpha = 0.20f),
+    borderBrush: Brush = com.zenx.yugen.play.ui.theme.YugenActiveGlassBorderBrush,
+    borderWidth: Dp = 1.5.dp
+): Modifier = this
+    .clip(shape)
+    .background(backgroundColor, shape)
+    .border(borderWidth, borderBrush, shape)

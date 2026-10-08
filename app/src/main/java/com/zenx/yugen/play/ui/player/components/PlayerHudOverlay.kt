@@ -130,10 +130,10 @@ fun CenterHudOverlay(
                         progress = { state.value.coerceIn(0f, 1f) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(4.dp)
+                            .height(6.dp)
                             .clip(CircleShape),
                         color = YugenPurple,
-                        trackColor = Color.White.copy(alpha = 0.15f)
+                        trackColor = Color.White.copy(alpha = 0.20f)
                     )
                 }
             }
@@ -169,10 +169,10 @@ fun CenterHudOverlay(
                             progress = { state.value.coerceIn(0f, 1f) },
                             modifier = Modifier
                                 .weight(1f)
-                                .height(4.dp)
+                                .height(6.dp)
                                 .clip(CircleShape),
                             color = accentColor,
-                            trackColor = Color.White.copy(alpha = 0.15f)
+                            trackColor = Color.White.copy(alpha = 0.20f)
                         )
                     }
                 }

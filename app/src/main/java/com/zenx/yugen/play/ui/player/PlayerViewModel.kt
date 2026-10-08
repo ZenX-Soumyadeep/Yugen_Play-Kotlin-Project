@@ -1679,6 +1679,11 @@ class PlayerViewModel @Inject constructor(
                                 providerName = activeProviderName
                             )
                         )
+                        val unhideKeys = listOfNotNull(
+                            anilistMediaId?.let { "anilist_$it" },
+                            "title_${com.zenx.yugen.play.util.StringUtils.normalizeTitleForComparison(currentAnimeTitle)}"
+                        )
+                        playerPreferences.removeDismissedContinueWatchingSeries(unhideKeys)
                     }
                 }
             }

@@ -53,6 +53,9 @@ import com.zenx.yugen.play.ui.theme.YugenAccentViolet
 import com.zenx.yugen.play.ui.theme.YugenBackground
 import com.zenx.yugen.play.ui.theme.YugenCardSurface
 import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassBorderBrush
+import com.zenx.yugen.play.ui.theme.YugenGlassSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight
 import com.zenx.yugen.play.ui.theme.YugenGreen
 import com.zenx.yugen.play.ui.theme.YugenOverlayLight
 import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
@@ -298,9 +301,9 @@ fun LibraryScreen(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(YugenShape.md)
-                    .background(YugenOverlayLight)
-                    .border(1.dp, YugenOverlayMedium, YugenShape.md)
+                    .clip(YugenShape.pill)
+                    .background(YugenGlassSurface)
+                    .border(1.dp, YugenGlassBorderBrush, YugenShape.pill)
                     .padding(4.dp)
             ) {
                 listOf("Bookmarks ($totalBookmarksCount)", "History (${history.size})").forEachIndexed { index, label ->
@@ -312,7 +315,7 @@ fun LibraryScreen(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(YugenShape.sm)
+                            .clip(YugenShape.pill)
                             .background(animatedBg)
                             .bounceClick {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -338,9 +341,9 @@ fun LibraryScreen(
                 Box(
                     modifier = Modifier
                         .size(46.dp)
-                        .clip(YugenShape.md)
-                        .background(YugenRed.copy(alpha = 0.12f))
-                        .border(1.dp, YugenRed.copy(alpha = 0.35f), YugenShape.md)
+                        .clip(YugenShape.button)
+                        .background(YugenRed.copy(alpha = 0.14f))
+                        .border(1.dp, YugenRed.copy(alpha = 0.35f), YugenShape.button)
                         .bounceClick {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             showClearHistoryDialog = true
@@ -533,9 +536,9 @@ fun LibraryScreen(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .aspectRatio(0.7f)
-                                                    .clip(YugenShape.md)
-                                                    .border(1.dp, YugenOverlayMedium, YugenShape.md)
-                                                    .background(YugenCardSurface)
+                                                    .clip(YugenShape.card)
+                                                    .background(YugenGlassSurface)
+                                                    .border(1.dp, YugenGlassBorderBrush, YugenShape.card)
                                             ) {
                                                 AsyncImage(
                                                     model = ImageRequest.Builder(context).data(entry.posterUrl).crossfade(300).build(),
@@ -652,9 +655,9 @@ fun LibraryScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .aspectRatio(0.7f)
-                                            .clip(YugenShape.md)
-                                            .border(1.dp, YugenOverlayMedium, YugenShape.md)
-                                            .background(YugenCardSurface)
+                                            .clip(YugenShape.card)
+                                            .background(YugenGlassSurface)
+                                            .border(1.dp, YugenGlassBorderBrush, YugenShape.card)
                                     ) {
                                         AsyncImage(
                                             model = ImageRequest.Builder(context).data(favorite.posterUrl).crossfade(300).build(),
@@ -770,9 +773,9 @@ fun LibraryScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(YugenShape.md)
-                                        .background(YugenCardSurface)
-                                        .border(1.dp, YugenOverlayMedium, YugenShape.md)
+                                        .clip(YugenShape.card)
+                                        .background(YugenGlassSurface)
+                                        .border(1.dp, YugenGlassBorderBrush, YugenShape.card)
                                         .bounceClick {
                                             if (isCloudSync) {
                                                 val mediaId = item.episodeId.split("_").getOrNull(2) ?: ""

@@ -69,8 +69,8 @@ fun AnimeInfoHeader(
             Box(
                 modifier = Modifier
                     .clip(YugenShape.chip)
-                    .background(YugenOverlayLight)
-                    .border(1.dp, YugenOverlayMedium, YugenShape.chip)
+                    .background(YugenGlassSurfaceLight)
+                    .border(1.dp, YugenGlassBorderBrush, YugenShape.chip)
                     .padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -101,8 +101,8 @@ fun AnimeInfoHeader(
                 Box(
                     modifier = Modifier
                         .clip(YugenShape.chip)
-                        .border(1.dp, YugenOverlayMedium, YugenShape.chip)
-                        .background(YugenOverlayLight)
+                        .background(YugenGlassSurfaceLight)
+                        .border(1.dp, YugenGlassBorderBrush, YugenShape.chip)
                         .then(
                             if (onGenreClick != null) Modifier.bounceClick { onGenreClick(genre) }
                             else Modifier
@@ -177,7 +177,7 @@ fun AnimeInfoHeader(
                     modifier = Modifier
                         .clip(YugenShape.xs)
                         .background(YugenPurple.copy(alpha = 0.15f))
-                        .border(1.dp, YugenPurple.copy(alpha = 0.35f), YugenShape.xs)
+                        .border(1.dp, YugenActiveGlassBorderBrush, YugenShape.xs)
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
@@ -264,7 +264,7 @@ fun NextAiringTimer(nextAiringAt: Long, nextAiringEpisode: Int) {
                 .padding(bottom = 16.dp)
                 .clip(YugenShape.card)
                 .background(YugenPurple.copy(alpha = 0.1f))
-                .border(1.dp, YugenPurple.copy(alpha = 0.35f), YugenShape.card)
+                .border(1.dp, YugenActiveGlassBorderBrush, YugenShape.card)
                 .padding(16.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -309,8 +309,10 @@ fun EpisodeItemRow(
     onDownloadClicked: () -> Unit
 ) {
     val context = LocalContext.current
-    val cardBg = if (isResumeTarget) YugenSurfaceVariant else YugenCardSurface
-    val activeBorder = if (isResumeTarget) BorderStroke(1.5.dp, YugenPurple) else BorderStroke(1.dp, YugenOverlayMedium)
+    val cardShape = RoundedCornerShape(18.dp)
+    val cardBg = if (isResumeTarget) YugenPurple.copy(alpha = 0.20f) else YugenGlassSurface
+    val activeBorder = if (isResumeTarget) BorderStroke(1.5.dp, Brush.horizontalGradient(listOf(YugenPurple, YugenAccentViolet)))
+                       else BorderStroke(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))))
     val titleColor = if (isResumeTarget) YugenPurple else TextPrimary
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
@@ -330,9 +332,9 @@ fun EpisodeItemRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(YugenShape.card)
+            .clip(cardShape)
             .background(cardBg)
-            .border(activeBorder, YugenShape.card)
+            .border(activeBorder, cardShape)
             .bounceClick(onClick = onPlayClicked)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -341,7 +343,7 @@ fun EpisodeItemRow(
             modifier = Modifier
                 .width(120.dp)
                 .aspectRatio(16f / 9f)
-                .clip(YugenShape.sm)
+                .clip(RoundedCornerShape(10.dp))
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -557,12 +559,11 @@ fun DynamicActionIsland(
     val isExpanded = state is IslandState.ServerSelection || state is IslandState.DeleteConfirmation
 
     val bgColor by animateColorAsState(
-        targetValue = if (isExpanded) YugenDialogSurface else dominantColor,
+        targetValue = if (isExpanded) YugenGlassSurface else dominantColor,
         label = "IslandBgColor"
     )
-    val borderColor by animateColorAsState(
-        targetValue = if (isExpanded) YugenOverlayMedium else dominantColor.copy(alpha = 0.5f),
-        label = "IslandBorderColor"
+    val borderBrush = if (isExpanded) YugenGlassBorderBrush else Brush.verticalGradient(
+        listOf(dominantColor.copy(alpha = 0.7f), dominantColor.copy(alpha = 0.3f))
     )
 
     BackHandler(enabled = state !is IslandState.Idle) { onDismiss() }
@@ -572,7 +573,7 @@ fun DynamicActionIsland(
             .padding(horizontal = 16.dp, vertical = 20.dp)
             .clip(if (isExpanded) YugenShape.dialog else YugenShape.pill)
             .background(bgColor)
-            .border(1.dp, borderColor, if (isExpanded) YugenShape.dialog else YugenShape.pill)
+            .border(1.dp, borderBrush, if (isExpanded) YugenShape.dialog else YugenShape.pill)
             .animateContentSize(animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessLow)),
         contentAlignment = Alignment.Center
     ) {
@@ -690,11 +691,11 @@ fun DynamicActionIsland(
                         Row {
                             Box(
                                 modifier = Modifier
-                                    .clip(YugenShape.sm)
-                                    .background(YugenOverlayLight)
-                                    .border(1.dp, YugenOverlayMedium, YugenShape.sm)
+                                    .clip(YugenShape.pill)
+                                    .background(YugenGlassSurfaceLight)
+                                    .border(1.dp, YugenGlassBorderBrush, YugenShape.pill)
                                     .bounceClick { onDismiss() }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    .padding(horizontal = 14.dp, vertical = 8.dp)
                             ) {
                                 Text(
                                     text = "Keep",
@@ -706,10 +707,10 @@ fun DynamicActionIsland(
                             Spacer(modifier = Modifier.width(8.dp))
                             Box(
                                 modifier = Modifier
-                                    .clip(YugenShape.sm)
+                                    .clip(YugenShape.pill)
                                     .background(YugenRed)
                                     .bounceClick { onConfirmDelete(targetState.episode) }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    .padding(horizontal = 14.dp, vertical = 8.dp)
                             ) {
                                 Text(
                                     text = "Delete",
@@ -851,10 +852,10 @@ private fun IslandServerSelectionView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(YugenShape.card)
-                            .background(if (isTopRecommended) dominantColor.copy(alpha = 0.12f) else YugenCardSurface)
+                            .background(if (isTopRecommended) dominantColor.copy(alpha = 0.15f) else YugenGlassSurface)
                             .border(
                                 1.dp,
-                                if (isTopRecommended) dominantColor.copy(alpha = 0.4f) else YugenOverlayMedium,
+                                if (isTopRecommended) YugenActiveGlassBorderBrush else YugenGlassBorderBrush,
                                 YugenShape.card
                             )
                             .clickable { onServerClick(serverName) }
@@ -924,7 +925,7 @@ private fun StreamTab(
 
     Row(
         modifier = modifier
-            .clip(YugenShape.sm)
+            .clip(YugenShape.pill)
             .background(bgColor)
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),

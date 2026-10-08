@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -41,6 +42,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -57,6 +59,7 @@ import com.zenx.yugen.play.ui.theme.YugenAccentViolet
 import com.zenx.yugen.play.ui.theme.YugenBackground
 import com.zenx.yugen.play.ui.theme.YugenCardBorder
 import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenGlassSurface
 import com.zenx.yugen.play.ui.theme.YugenGreen
 import com.zenx.yugen.play.ui.theme.YugenOverlayLight
 import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
@@ -320,35 +323,43 @@ fun TvSettingsScreen(
                     }
 
                     TvSettingsSection.PLAYBACK -> {
-                        // Autoplay Toggle
-                        item {
-                            TvSettingToggleRow(
-                                title = "Autoplay Next Episode",
-                                subtitle = "Automatically load and start the next episode when current finishes",
-                                isChecked = autoPlay,
-                                onToggle = { viewModel.setAutoPlayNext(!autoPlay) }
-                            )
-                        }
-
-                        // Prefer Dub Toggle
-                        item {
-                            TvSettingToggleRow(
-                                title = "Prefer English DUB Audio",
-                                subtitle = "Automatically select English dub streams and audio tracks when available",
-                                isChecked = preferDub,
-                                onToggle = { viewModel.setPreferDub(!preferDub) }
-                            )
-                        }
-
-                        // Remote Seek Duration
+                        // 1. Playback Behavior (Unified Toggles Card)
                         item {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(YugenCardSurface, YugenShape.lg)
-                                    .border(1.dp, YugenOverlayMedium, YugenShape.lg)
-                                    .padding(20.dp),
-                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                                    .background(YugenGlassSurface, YugenShape.lg)
+                                    .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))), YugenShape.lg)
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                TvSettingToggleInnerRow(
+                                    title = "Autoplay Next Episode",
+                                    subtitle = "Automatically load and advance to next episode when current finishes",
+                                    isChecked = autoPlay,
+                                    onToggle = { viewModel.setAutoPlayNext(!autoPlay) }
+                                )
+                                HorizontalDivider(
+                                    color = YugenOverlayMedium,
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                                TvSettingToggleInnerRow(
+                                    title = "Prefer English DUB Audio",
+                                    subtitle = "Automatically select English dub streams and audio tracks when available",
+                                    isChecked = preferDub,
+                                    onToggle = { viewModel.setPreferDub(!preferDub) }
+                                )
+                            }
+                        }
+
+                        // 2. Remote Seek Interval Card (Compacted)
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(YugenGlassSurface, YugenShape.lg)
+                                    .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))), YugenShape.lg)
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -359,26 +370,25 @@ fun TvSettingsScreen(
                                         Text(
                                             text = "Remote Seek Interval",
                                             color = TextPrimary,
-                                            fontSize = 15.sp,
+                                            fontSize = 14.5.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                         Text(
-                                            text = "Duration skipped when pressing Left or Right on your TV remote",
+                                            text = "Duration skipped with Left or Right on your TV remote",
                                             color = TextSecondary,
-                                            fontSize = 12.5.sp
+                                            fontSize = 12.sp
                                         )
                                     }
 
-                                    // Active Badge
                                     Box(
                                         modifier = Modifier
                                             .clip(CircleShape)
                                             .background(YugenPurple.copy(alpha = 0.2f))
                                             .border(1.dp, YugenPurple.copy(alpha = 0.5f), CircleShape)
-                                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                                            .padding(horizontal = 10.dp, vertical = 3.dp)
                                     ) {
                                         Text(
-                                            text = "Current: ${seekDuration}s",
+                                            text = "${seekDuration}s",
                                             color = YugenAccentViolet,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold
@@ -388,7 +398,7 @@ fun TvSettingsScreen(
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     listOf(10, 15, 30, 45, 60, 90).forEach { seconds ->
                                         val isSelected = seekDuration == seconds
@@ -403,7 +413,7 @@ fun TvSettingsScreen(
                                                     focusedBorderColor = YugenAccentViolet,
                                                     unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.6f) else Color.Transparent
                                                 )
-                                                .padding(vertical = 10.dp),
+                                                .padding(vertical = 8.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Row(
@@ -415,14 +425,14 @@ fun TvSettingsScreen(
                                                         imageVector = Icons.Rounded.Check,
                                                         contentDescription = null,
                                                         tint = TextPrimary,
-                                                        modifier = Modifier.size(14.dp)
+                                                        modifier = Modifier.size(13.dp)
                                                     )
-                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Spacer(modifier = Modifier.width(3.dp))
                                                 }
                                                 Text(
                                                     text = "${seconds}s",
                                                     color = if (isSelected) TextPrimary else TextSecondary,
-                                                    fontSize = 13.5.sp,
+                                                    fontSize = 13.sp,
                                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                                 )
                                             }
@@ -432,72 +442,131 @@ fun TvSettingsScreen(
                             }
                         }
 
-                        // Subtitle Size Card with Live TV Preview
+                        // 3. Subtitles Styling & Preview (Unified & Compacted)
                         item {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(YugenCardSurface, YugenShape.lg)
-                                    .border(1.dp, YugenOverlayMedium, YugenShape.lg)
-                                    .padding(20.dp),
-                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                                    .background(YugenGlassSurface, YugenShape.lg)
+                                    .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))), YugenShape.lg)
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 Text(
-                                    text = "Subtitle Size & Live Preview",
+                                    text = "Subtitle Styling & Live Preview",
                                     color = TextPrimary,
-                                    fontSize = 15.sp,
+                                    fontSize = 14.5.sp,
                                     fontWeight = FontWeight.Bold
                                 )
-                                Text(
-                                    text = "Adjust the scale of subtitles displayed on your TV screen",
-                                    color = TextSecondary,
-                                    fontSize = 12.5.sp
-                                )
 
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    listOf(
-                                        "Small" to 0.042f,
-                                        "Normal" to 0.053f,
-                                        "Large" to 0.065f,
-                                        "Huge" to 0.078f
-                                    ).forEach { (label, size) ->
-                                        val isSelected = Math.abs(subSize - size) < 0.006f
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .tvButtonFocusable(
-                                                    onClick = { viewModel.setSubtitleSize(size) },
-                                                    shape = YugenShape.sm,
-                                                    focusedBackgroundColor = YugenPurple,
-                                                    unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
-                                                    focusedBorderColor = YugenAccentViolet,
-                                                    unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.6f) else Color.Transparent
-                                                )
-                                                .padding(vertical = 10.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.Center
-                                            ) {
-                                                if (isSelected) {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.Check,
-                                                        contentDescription = null,
-                                                        tint = TextPrimary,
-                                                        modifier = Modifier.size(14.dp)
+                                // Subtitle Size Row
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = "Text Scale",
+                                        color = TextSecondary,
+                                        fontSize = 12.sp
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        listOf(
+                                            "Small" to 0.042f,
+                                            "Normal" to 0.053f,
+                                            "Large" to 0.065f,
+                                            "Huge" to 0.078f
+                                        ).forEach { (label, size) ->
+                                            val isSelected = Math.abs(subSize - size) < 0.006f
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .tvButtonFocusable(
+                                                        onClick = { viewModel.setSubtitleSize(size) },
+                                                        shape = YugenShape.sm,
+                                                        focusedBackgroundColor = YugenPurple,
+                                                        unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
+                                                        focusedBorderColor = YugenAccentViolet,
+                                                        unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.6f) else Color.Transparent
                                                     )
-                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    .padding(vertical = 8.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.Center
+                                                ) {
+                                                    if (isSelected) {
+                                                        Icon(
+                                                            imageVector = Icons.Rounded.Check,
+                                                            contentDescription = null,
+                                                            tint = TextPrimary,
+                                                            modifier = Modifier.size(13.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(3.dp))
+                                                    }
+                                                    Text(
+                                                        text = label,
+                                                        color = if (isSelected) TextPrimary else TextSecondary,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                    )
                                                 }
-                                                Text(
-                                                    text = label,
-                                                    color = if (isSelected) TextPrimary else TextSecondary,
-                                                    fontSize = 13.5.sp,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Subtitle Background Opacity Row
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = "Background Opacity",
+                                        color = TextSecondary,
+                                        fontSize = 12.sp
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        listOf(
+                                            "None (0%)" to 0f,
+                                            "Subtle (35%)" to 0.35f,
+                                            "Solid (75%)" to 0.75f
+                                        ).forEach { (label, opacity) ->
+                                            val isSelected = Math.abs(subBgOpacity - opacity) < 0.08f
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .tvButtonFocusable(
+                                                        onClick = { viewModel.setSubtitleBgOpacity(opacity) },
+                                                        shape = YugenShape.sm,
+                                                        focusedBackgroundColor = YugenPurple,
+                                                        unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
+                                                        focusedBorderColor = YugenAccentViolet,
+                                                        unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.6f) else Color.Transparent
+                                                    )
+                                                    .padding(vertical = 8.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.Center
+                                                ) {
+                                                    if (isSelected) {
+                                                        Icon(
+                                                            imageVector = Icons.Rounded.Check,
+                                                            contentDescription = null,
+                                                            tint = TextPrimary,
+                                                            modifier = Modifier.size(13.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(3.dp))
+                                                    }
+                                                    Text(
+                                                        text = label,
+                                                        color = if (isSelected) TextPrimary else TextSecondary,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -508,78 +577,6 @@ fun TvSettingsScreen(
                                     subtitleSizeRatio = subSize,
                                     bgOpacity = subBgOpacity
                                 )
-                            }
-                        }
-
-                        // Subtitle Background Opacity Card
-                        item {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(YugenCardSurface, YugenShape.lg)
-                                    .border(1.dp, YugenOverlayMedium, YugenShape.lg)
-                                    .padding(20.dp),
-                                verticalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                Text(
-                                    text = "Subtitle Background Opacity",
-                                    color = TextPrimary,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Backdrop opacity behind subtitles for enhanced contrast and legibility",
-                                    color = TextSecondary,
-                                    fontSize = 12.5.sp
-                                )
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    listOf(
-                                        "None (0%)" to 0f,
-                                        "Subtle (35%)" to 0.35f,
-                                        "Solid (75%)" to 0.75f
-                                    ).forEach { (label, opacity) ->
-                                        val isSelected = Math.abs(subBgOpacity - opacity) < 0.08f
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .tvButtonFocusable(
-                                                    onClick = { viewModel.setSubtitleBgOpacity(opacity) },
-                                                    shape = YugenShape.sm,
-                                                    focusedBackgroundColor = YugenPurple,
-                                                    unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
-                                                    focusedBorderColor = YugenAccentViolet,
-                                                    unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.6f) else Color.Transparent
-                                                )
-                                                .padding(vertical = 10.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.Center
-                                            ) {
-                                                if (isSelected) {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.Check,
-                                                        contentDescription = null,
-                                                        tint = TextPrimary,
-                                                        modifier = Modifier.size(14.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                }
-                                                Text(
-                                                    text = label,
-                                                    color = if (isSelected) TextPrimary else TextSecondary,
-                                                    fontSize = 13.5.sp,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
                             }
                         }
                     }
@@ -795,10 +792,10 @@ fun TvSettingsScreen(
 
                         item {
                             TvSettingActionRow(
-                                title = "Clear Playback Video Cache",
+                                title = "Clear Video Cache",
                                 subtitle = "Free up disk space by clearing temporary streaming segments and video buffers",
                                 buttonText = "Clear Video Cache",
-                                badgeText = "ExoPlayer Cache",
+                                badgeText = "ExoPlayer",
                                 icon = Icons.Rounded.Storage,
                                 onClick = {
                                     viewModel.clearPlaybackCache {
@@ -830,8 +827,8 @@ fun TvSettingsScreen(
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(YugenCardSurface, YugenShape.lg)
-                                    .border(1.dp, YugenOverlayMedium, YugenShape.lg)
+                                    .background(YugenGlassSurface, YugenShape.lg)
+                                    .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))), YugenShape.lg)
                                     .padding(24.dp),
                                 verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
@@ -948,8 +945,8 @@ private fun TvProviderStatusCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(YugenCardSurface, YugenShape.lg)
-            .border(1.dp, YugenOverlayMedium, YugenShape.lg)
+            .background(YugenGlassSurface, YugenShape.lg)
+            .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))), YugenShape.lg)
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -1106,6 +1103,80 @@ private fun TvSettingToggleRow(
 }
 
 /**
+ * Focusable toggle row for items grouped within a multi-row settings card.
+ */
+@Composable
+private fun TvSettingToggleInnerRow(
+    title: String,
+    subtitle: String,
+    isChecked: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .tvButtonFocusable(
+                onClick = onToggle,
+                shape = YugenShape.md,
+                focusedBackgroundColor = YugenSurfaceVariant,
+                unfocusedBackgroundColor = Color.Transparent,
+                focusedBorderColor = YugenPurple,
+                unfocusedBorderColor = Color.Transparent
+            )
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = TextPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                color = TextSecondary,
+                fontSize = 12.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        // TV Animated Switch
+        val thumbOffset by animateDpAsState(
+            targetValue = if (isChecked) 20.dp else 2.dp,
+            animationSpec = tween(180),
+            label = "tv_switch_thumb_inner"
+        )
+        val trackBg by animateColorAsState(
+            targetValue = if (isChecked) YugenPurple else YugenOverlayLight,
+            animationSpec = tween(180),
+            label = "tv_switch_track_inner"
+        )
+
+        Box(
+            modifier = Modifier
+                .size(width = 46.dp, height = 26.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(trackBg)
+                .border(1.dp, if (isChecked) YugenAccentViolet else YugenOverlayMedium, RoundedCornerShape(13.dp))
+                .padding(2.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Box(
+                modifier = Modifier
+                    .offset(x = thumbOffset)
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(Color.White)
+            )
+        }
+    }
+}
+
+/**
  * Focusable action row for storage tasks, cache clearance, and updates.
  */
 @Composable
@@ -1121,13 +1192,17 @@ private fun TvSettingActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(YugenCardSurface, YugenShape.lg)
-            .border(1.dp, YugenOverlayMedium, YugenShape.lg)
+            .background(YugenGlassSurface, YugenShape.lg)
+            .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))), YugenShape.lg)
             .padding(20.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 16.dp)
+        ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1136,12 +1211,14 @@ private fun TvSettingActionRow(
                     text = title,
                     color = TextPrimary,
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 if (badgeText != null) {
                     Box(
                         modifier = Modifier
-                            .clip(CircleShape)
+                            .clip(YugenShape.pill)
                             .background(
                                 if (isDestructive) YugenRed.copy(alpha = 0.15f)
                                 else YugenOverlayLight
@@ -1152,7 +1229,9 @@ private fun TvSettingActionRow(
                             text = badgeText,
                             color = if (isDestructive) YugenRed else TextMuted,
                             fontSize = 10.5.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -1164,8 +1243,6 @@ private fun TvSettingActionRow(
                 fontSize = 12.5.sp
             )
         }
-
-        Spacer(modifier = Modifier.width(16.dp))
 
         Row(
             modifier = Modifier
@@ -1191,7 +1268,9 @@ private fun TvSettingActionRow(
                 text = buttonText,
                 color = TextPrimary,
                 fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false
             )
         }
     }
@@ -1211,8 +1290,8 @@ private fun TvSubtitleLivePreview(
             .clip(YugenShape.md)
             .background(Color(0xFF0C0C12))
             .border(1.dp, YugenOverlayMedium, YugenShape.md)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1237,7 +1316,7 @@ private fun TvSubtitleLivePreview(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(68.dp)
+                .height(54.dp)
                 .clip(YugenShape.sm)
                 .background(
                     Brush.verticalGradient(
