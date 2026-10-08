@@ -7,11 +7,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ExitToApp
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,9 +39,22 @@ import coil.request.ImageRequest
 import com.zenx.yugen.play.domain.AnilistListEntry
 import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.components.subtleMarquee
+import com.zenx.yugen.play.ui.theme.StarYellow
+import com.zenx.yugen.play.ui.theme.TextMuted
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenBackground
+import com.zenx.yugen.play.ui.theme.YugenCardBorder
+import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenOverlayLight
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenShape
+import com.zenx.yugen.play.ui.theme.YugenTvOutroCyan
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     onBackClick: () -> Unit,
@@ -50,15 +67,6 @@ fun ProfileScreen(
 
     var showLogoutDialog by remember { mutableStateOf(false) }
 
-    val baseBackground = Color(0xFF09090B)
-    val cardBg = Color(0xFF141416)
-    val glassBg = Color.White.copy(alpha = 0.05f)
-    val glassBorder = Color.White.copy(alpha = 0.12f)
-    val accentPurple = Color(0xFF8B5CF6)
-    val accentBlue = Color(0xFF38BDF8)
-    val accentYellow = Color(0xFFFBBF24)
-    val dialogBg = Color(0xFF141416)
-
     Scaffold(
         topBar = {
             Row(
@@ -69,53 +77,59 @@ fun ProfileScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onBackClick()
-                    },
+                Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
-                        .background(glassBg)
-                        .border(1.dp, glassBorder, CircleShape)
+                        .background(YugenOverlayLight)
+                        .border(1.dp, YugenCardBorder, CircleShape)
+                        .bounceClick {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onBackClick()
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                         contentDescription = "Back",
-                        tint = Color.White
+                        tint = TextPrimary,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
                 Text(
                     text = "Profile",
-                    color = Color.White,
+                    color = TextPrimary,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
 
                 if (uiState is ProfileUiState.Success) {
-                    IconButton(
-                        onClick = { showLogoutDialog = true },
+                    Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFFEF4444).copy(alpha = 0.12f))
-                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.25f), CircleShape)
+                            .background(YugenRed.copy(alpha = 0.12f))
+                            .border(1.dp, YugenRed.copy(alpha = 0.3f), CircleShape)
+                            .bounceClick {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                showLogoutDialog = true
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                            imageVector = Icons.AutoMirrored.Rounded.ExitToApp,
                             contentDescription = "Logout",
-                            tint = Color(0xFFEF4444),
+                            tint = YugenRed,
                             modifier = Modifier.size(20.dp)
                         )
                     }
                 } else {
-                    Spacer(modifier = Modifier.size(44.dp))
+                    Spacer(modifier = Modifier.size(40.dp))
                 }
             }
         },
-        containerColor = baseBackground
+        containerColor = YugenBackground
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -125,7 +139,7 @@ fun ProfileScreen(
             when (val state = uiState) {
                 is ProfileUiState.Loading -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = accentPurple)
+                        CircularProgressIndicator(color = YugenPurple, strokeWidth = 3.dp)
                     }
                 }
                 is ProfileUiState.Unauthenticated -> {
@@ -140,41 +154,95 @@ fun ProfileScreen(
                             modifier = Modifier
                                 .size(72.dp)
                                 .clip(CircleShape)
-                                .background(accentPurple.copy(alpha = 0.15f)),
+                                .background(YugenPurple.copy(alpha = 0.15f))
+                                .border(1.dp, YugenPurple.copy(alpha = 0.35f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Default.Person,
+                                imageVector = Icons.Rounded.AccountCircle,
                                 contentDescription = null,
-                                tint = accentPurple,
-                                modifier = Modifier.size(36.dp)
+                                tint = YugenAccentViolet,
+                                modifier = Modifier.size(40.dp)
                             )
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = "AniList Not Connected",
-                            color = Color.White,
+                            color = TextPrimary,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Link your AniList profile from the Home screen to view your lists, watch progress, and stats.",
-                            color = Color.Gray,
+                            text = "Link your AniList profile from the Home screen or Library tab to view your lists, watch progress, and stats.",
+                            color = TextSecondary,
                             fontSize = 13.5.sp,
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
+                            lineHeight = 20.sp
                         )
                     }
                 }
                 is ProfileUiState.Error -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(state.message, color = Color(0xFFEF4444), fontSize = 14.sp)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.padding(horizontal = 32.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(YugenRed.copy(alpha = 0.15f))
+                                    .border(1.dp, YugenRed.copy(alpha = 0.35f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = YugenRed,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Text(
+                                text = state.message,
+                                color = TextSecondary,
+                                fontSize = 14.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier
+                                    .clip(YugenShape.md)
+                                    .background(YugenPurple)
+                                    .bounceClick {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        viewModel.loadProfileData(forceRefresh = true)
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Refresh,
+                                    contentDescription = null,
+                                    tint = TextPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Retry",
+                                    color = TextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
                 is ProfileUiState.Success -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 90.dp)
+                        contentPadding = PaddingValues(bottom = 96.dp)
                     ) {
                         // Hero Banner & User Avatar
                         item {
@@ -185,10 +253,15 @@ fun ProfileScreen(
                             ) {
                                 if (state.user.banner != null) {
                                     AsyncImage(
-                                        model = ImageRequest.Builder(context).data(state.user.banner).crossfade(300).build(),
+                                        model = ImageRequest.Builder(context)
+                                            .data(state.user.banner)
+                                            .crossfade(300)
+                                            .build(),
                                         contentDescription = "Banner",
                                         contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxWidth().height(180.dp)
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(180.dp)
                                     )
                                     Box(
                                         modifier = Modifier
@@ -196,7 +269,7 @@ fun ProfileScreen(
                                             .height(180.dp)
                                             .background(
                                                 Brush.verticalGradient(
-                                                    listOf(Color.Transparent, baseBackground.copy(alpha = 0.6f), baseBackground)
+                                                    listOf(Color.Transparent, YugenBackground.copy(alpha = 0.6f), YugenBackground)
                                                 )
                                             )
                                     )
@@ -207,7 +280,7 @@ fun ProfileScreen(
                                             .height(180.dp)
                                             .background(
                                                 Brush.verticalGradient(
-                                                    listOf(accentPurple.copy(alpha = 0.35f), baseBackground)
+                                                    listOf(YugenPurple.copy(alpha = 0.28f), YugenBackground)
                                                 )
                                             )
                                     )
@@ -221,12 +294,15 @@ fun ProfileScreen(
                                 ) {
                                     Box {
                                         AsyncImage(
-                                            model = ImageRequest.Builder(context).data(state.user.avatar).crossfade(300).build(),
+                                            model = ImageRequest.Builder(context)
+                                                .data(state.user.avatar)
+                                                .crossfade(300)
+                                                .build(),
                                             contentDescription = "Avatar",
                                             modifier = Modifier
                                                 .size(96.dp)
                                                 .clip(CircleShape)
-                                                .border(2.5.dp, accentPurple, CircleShape)
+                                                .border(2.5.dp, YugenPurple, CircleShape)
                                         )
                                     }
 
@@ -236,21 +312,22 @@ fun ProfileScreen(
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text(
                                                 text = state.user.name,
-                                                color = Color.White,
+                                                color = TextPrimary,
                                                 fontSize = 22.sp,
                                                 fontWeight = FontWeight.ExtraBold
                                             )
-                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
                                             Box(
                                                 modifier = Modifier
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .background(accentBlue.copy(alpha = 0.15f))
+                                                    .clip(YugenShape.xs)
+                                                    .background(YugenTvOutroCyan.copy(alpha = 0.15f))
+                                                    .border(1.dp, YugenTvOutroCyan.copy(alpha = 0.3f), YugenShape.xs)
                                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
                                                 Text(
                                                     text = "AniList",
-                                                    color = accentBlue,
-                                                    fontSize = 10.sp,
+                                                    color = YugenTvOutroCyan,
+                                                    fontSize = 10.5.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }
@@ -258,7 +335,7 @@ fun ProfileScreen(
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
                                             text = "ID: ${state.user.id}",
-                                            color = Color.Gray,
+                                            color = TextMuted,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium
                                         )
@@ -281,22 +358,22 @@ fun ProfileScreen(
                                     modifier = Modifier.weight(1f),
                                     title = "Total Anime",
                                     value = state.user.animeCount.toString(),
-                                    icon = Icons.Default.VideoLibrary,
-                                    tint = accentPurple
+                                    icon = Icons.Rounded.VideoLibrary,
+                                    tint = YugenPurple
                                 )
                                 ProfileStatCard(
                                     modifier = Modifier.weight(1f),
                                     title = "Episodes",
                                     value = state.user.episodesWatched.toString(),
-                                    icon = Icons.Default.PlayCircle,
-                                    tint = accentBlue
+                                    icon = Icons.Rounded.PlayCircle,
+                                    tint = YugenTvOutroCyan
                                 )
                                 ProfileStatCard(
                                     modifier = Modifier.weight(1f),
                                     title = "Days Watched",
                                     value = String.format(Locale.US, "%.1f", state.user.daysWatched),
-                                    icon = Icons.Default.Timer,
-                                    tint = accentYellow
+                                    icon = Icons.Rounded.Timer,
+                                    tint = StarYellow
                                 )
                             }
 
@@ -318,19 +395,20 @@ fun ProfileScreen(
                                     ) {
                                         Text(
                                             text = listName,
-                                            color = Color.White,
+                                            color = TextPrimary,
                                             fontSize = 18.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         )
                                         Box(
                                             modifier = Modifier
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(accentPurple.copy(alpha = 0.15f))
+                                                .clip(YugenShape.xs)
+                                                .background(YugenPurple.copy(alpha = 0.15f))
+                                                .border(1.dp, YugenPurple.copy(alpha = 0.3f), YugenShape.xs)
                                                 .padding(horizontal = 8.dp, vertical = 2.dp)
                                         ) {
                                             Text(
                                                 text = "${entries.size}",
-                                                color = accentPurple,
+                                                color = YugenAccentViolet,
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
@@ -346,7 +424,7 @@ fun ProfileScreen(
                                         items(entries) { entry ->
                                             AnilistEntryCard(
                                                 entry = entry,
-                                                accentColor = accentPurple,
+                                                accentColor = YugenAccentViolet,
                                                 onClick = { onAnimeClick(entry.mediaId.toString(), entry.title, entry.posterUrl) }
                                             )
                                         }
@@ -365,10 +443,21 @@ fun ProfileScreen(
     if (showLogoutDialog) {
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
-            containerColor = dialogBg,
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("Log out of AniList?", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("Your local saved bookmarks and watch history will remain safe on your device.", color = Color.LightGray) },
+            containerColor = YugenDialogSurface,
+            shape = YugenShape.dialog,
+            title = {
+                Text(
+                    text = "Log out of AniList?",
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "Your local saved bookmarks and watch history will remain safe on your device.",
+                    color = TextSecondary
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -377,12 +466,19 @@ fun ProfileScreen(
                         onBackClick()
                     }
                 ) {
-                    Text("Log Out", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Log Out",
+                        color = YugenRed,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showLogoutDialog = false }) {
-                    Text("Cancel", color = Color.White)
+                    Text(
+                        text = "Cancel",
+                        color = TextPrimary
+                    )
                 }
             }
         )
@@ -397,14 +493,11 @@ private fun ProfileStatCard(
     icon: ImageVector,
     tint: Color
 ) {
-    val glassBg = Color.White.copy(alpha = 0.05f)
-    val glassBorder = Color.White.copy(alpha = 0.10f)
-
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(glassBg)
-            .border(1.dp, glassBorder, RoundedCornerShape(14.dp))
+            .clip(YugenShape.md)
+            .background(YugenCardSurface)
+            .border(1.dp, YugenCardBorder, YugenShape.md)
             .padding(vertical = 14.dp, horizontal = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -417,14 +510,14 @@ private fun ProfileStatCard(
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = value,
-            color = Color.White,
+            color = TextPrimary,
             fontSize = 17.sp,
             fontWeight = FontWeight.ExtraBold
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = title,
-            color = Color.Gray,
+            color = TextMuted,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1
@@ -434,22 +527,24 @@ private fun ProfileStatCard(
 
 @Composable
 fun AnilistEntryCard(entry: AnilistListEntry, accentColor: Color, onClick: () -> Unit) {
-    val glassBorder = Color.White.copy(alpha = 0.12f)
     val context = LocalContext.current
     Column(
         modifier = Modifier
-            .width(125.dp)
+            .width(128.dp)
             .bounceClick { onClick() }
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.7f)
-                .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, glassBorder, RoundedCornerShape(12.dp))
+                .clip(YugenShape.card)
+                .border(1.dp, YugenCardBorder, YugenShape.card)
         ) {
             AsyncImage(
-                model = ImageRequest.Builder(context).data(entry.posterUrl).crossfade(300).build(),
+                model = ImageRequest.Builder(context)
+                    .data(entry.posterUrl)
+                    .crossfade(300)
+                    .build(),
                 contentDescription = entry.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
@@ -462,14 +557,20 @@ fun AnilistEntryCard(entry: AnilistListEntry, accentColor: Color, onClick: () ->
                     .padding(vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
-                val epText = if (entry.totalEpisodes != null) "${entry.progress} / ${entry.totalEpisodes}" else "${entry.progress} / ?"
-                Text(epText, color = accentColor, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                val totalStr = entry.totalEpisodes?.takeIf { it > 0 }?.toString() ?: "?"
+                val epText = "Ep ${entry.progress} / $totalStr"
+                Text(
+                    text = epText,
+                    color = accentColor,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
         Text(
             text = entry.title,
-            color = Color.White,
-            fontSize = 12.sp,
+            color = TextPrimary,
+            fontSize = 12.5.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             modifier = Modifier

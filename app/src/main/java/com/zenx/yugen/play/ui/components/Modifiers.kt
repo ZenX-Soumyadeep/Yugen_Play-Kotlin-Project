@@ -115,6 +115,12 @@ fun Modifier.shimmerEffect(): Modifier = composed {
 }
 
 /**
+ * Render-Thread Optimized Shimmer Effect (Alias for shimmerEffect)
+ */
+fun Modifier.premiumShimmerEffect(): Modifier = this.shimmerEffect()
+
+
+/**
  * Hardware Accelerated Marquee
  */
 @OptIn(ExperimentalFoundationApi::class)

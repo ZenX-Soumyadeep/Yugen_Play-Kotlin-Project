@@ -3,6 +3,7 @@ package com.zenx.yugen.play.ui.tv.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -26,6 +27,12 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.zenx.yugen.play.domain.HomeAnimeCardUiModel
 import com.zenx.yugen.play.ui.home.ContinueWatchingUiModel
+import com.zenx.yugen.play.ui.theme.StarYellow
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.tv.TvSpacing
+import com.zenx.yugen.play.ui.tv.TvType
 
 @Composable
 fun TvAnimeCard(
@@ -40,23 +47,23 @@ fun TvAnimeCard(
 
     Column(
         modifier = modifier
-            .width(132.dp)
+            .width(TvSpacing.cardWidth)
             .padding(vertical = 6.dp)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(188.dp)
+                .height(TvSpacing.cardHeight)
                 .tvCardFocusable(
                     onClick = onClick,
                     onLongClick = onLongClick,
                     onFocus = onFocus,
                     shape = shape,
                     focusedScale = 1.08f,
-                    focusedBorderColor = Color(0xFF8B5CF6),
+                    focusedBorderColor = YugenPurple,
                     focusedBorderWidth = 3.dp
                 )
-                .background(Color(0xFF16161D), shape)
+                .background(YugenCardSurface, shape)
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -83,6 +90,7 @@ fun TvAnimeCard(
 
             // Score Badge (Top Right)
             if (anime.score.isNotBlank()) {
+                val formattedScore = if (anime.score.endsWith("%")) anime.score else "${anime.score}%"
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -96,15 +104,14 @@ fun TvAnimeCard(
                         Icon(
                             Icons.Rounded.Star,
                             contentDescription = null,
-                            tint = Color(0xFFFBBF24),
+                            tint = StarYellow,
                             modifier = Modifier.size(11.dp)
                         )
                         Spacer(modifier = Modifier.width(3.dp))
                         Text(
-                            text = anime.score,
+                            text = formattedScore,
                             color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
+                            style = TvType.badge
                         )
                     }
                 }
@@ -117,7 +124,7 @@ fun TvAnimeCard(
                         .align(Alignment.TopStart)
                         .padding(8.dp)
                         .clip(RoundedCornerShape(5.dp))
-                        .background(Color(0xFF8B5CF6))
+                        .background(YugenPurple)
                         .padding(horizontal = 6.dp, vertical = 2.5.dp)
                 ) {
                     Text(
@@ -140,7 +147,7 @@ fun TvAnimeCard(
                 Text(
                     text = tagText,
                     color = Color.White.copy(alpha = 0.85f),
-                    fontSize = 10.5.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -155,11 +162,9 @@ fun TvAnimeCard(
         Text(
             text = anime.title,
             color = Color.White,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
+            style = TvType.cardTitle,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            lineHeight = 17.sp,
             modifier = Modifier.padding(horizontal = 2.dp)
         )
     }
@@ -178,23 +183,23 @@ fun TvContinueWatchingCard(
 
     Column(
         modifier = modifier
-            .width(200.dp)
+            .width(TvSpacing.continueCardWidth)
             .padding(vertical = 6.dp)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(114.dp)
+                .height(TvSpacing.continueCardHeight)
                 .tvCardFocusable(
                     onClick = onClick,
                     onLongClick = onLongClick,
                     onFocus = onFocus,
                     shape = shape,
                     focusedScale = 1.07f,
-                    focusedBorderColor = Color(0xFF8B5CF6),
+                    focusedBorderColor = YugenPurple,
                     focusedBorderWidth = 3.dp
                 )
-                .background(Color(0xFF16161D), shape)
+                .background(YugenCardSurface, shape)
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -222,9 +227,9 @@ fun TvContinueWatchingCard(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .size(38.dp)
-                    .clip(RoundedCornerShape(19.dp))
+                    .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.65f))
-                    .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(19.dp)),
+                    .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -242,7 +247,7 @@ fun TvContinueWatchingCard(
                         .align(Alignment.TopStart)
                         .padding(8.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF8B5CF6))
+                        .background(YugenPurple)
                         .padding(horizontal = 6.dp, vertical = 3.dp)
                 ) {
                     Text(
@@ -281,7 +286,7 @@ fun TvContinueWatchingCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(4.dp),
-                    color = Color(0xFF8B5CF6),
+                    color = YugenPurple,
                     trackColor = Color.White.copy(alpha = 0.2f),
                 )
             }
@@ -292,8 +297,7 @@ fun TvContinueWatchingCard(
         Text(
             text = item.animeTitle,
             color = Color.White,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
+            style = TvType.cardTitle,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 2.dp)
@@ -301,9 +305,8 @@ fun TvContinueWatchingCard(
 
         Text(
             text = item.subtitle,
-            color = Color(0xFFA78BFA),
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.Medium,
+            color = YugenAccentViolet,
+            style = TvType.cardSubtitle,
             modifier = Modifier.padding(horizontal = 2.dp)
         )
     }

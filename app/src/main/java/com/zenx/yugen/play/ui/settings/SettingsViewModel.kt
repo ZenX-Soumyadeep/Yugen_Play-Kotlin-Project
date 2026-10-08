@@ -19,6 +19,7 @@ class SettingsViewModel @Inject constructor(
     private val watchHistoryDao: WatchHistoryDao,
     private val playerPreferences: PlayerPreferences,
     private val authPreferences: AuthPreferences,
+    private val playbackCacheManager: com.zenx.yugen.play.data.manager.PlaybackCacheManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -59,6 +60,15 @@ class SettingsViewModel @Inject constructor(
     fun clearWatchHistory(onComplete: () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             watchHistoryDao.clearAllHistory()
+            withContext(Dispatchers.Main) {
+                onComplete()
+            }
+        }
+    }
+
+    fun clearPlaybackCache(onComplete: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            playbackCacheManager.clearAllPlaybackCache()
             withContext(Dispatchers.Main) {
                 onComplete()
             }

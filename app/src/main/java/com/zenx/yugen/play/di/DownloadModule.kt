@@ -47,6 +47,20 @@ object DownloadModule {
 
     @Provides
     @Singleton
+    @PlaybackCache
+    fun providePlaybackCache(
+        @ApplicationContext context: Context,
+        databaseProvider: DatabaseProvider
+    ): Cache {
+        val cacheDir = File(context.cacheDir, "playback_cache")
+        val budgetBytes = com.zenx.yugen.play.data.manager.PlaybackCacheManager.calculateBudget(context)
+        val evictor = androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor(budgetBytes)
+        return SimpleCache(cacheDir, evictor, databaseProvider)
+    }
+
+    @Provides
+    @Singleton
+    @DownloadCache
     fun provideDownloadCache(
         @ApplicationContext context: Context,
         databaseProvider: DatabaseProvider
@@ -90,6 +104,10 @@ object DownloadModule {
 
     @Provides
     @Singleton
+    fun provideDefaultCache(@DownloadCache cache: Cache): Cache = cache
+
+    @Provides
+    @Singleton
     fun provideDownloadTracker(
         @ApplicationContext context: Context,
         playerPreferences: com.zenx.yugen.play.data.local.PlayerPreferences
@@ -102,7 +120,7 @@ object DownloadModule {
     fun provideDownloadManager(
         @ApplicationContext context: Context,
         databaseProvider: DatabaseProvider,
-        cache: Cache,
+        @DownloadCache cache: Cache,
         downloadTracker: DownloadTracker,
         globalOkHttpClient: OkHttpClient
     ): DownloadManager {

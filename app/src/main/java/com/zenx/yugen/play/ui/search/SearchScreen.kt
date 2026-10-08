@@ -3,6 +3,7 @@ package com.zenx.yugen.play.ui.search
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -44,7 +45,20 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.components.premiumShimmerEffect
-import com.zenx.yugen.play.ui.components.subtleMarquee
+import com.zenx.yugen.play.ui.theme.StarYellow
+import com.zenx.yugen.play.ui.theme.TextMuted
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenBackground
+import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenOverlayLight
+import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenPurpleGlow
+import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenShape
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -73,7 +87,7 @@ fun SearchScreen(
     BackHandler {
         if (showFilterSheet) {
             showFilterSheet = false
-        } else if (query.isNotBlank() || selectedGenres.isNotEmpty() || selectedFormat != null || selectedSeason != null || selectedYear != null) {
+        } else if (query.isNotBlank() || viewModel.hasActiveFilters()) {
             viewModel.onQueryChange("")
             viewModel.clearAllFilters()
             focusManager.clearFocus()
@@ -82,13 +96,6 @@ fun SearchScreen(
             onBackClick()
         }
     }
-
-    val baseBackground = Color(0xFF09090B)
-    val cardBg = Color(0xFF141416)
-    val glassBg = Color.White.copy(alpha = 0.06f)
-    val glassBorder = Color.White.copy(alpha = 0.12f)
-    val accentPurple = Color(0xFF8B5CF6)
-    val accentYellow = Color(0xFFFBBF24)
 
     val popularSuggestions = remember {
         listOf(
@@ -106,10 +113,10 @@ fun SearchScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(baseBackground)
+            .background(YugenBackground)
             .statusBarsPadding()
     ) {
-        // 1. Search Header
+        // 1. Frosted Search Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -123,51 +130,70 @@ fun SearchScreen(
                     onBackClick()
                 },
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(46.dp)
                     .clip(CircleShape)
-                    .background(glassBg)
-                    .border(1.dp, glassBorder, CircleShape)
+                    .background(YugenOverlayLight)
+                    .border(1.dp, YugenOverlayMedium, CircleShape)
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = Color.White
+                    tint = TextPrimary,
+                    modifier = Modifier.size(20.dp)
                 )
             }
 
             Spacer(modifier = Modifier.width(10.dp))
 
+            // Floating Search Input Field
             OutlinedTextField(
                 value = query,
                 onValueChange = viewModel::onQueryChange,
                 modifier = Modifier
                     .weight(1f)
-                    .defaultMinSize(minHeight = 52.dp),
-                placeholder = { Text("Search anime, movies, OVAs...", color = Color.White.copy(alpha = 0.45f), fontSize = 13.5.sp) },
+                    .defaultMinSize(minHeight = 48.dp),
+                placeholder = {
+                    Text(
+                        text = "Search anime, movies, OVAs...",
+                        color = TextMuted,
+                        fontSize = 13.5.sp
+                    )
+                },
                 leadingIcon = {
                     Icon(
-                        Icons.Default.Search,
+                        imageVector = Icons.Default.Search,
                         contentDescription = null,
-                        tint = if (query.isNotBlank()) accentPurple else Color.White.copy(alpha = 0.5f)
+                        tint = if (query.isNotBlank()) YugenPurple else TextMuted,
+                        modifier = Modifier.size(20.dp)
                     )
                 },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.onQueryChange("") }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear", tint = Color.LightGray)
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.onQueryChange("")
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = "Clear",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 },
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = glassBg,
-                    unfocusedContainerColor = glassBg,
-                    focusedBorderColor = accentPurple,
-                    unfocusedBorderColor = glassBorder,
-                    cursorColor = accentPurple,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
+                    focusedContainerColor = YugenOverlayLight,
+                    unfocusedContainerColor = YugenOverlayLight,
+                    focusedBorderColor = YugenPurple,
+                    unfocusedBorderColor = YugenOverlayMedium,
+                    cursorColor = YugenPurple,
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary
                 ),
-                shape = RoundedCornerShape(14.dp),
+                shape = YugenShape.md,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = {
@@ -181,12 +207,17 @@ fun SearchScreen(
             val hasFilters = viewModel.hasActiveFilters()
             val filterCount = viewModel.getActiveFilterCount()
 
+            // Filter Action Button
             Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(if (hasFilters) accentPurple else glassBg)
-                    .border(1.dp, if (hasFilters) accentPurple else glassBorder, RoundedCornerShape(14.dp))
+                    .size(46.dp)
+                    .clip(YugenShape.md)
+                    .background(if (hasFilters) YugenPurple else YugenOverlayLight)
+                    .border(
+                        1.dp,
+                        if (hasFilters) YugenAccentViolet else YugenOverlayMedium,
+                        YugenShape.md
+                    )
                     .bounceClick {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         focusManager.clearFocus()
@@ -197,23 +228,23 @@ fun SearchScreen(
                 Icon(
                     imageVector = Icons.Default.Tune,
                     contentDescription = "Filters",
-                    tint = if (hasFilters) Color.White else accentPurple,
-                    modifier = Modifier.size(22.dp)
+                    tint = if (hasFilters) TextPrimary else YugenAccentViolet,
+                    modifier = Modifier.size(20.dp)
                 )
                 if (filterCount > 0) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(4.dp)
-                            .size(15.dp)
+                            .size(16.dp)
                             .clip(CircleShape)
                             .background(Color.White),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = filterCount.toString(),
-                            color = accentPurple,
-                            fontSize = 9.sp,
+                            color = YugenPurple,
+                            fontSize = 9.5.sp,
                             fontWeight = FontWeight.ExtraBold
                         )
                     }
@@ -256,8 +287,8 @@ fun SearchScreen(
                 }
                 item {
                     Text(
-                        text = "Reset Filters",
-                        color = Color(0xFFEF4444),
+                        text = "Reset All",
+                        color = YugenRed,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier
@@ -278,7 +309,7 @@ fun SearchScreen(
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(22.dp)
+                        verticalArrangement = Arrangement.spacedBy(24.dp)
                     ) {
                         // Recent Searches
                         if (recentSearches.isNotEmpty()) {
@@ -292,23 +323,23 @@ fun SearchScreen(
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
-                                            Icons.Default.History,
+                                            imageVector = Icons.Default.History,
                                             contentDescription = null,
-                                            tint = accentPurple,
+                                            tint = YugenAccentViolet,
                                             modifier = Modifier.size(18.dp)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
                                             text = "Recent Searches",
-                                            color = Color.White,
+                                            color = TextPrimary,
                                             fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
                                     Text(
                                         text = "Clear All",
-                                        color = accentPurple,
-                                        fontSize = 13.sp,
+                                        color = YugenAccentViolet,
+                                        fontSize = 12.5.sp,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.bounceClick { viewModel.clearAllRecentSearches() }
                                     )
@@ -322,9 +353,9 @@ fun SearchScreen(
                                     recentSearches.forEach { searchItem ->
                                         Row(
                                             modifier = Modifier
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(glassBg)
-                                                .border(1.dp, glassBorder, RoundedCornerShape(10.dp))
+                                                .clip(YugenShape.sm)
+                                                .background(YugenOverlayLight)
+                                                .border(1.dp, YugenOverlayMedium, YugenShape.sm)
                                                 .bounceClick {
                                                     focusManager.clearFocus()
                                                     viewModel.executeSearch(searchItem)
@@ -332,12 +363,16 @@ fun SearchScreen(
                                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Text(searchItem, color = Color.White, fontSize = 13.sp)
+                                            Text(
+                                                text = searchItem,
+                                                color = TextPrimary,
+                                                fontSize = 13.sp
+                                            )
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Icon(
-                                                Icons.Default.Close,
+                                                imageVector = Icons.Default.Close,
                                                 contentDescription = "Remove",
-                                                tint = Color.White.copy(alpha = 0.6f),
+                                                tint = TextSecondary,
                                                 modifier = Modifier
                                                     .size(14.dp)
                                                     .clickable { viewModel.deleteRecentSearch(searchItem) }
@@ -348,22 +383,22 @@ fun SearchScreen(
                             }
                         }
 
-                        // Trending Suggestions
+                        // Trending Searches
                         Column {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.padding(bottom = 10.dp)
                             ) {
                                 Icon(
-                                    Icons.AutoMirrored.Filled.TrendingUp,
+                                    imageVector = Icons.AutoMirrored.Filled.TrendingUp,
                                     contentDescription = null,
-                                    tint = accentYellow,
+                                    tint = StarYellow,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "Trending Searches",
-                                    color = Color.White,
+                                    color = TextPrimary,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -377,9 +412,9 @@ fun SearchScreen(
                                 popularSuggestions.forEach { suggestion ->
                                     Box(
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(accentPurple.copy(alpha = 0.12f))
-                                            .border(1.dp, accentPurple.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
+                                            .clip(YugenShape.sm)
+                                            .background(YugenPurple.copy(alpha = 0.12f))
+                                            .border(1.dp, YugenPurple.copy(alpha = 0.28f), YugenShape.sm)
                                             .bounceClick {
                                                 focusManager.clearFocus()
                                                 viewModel.executeSearch(suggestion)
@@ -388,7 +423,7 @@ fun SearchScreen(
                                     ) {
                                         Text(
                                             text = suggestion,
-                                            color = Color.White,
+                                            color = TextPrimary,
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.Medium
                                         )
@@ -397,22 +432,22 @@ fun SearchScreen(
                             }
                         }
 
-                        // Explore Genres
+                        // Popular Genres
                         Column {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.padding(bottom = 10.dp)
                             ) {
                                 Icon(
-                                    Icons.Default.Category,
+                                    imageVector = Icons.Default.Category,
                                     contentDescription = null,
-                                    tint = accentPurple,
+                                    tint = YugenAccentViolet,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "Popular Genres",
-                                    color = Color.White,
+                                    color = TextPrimary,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -426,9 +461,9 @@ fun SearchScreen(
                                 viewModel.anilistGenres.take(12).forEach { genre ->
                                     Box(
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(glassBg)
-                                            .border(1.dp, glassBorder, RoundedCornerShape(10.dp))
+                                            .clip(YugenShape.sm)
+                                            .background(YugenOverlayLight)
+                                            .border(1.dp, YugenOverlayMedium, YugenShape.sm)
                                             .bounceClick {
                                                 viewModel.toggleGenre(genre)
                                                 viewModel.executeSearch()
@@ -437,7 +472,7 @@ fun SearchScreen(
                                     ) {
                                         Text(
                                             text = genre,
-                                            color = Color.LightGray,
+                                            color = TextSecondary,
                                             fontSize = 12.5.sp,
                                             fontWeight = FontWeight.Medium
                                         )
@@ -461,27 +496,40 @@ fun SearchScreen(
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(
-                            Icons.Default.ErrorOutline,
-                            contentDescription = null,
-                            tint = Color(0xFFEF4444),
-                            modifier = Modifier.size(54.dp)
-                        )
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(YugenRed.copy(alpha = 0.12f))
+                                .border(1.dp, YugenRed.copy(alpha = 0.35f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ErrorOutline,
+                                contentDescription = null,
+                                tint = YugenRed,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = state.message,
-                            color = Color.White,
+                            color = TextPrimary,
                             textAlign = TextAlign.Center,
-                            fontSize = 15.sp,
+                            fontSize = 14.5.sp,
                             fontWeight = FontWeight.Medium
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(18.dp))
                         Button(
                             onClick = { viewModel.executeSearch() },
-                            colors = ButtonDefaults.buttonColors(containerColor = accentPurple),
-                            shape = RoundedCornerShape(12.dp)
+                            colors = ButtonDefaults.buttonColors(containerColor = YugenPurple),
+                            shape = YugenShape.md
                         ) {
-                            Text("Retry Search", fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "Retry Search",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
@@ -495,26 +543,45 @@ fun SearchScreen(
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                Icons.Default.SearchOff,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.35f),
-                                modifier = Modifier.size(64.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(CircleShape)
+                                    .background(YugenOverlayLight)
+                                    .border(1.dp, YugenOverlayMedium, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SearchOff,
+                                    contentDescription = null,
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
                                 text = "No matching anime found",
-                                color = Color.White,
+                                color = TextPrimary,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = "Try adjusting your spelling or removing active filters.",
-                                color = Color.White.copy(alpha = 0.65f),
-                                fontSize = 13.5.sp,
+                                color = TextSecondary,
+                                fontSize = 13.sp,
                                 textAlign = TextAlign.Center
                             )
+                            if (viewModel.hasActiveFilters()) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = { viewModel.clearAllFilters() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = YugenPurple),
+                                    shape = YugenShape.md
+                                ) {
+                                    Text("Reset Filters", fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     } else {
                         LazyVerticalGrid(
@@ -527,7 +594,7 @@ fun SearchScreen(
                             items(state.results, key = { it.id }) { result ->
                                 Column(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(14.dp))
+                                        .clip(YugenShape.md)
                                         .bounceClick {
                                             focusManager.clearFocus()
                                             onAnimeClick(result.id, result.title, result.posterUrl)
@@ -537,9 +604,9 @@ fun SearchScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .aspectRatio(0.7f)
-                                            .clip(RoundedCornerShape(14.dp))
-                                            .border(1.dp, glassBorder, RoundedCornerShape(14.dp))
-                                            .background(glassBg)
+                                            .clip(YugenShape.md)
+                                            .border(1.dp, YugenOverlayMedium, YugenShape.md)
+                                            .background(YugenCardSurface)
                                     ) {
                                         AsyncImage(
                                             model = ImageRequest.Builder(context)
@@ -555,11 +622,11 @@ fun SearchScreen(
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(40.dp)
+                                                .height(44.dp)
                                                 .align(Alignment.BottomCenter)
                                                 .background(
                                                     Brush.verticalGradient(
-                                                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
+                                                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))
                                                     )
                                                 )
                                         )
@@ -572,19 +639,20 @@ fun SearchScreen(
                                                     .padding(6.dp)
                                                     .clip(RoundedCornerShape(6.dp))
                                                     .background(Color.Black.copy(alpha = 0.75f))
+                                                    .border(0.5.dp, YugenOverlayMedium, RoundedCornerShape(6.dp))
                                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                                     Icon(
-                                                        Icons.Default.Star,
+                                                        imageVector = Icons.Default.Star,
                                                         contentDescription = null,
-                                                        tint = accentYellow,
+                                                        tint = StarYellow,
                                                         modifier = Modifier.size(11.dp)
                                                     )
                                                     Spacer(modifier = Modifier.width(3.dp))
                                                     Text(
                                                         text = "${result.averageScore}%",
-                                                        color = Color.White,
+                                                        color = TextPrimary,
                                                         fontSize = 10.sp,
                                                         fontWeight = FontWeight.Bold
                                                     )
@@ -595,14 +663,14 @@ fun SearchScreen(
 
                                     Text(
                                         text = result.title,
-                                        color = Color.White,
+                                        color = TextPrimary,
                                         fontSize = 12.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         maxLines = 1,
                                         modifier = Modifier
                                             .padding(top = 7.dp, start = 2.dp, end = 2.dp)
                                             .fillMaxWidth()
-                                            .subtleMarquee()
+                                            .basicMarquee()
                                     )
                                 }
                             }
@@ -617,9 +685,9 @@ fun SearchScreen(
     if (showFilterSheet) {
         ModalBottomSheet(
             onDismissRequest = { showFilterSheet = false },
-            containerColor = cardBg,
+            containerColor = YugenDialogSurface,
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            dragHandle = { BottomSheetDefaults.DragHandle(color = Color.Gray.copy(alpha = 0.4f)) }
+            dragHandle = { BottomSheetDefaults.DragHandle(color = TextMuted.copy(alpha = 0.5f)) }
         ) {
             Column(
                 modifier = Modifier
@@ -636,15 +704,15 @@ fun SearchScreen(
                 ) {
                     Text(
                         text = "Advanced Filters",
-                        color = Color.White,
+                        color = TextPrimary,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold
                     )
                     TextButton(onClick = { viewModel.clearAllFilters() }) {
-                        Text("Reset", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                        Text("Reset", color = YugenRed, fontWeight = FontWeight.Bold)
                     }
                 }
-                HorizontalDivider(color = glassBorder)
+                HorizontalDivider(color = YugenOverlayMedium)
 
                 // Scrollable Criteria
                 Column(
@@ -684,7 +752,7 @@ fun SearchScreen(
                             SelectableChip(season, selectedSeason == season) { viewModel.setSeason(season) }
                         }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(viewModel.years) { year ->
                             SelectableChip(year.toString(), selectedYear == year) { viewModel.setYear(year) }
@@ -708,7 +776,7 @@ fun SearchScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(cardBg)
+                        .background(YugenDialogSurface)
                         .padding(20.dp)
                 ) {
                     Button(
@@ -716,13 +784,18 @@ fun SearchScreen(
                             showFilterSheet = false
                             viewModel.executeSearch()
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = accentPurple),
+                        colors = ButtonDefaults.buttonColors(containerColor = YugenPurple),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp),
-                        shape = RoundedCornerShape(14.dp)
+                        shape = YugenShape.md
                     ) {
-                        Text("Apply Filters", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(
+                            text = "Apply Filters",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
                     }
                 }
             }
@@ -734,7 +807,7 @@ fun SearchScreen(
 private fun SearchShimmerGrid() {
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 115.dp, top = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = Modifier.fillMaxSize()
@@ -745,7 +818,7 @@ private fun SearchShimmerGrid() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(0.7f)
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(YugenShape.md)
                         .premiumShimmerEffect()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -763,27 +836,32 @@ private fun SearchShimmerGrid() {
 
 @Composable
 private fun FilterSectionTitle(title: String) {
-    Text(text = title, color = Color.LightGray, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+    Text(
+        text = title,
+        color = TextSecondary,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Bold
+    )
     Spacer(modifier = Modifier.height(10.dp))
 }
 
 @Composable
 private fun SelectableChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
-    val accentPurple = Color(0xFF8B5CF6)
-    val glassBg = Color.White.copy(alpha = 0.06f)
-    val glassBorder = Color.White.copy(alpha = 0.12f)
-
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (isSelected) accentPurple else glassBg)
-            .border(1.dp, if (isSelected) accentPurple else glassBorder, RoundedCornerShape(10.dp))
+            .clip(YugenShape.sm)
+            .background(if (isSelected) YugenPurple else YugenOverlayLight)
+            .border(
+                1.dp,
+                if (isSelected) YugenAccentViolet else YugenOverlayMedium,
+                YugenShape.sm
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
         Text(
             text = label,
-            color = Color.White,
+            color = if (isSelected) Color.White else TextSecondary,
             fontSize = 13.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
         )
@@ -792,18 +870,27 @@ private fun SelectableChip(label: String, isSelected: Boolean, onClick: () -> Un
 
 @Composable
 private fun FilterPill(text: String, onRemove: () -> Unit) {
-    val accentPurple = Color(0xFF8B5CF6)
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(accentPurple.copy(alpha = 0.2f))
-            .border(1.dp, accentPurple.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+            .clip(YugenShape.sm)
+            .background(YugenPurple.copy(alpha = 0.20f))
+            .border(1.dp, YugenPurple.copy(alpha = 0.45f), YugenShape.sm)
             .clickable(onClick = onRemove)
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Text(
+            text = text,
+            color = TextPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
+        )
         Spacer(modifier = Modifier.width(6.dp))
-        Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.LightGray, modifier = Modifier.size(14.dp))
+        Icon(
+            imageVector = Icons.Default.Close,
+            contentDescription = "Remove",
+            tint = TextSecondary,
+            modifier = Modifier.size(14.dp)
+        )
     }
 }

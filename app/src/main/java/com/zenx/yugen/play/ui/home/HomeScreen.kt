@@ -1,6 +1,8 @@
 package com.zenx.yugen.play.ui.home
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,6 +40,13 @@ import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.updater.AppUpdateInfo
 import com.zenx.yugen.play.ui.updater.UpdateDialog
 import com.zenx.yugen.play.ui.updater.UpdateViewModel
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenBackground
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenShape
+import com.zenx.yugen.play.ui.theme.YugenSpacing
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,8 +89,8 @@ fun HomeScreen(
         }
     }
 
-    val bgColor = remember { Color(0xFF09090B) }
-    val accentPurple = remember { Color(0xFF8B5CF6) }
+    val bgColor = YugenBackground
+    val accentPurple = YugenPurple
 
     // Smooth Scroll Hide / Reveal for Top Bar
     var isTopBarVisible by remember { mutableStateOf(true) }
@@ -89,9 +98,9 @@ fun HomeScreen(
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val delta = available.y
-                if (delta < -12f && isTopBarVisible) {
+                if (delta < -20f && isTopBarVisible) {
                     isTopBarVisible = false
-                } else if (delta > 12f && !isTopBarVisible) {
+                } else if (delta > 20f && !isTopBarVisible) {
                     isTopBarVisible = true
                 }
                 return Offset.Zero
@@ -173,58 +182,58 @@ fun HomeScreen(
 
         when (val state = uiState) {
             is HomeUiState.Loading -> {
-                AppLoadingIndicator()
+                HomeSkeleton()
             }
             is HomeUiState.Error -> {
                 Column(
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .padding(32.dp),
+                        .padding(YugenSpacing.xl),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Box(
                         modifier = Modifier
                             .size(64.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(Color(0xFFEF4444).copy(alpha = 0.12f))
-                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.3f), RoundedCornerShape(20.dp)),
+                            .clip(YugenShape.xl)
+                            .background(YugenRed.copy(alpha = 0.12f))
+                            .border(1.dp, YugenRed.copy(alpha = 0.3f), YugenShape.xl),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             Icons.Rounded.CloudOff,
-                            contentDescription = null,
-                            tint = Color(0xFFEF4444),
+                            contentDescription = "Error",
+                            tint = YugenRed,
                             modifier = Modifier.size(32.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(YugenSpacing.md))
                     Text(
                         text = "Unable to Load Content",
-                        color = Color.White,
+                        color = TextPrimary,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = state.message,
-                        color = Color.White.copy(alpha = 0.65f),
+                        color = TextSecondary,
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center,
                         lineHeight = 18.sp
                     )
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(YugenSpacing.sectionGap))
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(YugenShape.md)
                             .background(accentPurple.copy(alpha = 0.2f))
-                            .border(1.dp, accentPurple.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                            .border(1.dp, accentPurple.copy(alpha = 0.45f), YugenShape.md)
                             .bounceClick { viewModel.retry() }
                             .padding(horizontal = 20.dp, vertical = 10.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 Icons.Rounded.Refresh,
-                                contentDescription = null,
+                                contentDescription = "Retry",
                                 tint = accentPurple,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -245,6 +254,8 @@ fun HomeScreen(
                     state.categoryAnime.chunked(3)
                 }
 
+                val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
                     onRefresh = { viewModel.refresh() },
@@ -252,7 +263,7 @@ fun HomeScreen(
                 ) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 0.dp, bottom = 120.dp)
+                        contentPadding = PaddingValues(top = 0.dp, bottom = 80.dp + navBarBottom)
                     ) {
                         // 1. Hero Carousel
                         if (state.heroAnime.isNotEmpty()) {
@@ -354,8 +365,20 @@ fun HomeScreen(
         // Scroll Hide / Reveal Top Bar
         AnimatedVisibility(
             visible = isTopBarVisible,
-            enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(250)) + fadeIn(tween(180)),
-            exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(250)) + fadeOut(tween(180)),
+            enter = slideInVertically(
+                initialOffsetY = { -it },
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) + fadeIn(tween(180)),
+            exit = slideOutVertically(
+                targetOffsetY = { -it },
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) + fadeOut(tween(180)),
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             Box(
@@ -364,8 +387,8 @@ fun HomeScreen(
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                Color(0xFF09090B).copy(alpha = 0.85f),
-                                Color(0xFF09090B).copy(alpha = 0.40f),
+                                YugenBackground.copy(alpha = 0.85f),
+                                YugenBackground.copy(alpha = 0.40f),
                                 Color.Transparent
                             )
                         )

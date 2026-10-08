@@ -8,6 +8,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadService
+import com.zenx.yugen.play.data.local.Mp4DownloadDao
 import com.zenx.yugen.play.service.DownloadTracker
 import com.zenx.yugen.play.service.VideoDownloadService
 import com.zenx.yugen.play.ui.detail.DownloadState
@@ -15,12 +16,15 @@ import com.zenx.yugen.play.ui.detail.STOP_REASON_USER_PAUSED
 import com.zenx.yugen.play.ui.detail.mapExoDownloadState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
@@ -60,6 +64,7 @@ private data class CachedDownloadMetadata(
 class DownloadsViewModel @Inject constructor(
     private val downloadManager: DownloadManager,
     private val downloadTracker: DownloadTracker,
+    private val mp4DownloadDao: Mp4DownloadDao,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -82,8 +87,8 @@ class DownloadsViewModel @Inject constructor(
         }
     }
 
-    val downloadsFlow = downloadTracker.downloads.map { downloadMap ->
-        downloadMap.values.map { download ->
+    val downloadsFlow = combine(downloadTracker.downloads, mp4DownloadDao.getAllDownloads()) { downloadMap, mp4List ->
+        val exoList = downloadMap.values.map { download ->
             val meta = getOrParseMetadata(download.request.id, download.request.data)
             val currentSpeed = downloadTracker.getDownloadSpeed(download.request.id)
             val state = mapExoDownloadState(download.state)
@@ -113,6 +118,34 @@ class DownloadsViewModel @Inject constructor(
                 etaSeconds = etaSeconds
             )
         }
+
+        val mp4Models = mp4List.map { mp4 ->
+            val state = when (mp4.state) {
+                "COMPLETED" -> DownloadState.COMPLETED
+                "DOWNLOADING" -> DownloadState.DOWNLOADING
+                "PAUSED" -> DownloadState.PAUSED
+                "FAILED" -> DownloadState.FAILED
+                else -> DownloadState.DOWNLOADING
+            }
+            val percent = if (mp4.totalBytes > 0) (mp4.bytesDownloaded.toFloat() / mp4.totalBytes.toFloat()) * 100f else 0f
+            val epStr = if (mp4.episodeNumber % 1f == 0f) mp4.episodeNumber.toInt().toString() else mp4.episodeNumber.toString()
+
+            DownloadUiModel(
+                id = mp4.id,
+                animeTitle = mp4.animeTitle,
+                episodeNumber = epStr,
+                episodeTitle = "Episode $epStr",
+                posterUrl = mp4.posterUrl,
+                state = state,
+                percentDownloaded = percent,
+                downloadedBytes = mp4.bytesDownloaded,
+                totalBytes = mp4.totalBytes,
+                speedBytesPerSecond = 0L,
+                etaSeconds = null
+            )
+        }
+
+        exoList + mp4Models
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val groupedDownloadsFlow = downloadsFlow.map { list ->
@@ -165,7 +198,15 @@ class DownloadsViewModel @Inject constructor(
 
     fun cancelDownload(id: String) {
         metaCache.remove(id)
-        DownloadService.sendRemoveDownload(context, VideoDownloadService::class.java, id, false)
+        viewModelScope.launch(Dispatchers.IO) {
+            val mp4 = mp4DownloadDao.getDownloadById(id)
+            if (mp4 != null) {
+                try { File(mp4.localFilePath).delete() } catch (_: Exception) {}
+                mp4DownloadDao.deleteDownload(id)
+            } else {
+                DownloadService.sendRemoveDownload(context, VideoDownloadService::class.java, id, false)
+            }
+        }
     }
 
     fun clearAllDownloads(downloads: List<DownloadUiModel>) {

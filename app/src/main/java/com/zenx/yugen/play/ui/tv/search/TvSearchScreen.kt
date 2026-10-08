@@ -12,16 +12,20 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Clear
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.FilterList
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -38,16 +42,30 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zenx.yugen.play.domain.HomeAnimeCardUiModel
+import com.zenx.yugen.play.ui.components.premiumShimmerEffect
 import com.zenx.yugen.play.ui.search.SearchUiState
 import com.zenx.yugen.play.ui.search.SearchViewModel
+import com.zenx.yugen.play.ui.theme.TextMuted
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenBackground
+import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenOverlayLight
+import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenShape
+import com.zenx.yugen.play.ui.tv.TvSpacing
+import com.zenx.yugen.play.ui.tv.TvType
 import com.zenx.yugen.play.ui.tv.components.TvAnimeCard
 import com.zenx.yugen.play.ui.tv.components.tvButtonFocusable
-import kotlinx.coroutines.delay
 
 @Composable
 fun TvSearchScreen(
@@ -78,7 +96,7 @@ fun TvSearchScreen(
         if (isSearchFocused && !isKeyboardDismissed) {
             keyboardController?.hide()
             isKeyboardDismissed = true
-        } else if (query.isNotEmpty()) {
+        } else if (query.isNotEmpty() || viewModel.hasActiveFilters()) {
             viewModel.onQueryChange("")
             viewModel.clearAllFilters()
             isKeyboardDismissed = false
@@ -90,8 +108,8 @@ fun TvSearchScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
-            .padding(horizontal = 36.dp, vertical = 24.dp)
+            .background(YugenBackground)
+            .padding(horizontal = TvSpacing.overscanH, vertical = TvSpacing.overscanV)
     ) {
         // --- 1. TOP TV SEARCH BAR ---
         Row(
@@ -104,30 +122,40 @@ fun TvSearchScreen(
                 modifier = Modifier
                     .tvButtonFocusable(
                         onClick = onBackClick,
-                        shape = RoundedCornerShape(10.dp),
-                        focusedBackgroundColor = Color(0xFF8B5CF6),
-                        unfocusedBackgroundColor = Color.White.copy(alpha = 0.08f),
-                        focusedBorderColor = Color.White
+                        shape = YugenShape.md,
+                        focusedBackgroundColor = YugenPurple,
+                        unfocusedBackgroundColor = YugenOverlayLight,
+                        focusedBorderColor = YugenAccentViolet
                     )
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(18.dp))
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "Back",
+                    tint = TextPrimary,
+                    modifier = Modifier.size(18.dp)
+                )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Back", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = "Back",
+                    color = TextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
 
             // Search Input Box
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF14141B))
+                    .height(52.dp)
+                    .clip(YugenShape.md)
+                    .background(YugenCardSurface)
                     .border(
                         width = if (isSearchFocused) 2.dp else 1.dp,
-                        color = if (isSearchFocused) Color(0xFF8B5CF6) else Color.White.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(12.dp)
+                        color = if (isSearchFocused) YugenPurple else YugenOverlayMedium,
+                        shape = YugenShape.md
                     )
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.CenterStart
@@ -137,9 +165,9 @@ fun TvSearchScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Rounded.Search,
+                        imageVector = Icons.Rounded.Search,
                         contentDescription = "Search",
-                        tint = if (isSearchFocused) Color(0xFFA78BFA) else Color.White.copy(alpha = 0.5f),
+                        tint = if (isSearchFocused) YugenAccentViolet else TextMuted,
                         modifier = Modifier.size(20.dp)
                     )
 
@@ -153,12 +181,12 @@ fun TvSearchScreen(
                             .focusRequester(searchFocusRequester)
                             .onFocusChanged { isSearchFocused = it.isFocused },
                         textStyle = TextStyle(
-                            color = Color.White,
+                            color = TextPrimary,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Medium
                         ),
                         singleLine = true,
-                        cursorBrush = SolidColor(Color(0xFF8B5CF6)),
+                        cursorBrush = SolidColor(YugenPurple),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(
                             onSearch = {
@@ -170,7 +198,7 @@ fun TvSearchScreen(
                             if (query.isEmpty()) {
                                 Text(
                                     text = "Search anime by title, character, or studio...",
-                                    color = Color.White.copy(alpha = 0.4f),
+                                    color = TextMuted,
                                     fontSize = 14.sp
                                 )
                             }
@@ -186,16 +214,17 @@ fun TvSearchScreen(
                                         viewModel.onQueryChange("")
                                         viewModel.clearAllFilters()
                                     },
-                                    shape = RoundedCornerShape(6.dp),
-                                    focusedBackgroundColor = Color(0xFF8B5CF6),
-                                    unfocusedBackgroundColor = Color.White.copy(alpha = 0.1f)
+                                    shape = YugenShape.sm,
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = YugenOverlayLight,
+                                    focusedBorderColor = YugenAccentViolet
                                 )
-                                .padding(4.dp)
+                                .padding(6.dp)
                         ) {
                             Icon(
-                                Icons.Rounded.Clear,
+                                imageVector = Icons.Rounded.Clear,
                                 contentDescription = "Clear",
-                                tint = Color.White,
+                                tint = TextPrimary,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -212,9 +241,9 @@ fun TvSearchScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                Icons.Rounded.FilterList,
+                imageVector = Icons.Rounded.FilterList,
                 contentDescription = null,
-                tint = Color(0xFFA78BFA),
+                tint = YugenAccentViolet,
                 modifier = Modifier.size(16.dp)
             )
             Spacer(modifier = Modifier.width(10.dp))
@@ -223,7 +252,7 @@ fun TvSearchScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Clear all filters if active
+                // Clear all filters chip if active
                 if (viewModel.hasActiveFilters()) {
                     item {
                         Box(
@@ -231,18 +260,24 @@ fun TvSearchScreen(
                                 .tvButtonFocusable(
                                     onClick = { viewModel.clearAllFilters() },
                                     shape = RoundedCornerShape(100.dp),
-                                    focusedBackgroundColor = Color(0xFFEF4444),
-                                    unfocusedBackgroundColor = Color(0xFFEF4444).copy(alpha = 0.2f),
-                                    focusedBorderColor = Color.White
+                                    focusedBackgroundColor = YugenRed,
+                                    unfocusedBackgroundColor = YugenRed.copy(alpha = 0.20f),
+                                    focusedBorderColor = TextPrimary,
+                                    unfocusedBorderColor = YugenRed.copy(alpha = 0.40f)
                                 )
                                 .padding(horizontal = 14.dp, vertical = 6.dp)
                         ) {
-                            Text("Clear Filters", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "Clear Filters",
+                                color = TextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
 
-                // Sort Options
+                // Sort Options Chips
                 viewModel.sortOptions.forEach { (sortKey, sortLabel) ->
                     val isSelected = selectedSort == sortKey
                     item {
@@ -254,16 +289,16 @@ fun TvSearchScreen(
                                         viewModel.executeSearch()
                                     },
                                     shape = RoundedCornerShape(100.dp),
-                                    focusedBackgroundColor = Color(0xFF8B5CF6),
-                                    unfocusedBackgroundColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f),
-                                    focusedBorderColor = Color(0xFFA78BFA),
-                                    unfocusedBorderColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.6f) else Color.Transparent
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
+                                    focusedBorderColor = YugenAccentViolet,
+                                    unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.60f) else Color.Transparent
                                 )
                                 .padding(horizontal = 14.dp, vertical = 6.dp)
                         ) {
                             Text(
                                 text = sortLabel,
-                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.8f),
+                                color = if (isSelected) TextPrimary else TextSecondary,
                                 fontSize = 12.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                             )
@@ -282,19 +317,30 @@ fun TvSearchScreen(
                                     viewModel.executeSearch()
                                 },
                                 shape = RoundedCornerShape(100.dp),
-                                focusedBackgroundColor = Color(0xFF8B5CF6),
-                                unfocusedBackgroundColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
-                                focusedBorderColor = Color(0xFFA78BFA),
-                                unfocusedBorderColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.6f) else Color.Transparent
+                                focusedBackgroundColor = YugenPurple,
+                                unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.22f) else YugenOverlayLight,
+                                focusedBorderColor = YugenAccentViolet,
+                                unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.50f) else Color.Transparent
                             )
                             .padding(horizontal = 14.dp, vertical = 6.dp)
                     ) {
-                        Text(
-                            text = genre,
-                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.75f),
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Check,
+                                    contentDescription = null,
+                                    tint = TextPrimary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                            Text(
+                                text = genre,
+                                color = if (isSelected) TextPrimary else TextSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
@@ -311,12 +357,23 @@ fun TvSearchScreen(
                         .padding(top = 8.dp)
                 ) {
                     if (recentSearches.isNotEmpty()) {
-                        Text(
-                            text = "Recent Searches",
-                            color = Color.White.copy(alpha = 0.7f),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.History,
+                                contentDescription = null,
+                                tint = YugenAccentViolet,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Recent Searches",
+                                color = TextSecondary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                         Spacer(modifier = Modifier.height(10.dp))
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -330,14 +387,18 @@ fun TvSearchScreen(
                                                 viewModel.onQueryChange(pastQuery)
                                                 viewModel.executeSearch()
                                             },
-                                            shape = RoundedCornerShape(8.dp),
-                                            focusedBackgroundColor = Color(0xFF8B5CF6),
-                                            unfocusedBackgroundColor = Color.White.copy(alpha = 0.08f),
-                                            focusedBorderColor = Color.White
+                                            shape = YugenShape.sm,
+                                            focusedBackgroundColor = YugenPurple,
+                                            unfocusedBackgroundColor = YugenOverlayLight,
+                                            focusedBorderColor = YugenAccentViolet
                                         )
                                         .padding(horizontal = 14.dp, vertical = 8.dp)
                                 ) {
-                                    Text(pastQuery, color = Color.White, fontSize = 13.sp)
+                                    Text(
+                                        text = pastQuery,
+                                        color = TextPrimary,
+                                        fontSize = 13.sp
+                                    )
                                 }
                             }
                         }
@@ -346,7 +407,7 @@ fun TvSearchScreen(
 
                     Text(
                         text = "Popular Suggestions",
-                        color = Color.White.copy(alpha = 0.7f),
+                        color = TextSecondary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -381,25 +442,25 @@ fun TvSearchScreen(
                                             viewModel.onQueryChange(title)
                                             viewModel.executeSearch()
                                         },
-                                        shape = RoundedCornerShape(12.dp),
-                                        focusedBackgroundColor = Color(0xFF8B5CF6),
-                                        unfocusedBackgroundColor = Color(0xFF14141B),
-                                        focusedBorderColor = Color.White,
-                                        unfocusedBorderColor = Color.White.copy(alpha = 0.08f)
+                                        shape = YugenShape.md,
+                                        focusedBackgroundColor = YugenPurple,
+                                        unfocusedBackgroundColor = YugenCardSurface,
+                                        focusedBorderColor = YugenAccentViolet,
+                                        unfocusedBorderColor = YugenOverlayMedium
                                     )
                                     .padding(horizontal = 16.dp, vertical = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    Icons.Rounded.Search,
+                                    imageVector = Icons.Rounded.Search,
                                     contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.6f),
+                                    tint = TextMuted,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Text(
                                     text = title,
-                                    color = Color.White,
+                                    color = TextPrimary,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -409,17 +470,55 @@ fun TvSearchScreen(
                 }
             }
             is SearchUiState.Loading -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color(0xFF8B5CF6), strokeWidth = 3.dp)
-                }
+                TvSearchShimmerGrid()
             }
             is SearchUiState.Error -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "Search error: ${state.message}",
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 15.sp
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(YugenRed.copy(alpha = 0.15f))
+                                .border(1.dp, YugenRed.copy(alpha = 0.35f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.ErrorOutline,
+                                contentDescription = null,
+                                tint = YugenRed,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                        Text(
+                            text = "Search error: ${state.message}",
+                            color = TextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center
+                        )
+                        Box(
+                            modifier = Modifier
+                                .tvButtonFocusable(
+                                    onClick = { viewModel.executeSearch() },
+                                    shape = YugenShape.md,
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = YugenOverlayLight,
+                                    focusedBorderColor = YugenAccentViolet
+                                )
+                                .padding(horizontal = 18.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = "Retry Search",
+                                color = TextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
             is SearchUiState.Success -> {
@@ -427,33 +526,64 @@ fun TvSearchScreen(
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Icon(
-                                Icons.Rounded.Search,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.25f),
-                                modifier = Modifier.size(48.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(68.dp)
+                                    .clip(CircleShape)
+                                    .background(YugenOverlayLight)
+                                    .border(1.dp, YugenOverlayMedium, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.SearchOff,
+                                    contentDescription = null,
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
                             Text(
                                 text = "No Results Found",
-                                color = Color.White,
-                                fontSize = 16.sp,
+                                color = TextPrimary,
+                                fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
                                 text = "Try clearing some filters or searching with different keywords.",
-                                color = Color.White.copy(alpha = 0.6f),
-                                fontSize = 13.sp
+                                color = TextSecondary,
+                                fontSize = 13.5.sp,
+                                textAlign = TextAlign.Center
                             )
+                            if (viewModel.hasActiveFilters()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .tvButtonFocusable(
+                                            onClick = { viewModel.clearAllFilters() },
+                                            shape = YugenShape.md,
+                                            focusedBackgroundColor = YugenPurple,
+                                            unfocusedBackgroundColor = YugenOverlayLight,
+                                            focusedBorderColor = YugenAccentViolet
+                                        )
+                                        .padding(horizontal = 16.dp, vertical = 9.dp)
+                                ) {
+                                    Text(
+                                        text = "Reset Filters",
+                                        color = TextPrimary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
                 } else {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 145.dp),
+                        columns = GridCells.Adaptive(minSize = TvSpacing.cardWidth),
                         contentPadding = PaddingValues(bottom = 40.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(TvSpacing.itemGap),
+                        verticalArrangement = Arrangement.spacedBy(TvSpacing.itemGap),
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(state.results, key = { it.id }) { result ->
@@ -474,6 +604,41 @@ fun TvSearchScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvSearchShimmerGrid() {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = TvSpacing.cardWidth),
+        contentPadding = PaddingValues(bottom = 40.dp),
+        horizontalArrangement = Arrangement.spacedBy(TvSpacing.itemGap),
+        verticalArrangement = Arrangement.spacedBy(TvSpacing.itemGap),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(8) {
+            Column(
+                modifier = Modifier
+                    .width(TvSpacing.cardWidth)
+                    .clip(YugenShape.md)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(TvSpacing.cardHeight)
+                        .clip(YugenShape.md)
+                        .premiumShimmerEffect()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.85f)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .premiumShimmerEffect()
+                )
             }
         }
     }

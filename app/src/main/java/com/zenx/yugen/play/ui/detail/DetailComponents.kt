@@ -14,13 +14,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -40,14 +37,10 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.zenx.yugen.play.domain.VideoStream
 import com.zenx.yugen.play.ui.components.bounceClick
+import com.zenx.yugen.play.ui.theme.*
 import kotlinx.coroutines.delay
 import java.util.Locale
 import kotlin.time.Duration.Companion.milliseconds
-
-// Theme Colors for the Island Menu
-private val IslandCardBg = Color(0xFF1C1C24)
-private val IslandItemBg = Color.White.copy(alpha = 0.06f)
-private val TextMuted = Color.White.copy(alpha = 0.5f)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -55,11 +48,7 @@ fun AnimeInfoHeader(
     state: DetailsUiState.Success,
     onGenreClick: ((String) -> Unit)? = null
 ) {
-    val accentPurple = Color(0xFF8B5CF6)
-    val glassBg = Color.White.copy(alpha = 0.06f)
-    val glassBorder = Color.White.copy(alpha = 0.12f)
-
-    Column(modifier = Modifier.padding(horizontal = 16.dp).offset(y = (-20).dp)) {
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -67,25 +56,37 @@ fun AnimeInfoHeader(
         ) {
             Text(
                 text = state.title,
-                color = Color.White,
+                color = TextPrimary,
                 fontSize = 22.sp,
-                fontWeight = FontWeight.ExtraBold,
+                fontWeight = FontWeight.Bold,
                 lineHeight = 28.sp,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(end = 12.dp)
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 12.dp)
             )
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Brush.linearGradient(listOf(accentPurple.copy(alpha = 0.25f), Color(0xFF6366F1).copy(alpha = 0.2f))))
-                    .border(1.dp, accentPurple.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                    .clip(YugenShape.chip)
+                    .background(YugenOverlayLight)
+                    .border(1.dp, YugenOverlayMedium, YugenShape.chip)
                     .padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Star, contentDescription = null, tint = Color(0xFFFBBF24), modifier = Modifier.size(14.dp))
+                    Icon(
+                        Icons.Rounded.Star,
+                        contentDescription = null,
+                        tint = StarYellow,
+                        modifier = Modifier.size(14.dp)
+                    )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(state.score, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
+                    Text(
+                        text = state.score.ifBlank { "N/A" },
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
                 }
             }
         }
@@ -99,16 +100,21 @@ fun AnimeInfoHeader(
             state.genres.forEach { genre ->
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(14.dp))
-                        .border(1.dp, glassBorder, RoundedCornerShape(14.dp))
-                        .background(glassBg)
+                        .clip(YugenShape.chip)
+                        .border(1.dp, YugenOverlayMedium, YugenShape.chip)
+                        .background(YugenOverlayLight)
                         .then(
                             if (onGenreClick != null) Modifier.bounceClick { onGenreClick(genre) }
                             else Modifier
                         )
                         .padding(horizontal = 12.dp, vertical = 5.dp)
                 ) {
-                    Text(genre, color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        text = genre,
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
         }
@@ -121,26 +127,66 @@ fun AnimeInfoHeader(
         ) {
             if (state.year.isNotBlank() && state.year != "N/A") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.CalendarToday, contentDescription = null, tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(12.dp))
+                    Icon(
+                        Icons.Rounded.CalendarToday,
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier.size(12.dp)
+                    )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(state.year, color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
+                    Text(
+                        text = state.year,
+                        color = TextSecondary,
+                        fontSize = 12.sp
+                    )
                 }
-                Text("•", color = Color.White.copy(alpha = 0.35f), fontSize = 12.sp)
+                Text("•", color = TextMuted, fontSize = 12.sp)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.SlowMotionVideo, contentDescription = null, tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(14.dp))
+                Icon(
+                    Icons.Rounded.SlowMotionVideo,
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(14.dp)
+                )
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("${state.episodeCount} Ep", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
+                Text(
+                    text = "${state.episodeCount} Ep",
+                    color = TextSecondary,
+                    fontSize = 12.sp
+                )
             }
-            Text("•", color = Color.White.copy(alpha = 0.35f), fontSize = 12.sp)
+            Text("•", color = TextMuted, fontSize = 12.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Schedule, contentDescription = null, tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(13.dp))
+                Icon(
+                    Icons.Rounded.Schedule,
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(13.dp)
+                )
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("24m", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
+                Text(
+                    text = "24m",
+                    color = TextSecondary,
+                    fontSize = 12.sp
+                )
             }
             if (state.format.isNotBlank()) {
-                Text("•", color = Color.White.copy(alpha = 0.35f), fontSize = 12.sp)
-                Text(state.format, color = accentPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("•", color = TextMuted, fontSize = 12.sp)
+                Box(
+                    modifier = Modifier
+                        .clip(YugenShape.xs)
+                        .background(YugenPurple.copy(alpha = 0.15f))
+                        .border(1.dp, YugenPurple.copy(alpha = 0.35f), YugenShape.xs)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = state.format,
+                        color = YugenPurple,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
 
@@ -154,7 +200,7 @@ fun AnimeInfoHeader(
         ) {
             Text(
                 text = state.synopsis,
-                color = Color.LightGray.copy(alpha = 0.85f),
+                color = TextSecondary,
                 fontSize = 13.sp,
                 lineHeight = 19.sp,
                 maxLines = if (isSynopsisExpanded) Int.MAX_VALUE else 3,
@@ -166,7 +212,7 @@ fun AnimeInfoHeader(
             ) {
                 Text(
                     text = if (isSynopsisExpanded) "Show Less" else "Read More",
-                    color = accentPurple,
+                    color = YugenPurple,
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -174,7 +220,7 @@ fun AnimeInfoHeader(
                 Icon(
                     if (isSynopsisExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
                     contentDescription = null,
-                    tint = accentPurple,
+                    tint = YugenPurple,
                     modifier = Modifier.size(16.dp)
                 )
             }
@@ -184,7 +230,6 @@ fun AnimeInfoHeader(
 
 @Composable
 fun NextAiringTimer(nextAiringAt: Long, nextAiringEpisode: Int) {
-    val accentPurple = Color(0xFF8B5CF6)
     var timeLeft by remember { mutableLongStateOf(nextAiringAt - (System.currentTimeMillis() / 1000)) }
 
     LaunchedEffect(nextAiringAt) {
@@ -217,9 +262,9 @@ fun NextAiringTimer(nextAiringAt: Long, nextAiringEpisode: Int) {
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 16.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(accentPurple.copy(alpha = 0.12f))
-                .border(1.dp, accentPurple.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                .clip(YugenShape.card)
+                .background(YugenPurple.copy(alpha = 0.1f))
+                .border(1.dp, YugenPurple.copy(alpha = 0.35f), YugenShape.card)
                 .padding(16.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -232,11 +277,11 @@ fun NextAiringTimer(nextAiringAt: Long, nextAiringEpisode: Int) {
                         modifier = Modifier
                             .size(7.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF10B981).copy(alpha = pulseAlpha))
+                            .background(YugenGreen.copy(alpha = pulseAlpha))
                     )
                     Text(
-                        "EPISODE $nextAiringEpisode RELEASES IN",
-                        color = Color.LightGray,
+                        text = "EPISODE $nextAiringEpisode RELEASES IN",
+                        color = TextSecondary,
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = 1.2.sp
@@ -244,8 +289,8 @@ fun NextAiringTimer(nextAiringAt: Long, nextAiringEpisode: Int) {
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    timeString,
-                    color = accentPurple,
+                    text = timeString,
+                    color = YugenPurple,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = 1.sp
@@ -264,11 +309,9 @@ fun EpisodeItemRow(
     onDownloadClicked: () -> Unit
 ) {
     val context = LocalContext.current
-    val accentPurple = Color(0xFF8B5CF6)
-    val glassBorder = Color.White.copy(alpha = 0.12f)
-    val cardBg = if (isResumeTarget) Color(0xFF1B1824) else Color(0xFF141418)
-    val activeBorder = if (isResumeTarget) BorderStroke(1.5.dp, accentPurple) else BorderStroke(1.dp, glassBorder)
-    val titleColor = if (isResumeTarget) accentPurple else Color.White
+    val cardBg = if (isResumeTarget) YugenSurfaceVariant else YugenCardSurface
+    val activeBorder = if (isResumeTarget) BorderStroke(1.5.dp, YugenPurple) else BorderStroke(1.dp, YugenOverlayMedium)
+    val titleColor = if (isResumeTarget) YugenPurple else TextPrimary
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     val animatedDownloadProgress by animateFloatAsState(
@@ -287,18 +330,18 @@ fun EpisodeItemRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(YugenShape.card)
             .background(cardBg)
-            .border(activeBorder, RoundedCornerShape(16.dp))
+            .border(activeBorder, YugenShape.card)
             .bounceClick(onClick = onPlayClicked)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .width(128.dp)
+                .width(120.dp)
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(YugenShape.sm)
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -342,13 +385,13 @@ fun EpisodeItemRow(
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(6.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .padding(5.dp)
+                    .clip(YugenShape.xs)
                     .background(Color.Black.copy(alpha = 0.75f))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .padding(horizontal = 5.dp, vertical = 2.dp)
             ) {
                 Text(
-                    "EP ${ep.number}",
+                    text = "EP ${ep.number}",
                     color = Color.White,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
@@ -360,12 +403,12 @@ fun EpisodeItemRow(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(5.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(accentPurple)
+                        .clip(YugenShape.xs)
+                        .background(YugenPurple)
                         .padding(horizontal = 5.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        "RESUME",
+                        text = "RESUME",
                         color = Color.White,
                         fontSize = 8.5.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -379,7 +422,7 @@ fun EpisodeItemRow(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .fillMaxWidth()
-                        .height(3.5.dp)
+                        .height(3.dp)
                         .background(Color.Black.copy(alpha = 0.6f))
                 ) {
                     Box(
@@ -389,7 +432,7 @@ fun EpisodeItemRow(
                             .clip(RoundedCornerShape(topEnd = 2.dp, bottomEnd = 2.dp))
                             .background(
                                 Brush.horizontalGradient(
-                                    listOf(Color(0xFF8B5CF6), Color(0xFFA78BFA))
+                                    listOf(YugenPurpleDark, YugenPurple, YugenAccentViolet)
                                 )
                             )
                     )
@@ -418,7 +461,7 @@ fun EpisodeItemRow(
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = ep.description,
-                color = Color.LightGray.copy(alpha = 0.7f),
+                color = TextMuted,
                 fontSize = 12.5.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -426,17 +469,17 @@ fun EpisodeItemRow(
             )
         }
 
-        Spacer(modifier = Modifier.width(10.dp))
+        Spacer(modifier = Modifier.width(8.dp))
 
-        // Download Action Button with tactile feedback
+        // Download Action Button with tactile feedback (min 44dp hit target)
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(44.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.05f))
+                .background(YugenOverlayLight)
                 .border(
                     1.dp,
-                    if (ep.downloadState == DownloadState.DOWNLOADING) accentPurple.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.12f),
+                    if (ep.downloadState == DownloadState.DOWNLOADING) YugenPurple.copy(alpha = 0.6f) else YugenOverlayMedium,
                     CircleShape
                 )
                 .bounceClick {
@@ -450,45 +493,45 @@ fun EpisodeItemRow(
             when {
                 ep.isPreparing -> CircularProgressIndicator(
                     modifier = Modifier.size(20.dp),
-                    color = accentPurple,
+                    color = YugenPurple,
                     strokeWidth = 2.dp
                 )
                 ep.downloadState == DownloadState.NONE -> Icon(
                     Icons.Rounded.Download,
                     contentDescription = "Download",
-                    tint = Color.LightGray,
+                    tint = TextSecondary,
                     modifier = Modifier.size(20.dp)
                 )
                 ep.downloadState == DownloadState.DOWNLOADING -> {
                     CircularProgressIndicator(
                         progress = { 1f },
                         modifier = Modifier.size(20.dp),
-                        color = accentPurple.copy(alpha = 0.2f),
+                        color = YugenPurple.copy(alpha = 0.2f),
                         strokeWidth = 2.5.dp
                     )
                     CircularProgressIndicator(
                         progress = { animatedDownloadProgress },
                         modifier = Modifier.size(20.dp),
-                        color = accentPurple,
+                        color = YugenPurple,
                         strokeWidth = 2.5.dp
                     )
                 }
                 ep.downloadState == DownloadState.PAUSED -> Icon(
                     Icons.Rounded.PauseCircle,
                     contentDescription = "Paused",
-                    tint = Color(0xFFFBBF24),
+                    tint = StarYellow,
                     modifier = Modifier.size(20.dp)
                 )
                 ep.downloadState == DownloadState.COMPLETED -> Icon(
                     Icons.Rounded.CheckCircle,
                     contentDescription = "Downloaded",
-                    tint = Color(0xFF10B981),
+                    tint = YugenGreen,
                     modifier = Modifier.size(20.dp)
                 )
                 ep.downloadState == DownloadState.FAILED -> Icon(
                     Icons.Rounded.ErrorOutline,
                     contentDescription = "Error",
-                    tint = Color(0xFFEF4444),
+                    tint = YugenRed,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -503,7 +546,7 @@ fun EpisodeItemRow(
 fun DynamicActionIsland(
     state: IslandState,
     isDownloadMode: Boolean,
-    dominantColor: Color = Color(0xFF8B5CF6),
+    dominantColor: Color = YugenPurple,
     onActionClick: (EpisodeUiModel) -> Unit,
     onStreamSelected: (VideoStream) -> Unit,
     onConfirmDelete: (EpisodeUiModel) -> Unit,
@@ -514,11 +557,11 @@ fun DynamicActionIsland(
     val isExpanded = state is IslandState.ServerSelection || state is IslandState.DeleteConfirmation
 
     val bgColor by animateColorAsState(
-        targetValue = if (isExpanded) Color(0xFF121216).copy(alpha = 0.98f) else dominantColor.copy(alpha = 0.25f),
+        targetValue = if (isExpanded) YugenDialogSurface else dominantColor,
         label = "IslandBgColor"
     )
     val borderColor by animateColorAsState(
-        targetValue = if (isExpanded) dominantColor.copy(alpha = 0.4f) else dominantColor.copy(alpha = 0.7f),
+        targetValue = if (isExpanded) YugenOverlayMedium else dominantColor.copy(alpha = 0.5f),
         label = "IslandBorderColor"
     )
 
@@ -526,11 +569,10 @@ fun DynamicActionIsland(
 
     Box(
         modifier = Modifier
-            .padding(horizontal = 16.dp, vertical = 24.dp)
-            .clip(RoundedCornerShape(32.dp))
-            .background(if (!isExpanded) Color.Black.copy(alpha = 0.5f) else Color.Transparent)
+            .padding(horizontal = 16.dp, vertical = 20.dp)
+            .clip(if (isExpanded) YugenShape.dialog else YugenShape.pill)
             .background(bgColor)
-            .border(1.dp, borderColor, RoundedCornerShape(32.dp))
+            .border(1.dp, borderColor, if (isExpanded) YugenShape.dialog else YugenShape.pill)
             .animateContentSize(animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessLow)),
         contentAlignment = Alignment.Center
     ) {
@@ -556,11 +598,16 @@ fun DynamicActionIsland(
                     Row(
                         modifier = Modifier
                             .bounceClick { onActionClick(targetState.episode) }
-                            .padding(horizontal = 32.dp, vertical = 14.dp),
+                            .padding(horizontal = 28.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        Icon(
+                            Icons.Rounded.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = if (targetState.isContinue) "Continue Ep ${targetState.episode.number}" else "Watch Ep ${targetState.episode.number}",
@@ -573,13 +620,22 @@ fun DynamicActionIsland(
 
                 is IslandState.Loading -> {
                     Row(
-                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 14.dp),
+                        modifier = Modifier.padding(horizontal = 28.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text(text = targetState.message, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = targetState.message,
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
 
@@ -602,22 +658,65 @@ fun DynamicActionIsland(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(Color(0xFFEF4444).copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(20.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(YugenRed.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Rounded.DeleteOutline,
+                                    contentDescription = null,
+                                    tint = YugenRed,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
-                                Text("Delete Download?", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                Text("Episode ${targetState.episode.number}", color = Color.White.copy(alpha = 0.65f), fontSize = 13.sp)
+                                Text(
+                                    text = "Delete Download?",
+                                    color = TextPrimary,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Episode ${targetState.episode.number}",
+                                    color = TextSecondary,
+                                    fontSize = 13.sp
+                                )
                             }
                         }
                         Row {
-                            Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.1f)).bounceClick { onDismiss() }.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                Text("Keep", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Box(
+                                modifier = Modifier
+                                    .clip(YugenShape.sm)
+                                    .background(YugenOverlayLight)
+                                    .border(1.dp, YugenOverlayMedium, YugenShape.sm)
+                                    .bounceClick { onDismiss() }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = "Keep",
+                                    color = TextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                             Spacer(modifier = Modifier.width(8.dp))
-                            Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xFFEF4444)).bounceClick { onConfirmDelete(targetState.episode) }.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                Text("Delete", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Box(
+                                modifier = Modifier
+                                    .clip(YugenShape.sm)
+                                    .background(YugenRed)
+                                    .bounceClick { onConfirmDelete(targetState.episode) }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = "Delete",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
@@ -633,8 +732,11 @@ fun DynamicActionIsland(
 
 @Composable
 private fun IslandStreamSelector(
-    streams: List<VideoStream>, isDownloadMode: Boolean,
-    dominantColor: Color, onDismiss: () -> Unit, onStreamSelected: (VideoStream) -> Unit
+    streams: List<VideoStream>,
+    isDownloadMode: Boolean,
+    dominantColor: Color,
+    onDismiss: () -> Unit,
+    onStreamSelected: (VideoStream) -> Unit
 ) {
     val serverGroups = remember(streams) {
         streams.groupBy { stream ->
@@ -676,7 +778,12 @@ private fun IslandStreamSelector(
         }.toMap()
     }
 
-    Box(modifier = Modifier.fillMaxWidth().heightIn(max = 450.dp).padding(top = 20.dp, bottom = 12.dp)) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 450.dp)
+            .padding(top = 20.dp, bottom = 12.dp)
+    ) {
         IslandServerSelectionView(
             isDownloadMode = isDownloadMode,
             serverGroups = serverGroups,
@@ -699,21 +806,42 @@ private fun IslandStreamSelector(
 private fun IslandServerSelectionView(
     isDownloadMode: Boolean,
     serverGroups: Map<String, Pair<String, List<VideoStream>>>,
-    dominantColor: Color, onClose: () -> Unit, onServerClick: (String) -> Unit
+    dominantColor: Color,
+    onClose: () -> Unit,
+    onServerClick: (String) -> Unit
 ) {
     Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Select Server", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Select Server",
+                color = TextPrimary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
+            )
             IconButton(onClick = onClose, modifier = Modifier.size(28.dp).offset(x = 8.dp)) {
-                Icon(Icons.Rounded.Close, contentDescription = "Close", tint = TextMuted)
+                Icon(Icons.Rounded.Close, contentDescription = "Close", tint = TextSecondary)
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
 
         if (serverGroups.isEmpty()) {
-            Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) { Text("No servers available.", color = TextMuted) }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(100.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No servers available.", color = TextMuted)
+            }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
                 itemsIndexed(serverGroups.entries.toList()) { index, (serverName, data) ->
                     val badge = data.first
                     val streams = data.second
@@ -722,26 +850,57 @@ private fun IslandServerSelectionView(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (isTopRecommended) dominantColor.copy(alpha = 0.1f) else IslandCardBg)
-                            .border(1.dp, if (isTopRecommended) dominantColor.copy(alpha = 0.3f) else Color.Transparent, RoundedCornerShape(14.dp))
+                            .clip(YugenShape.card)
+                            .background(if (isTopRecommended) dominantColor.copy(alpha = 0.12f) else YugenCardSurface)
+                            .border(
+                                1.dp,
+                                if (isTopRecommended) dominantColor.copy(alpha = 0.4f) else YugenOverlayMedium,
+                                YugenShape.card
+                            )
                             .clickable { onServerClick(serverName) }
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(if (isTopRecommended) dominantColor else IslandItemBg), contentAlignment = Alignment.Center) {
-                            Icon(if (streams.any { it.format == "MP4" }) Icons.Rounded.OndemandVideo else Icons.Rounded.PlayArrow, contentDescription = null, tint = if (isTopRecommended) Color.White else TextMuted, modifier = Modifier.size(20.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(if (isTopRecommended) dominantColor else YugenOverlayLight),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                if (streams.any { it.format == "MP4" }) Icons.Rounded.OndemandVideo else Icons.Rounded.PlayArrow,
+                                contentDescription = null,
+                                tint = if (isTopRecommended) Color.White else TextSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                         Spacer(modifier = Modifier.width(14.dp))
-                        Text(text = serverName, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(dominantColor.copy(alpha = 0.2f)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                            Text(text = badge, color = dominantColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = serverName,
+                            color = TextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(YugenShape.xs)
+                                .background(dominantColor.copy(alpha = 0.2f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = badge,
+                                color = dominantColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Icon(
                             imageVector = if (isDownloadMode) Icons.Rounded.Download else Icons.Rounded.PlayArrow,
                             contentDescription = if (isDownloadMode) "Download" else "Play",
-                            tint = if (isTopRecommended) dominantColor else TextMuted,
+                            tint = if (isTopRecommended) dominantColor else TextSecondary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -752,13 +911,25 @@ private fun IslandServerSelectionView(
 }
 
 @Composable
-private fun StreamTab(title: String, icon: ImageVector, isSelected: Boolean, dominantColor: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun StreamTab(
+    title: String,
+    icon: ImageVector,
+    isSelected: Boolean,
+    dominantColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     val bgColor = if (isSelected) dominantColor else Color.Transparent
-    val contentColor = if (isSelected) Color.White else TextMuted
+    val contentColor = if (isSelected) Color.White else TextSecondary
 
     Row(
-        modifier = modifier.clip(RoundedCornerShape(10.dp)).background(bgColor).clickable(onClick = onClick).padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
+        modifier = modifier
+            .clip(YugenShape.sm)
+            .background(bgColor)
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(imageVector = icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(14.dp))
         Spacer(modifier = Modifier.width(4.dp))

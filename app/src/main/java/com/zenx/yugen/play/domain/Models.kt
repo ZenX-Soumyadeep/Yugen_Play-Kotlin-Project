@@ -208,10 +208,19 @@ data class Subtitle(
     val format: String = "VTT"
 )
 
+data class ProviderCapabilities(
+    val supportsDub: Boolean = false,
+    val supportsDownload: Boolean = true,
+    val supportsSearch: Boolean = true,
+    val requiresMapping: Boolean = true,
+    val isEmbedded: Boolean = false
+)
+
 // --- Provider Interface ---
 interface AnimeProvider {
     val name: String
     val baseUrl: String
+    val capabilities: ProviderCapabilities get() = ProviderCapabilities()
     suspend fun search(query: String): List<SearchResult>
     suspend fun getEpisodes(animeUrl: String): List<Episode>
     suspend fun extractStreams(episodeId: String, title: String = ""): List<VideoStream>
@@ -221,7 +230,19 @@ data class SkipInterval(
     val startTime: Double,
     val endTime: Double,
     val type: String
-)
+) {
+    val isOutro: Boolean
+        get() = type.equals("ed", ignoreCase = true) ||
+                type.equals("outro", ignoreCase = true) ||
+                type.contains("mixed-ed", ignoreCase = true) ||
+                type.contains("ending", ignoreCase = true)
+
+    val isIntro: Boolean
+        get() = type.equals("op", ignoreCase = true) ||
+                type.equals("intro", ignoreCase = true) ||
+                type.contains("mixed-op", ignoreCase = true) ||
+                type.contains("opening", ignoreCase = true)
+}
 enum class AudioTrackType(val label: String, val badge: String) {
     SUB("Japanese (Sub)", "SUB"),
     DUB("English (Dub)", "DUB"),

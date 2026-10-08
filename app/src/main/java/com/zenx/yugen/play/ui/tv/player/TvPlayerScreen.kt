@@ -63,7 +63,9 @@ import com.zenx.yugen.play.domain.VideoStream
 import com.zenx.yugen.play.domain.AudioTrackType
 import com.zenx.yugen.play.domain.audioTrackType
 import com.zenx.yugen.play.domain.cleanServerName
-import com.zenx.yugen.play.ui.home.AppLoadingIndicator
+import com.zenx.yugen.play.ui.theme.*
+import com.zenx.yugen.play.ui.tv.TvSpacing
+import com.zenx.yugen.play.ui.tv.TvType
 import com.zenx.yugen.play.ui.player.PlayerPlaybackProgress
 import com.zenx.yugen.play.ui.player.PlayerUiState
 import com.zenx.yugen.play.ui.player.PlayerViewModel
@@ -76,11 +78,6 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.time.Duration.Companion.milliseconds
-
-private val AccentPurple = Color(0xFF8B5CF6)
-private val DarkSurface = Color(0xFF0C0C12).copy(alpha = 0.95f)
-private val GlassBorder = Color.White.copy(alpha = 0.12f)
-private val ItemBg = Color.White.copy(alpha = 0.08f)
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -97,6 +94,7 @@ fun TvPlayerScreen(
     val serverFocusRequester = remember { FocusRequester() }
     val rewindFocusRequester = remember { FocusRequester() }
     val forwardFocusRequester = remember { FocusRequester() }
+    val skipFocusRequester = remember { FocusRequester() }
     val containerFocusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
 
@@ -114,6 +112,7 @@ fun TvPlayerScreen(
     val readyState = uiState as? PlayerUiState.Ready
 
     var currentTimeString by remember { mutableStateOf("") }
+    var userActivityToken by remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) {
         val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
         while (true) {
@@ -153,7 +152,7 @@ fun TvPlayerScreen(
         }
     }
 
-    LaunchedEffect(showControls, readyState?.isPlaying, isAnyPanelVisible) {
+    LaunchedEffect(showControls, readyState?.isPlaying, isAnyPanelVisible, userActivityToken) {
         if (showControls && readyState?.isPlaying == true && !isAnyPanelVisible) {
             delay(6000L.milliseconds)
             showControls = false
@@ -172,6 +171,9 @@ fun TvPlayerScreen(
             .focusRequester(containerFocusRequester)
             .focusable()
             .onPreviewKeyEvent { keyEvent ->
+                if (showControls && keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                    userActivityToken++
+                }
                 if (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK &&
                     keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP
                 ) {
@@ -264,14 +266,6 @@ fun TvPlayerScreen(
                                     quickSeekDeltaSec = 0
                                 }
                                 true
-                            }
-                            // Bind Up explicitly to "Skip" if interval is active and controls are hidden
-                            KeyEvent.KEYCODE_DPAD_UP -> {
-                                val skipInterval = playbackProgress.activeSkipInterval
-                                if (skipInterval != null) {
-                                    viewModel.seekTo((skipInterval.endTime * 1000).toLong())
-                                    true
-                                } else false
                             }
                             else -> false
                         }
@@ -408,7 +402,11 @@ fun TvPlayerScreen(
         when (val state = uiState) {
             is PlayerUiState.Loading -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    AppLoadingIndicator()
+                    CircularProgressIndicator(
+                        color = YugenPurple,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(56.dp)
+                    )
                 }
             }
             is PlayerUiState.Error -> {
@@ -430,7 +428,7 @@ fun TvPlayerScreen(
                         Icon(
                             Icons.Rounded.ErrorOutline,
                             contentDescription = null,
-                            tint = Color(0xFFEF4444),
+                            tint = YugenRed,
                             modifier = Modifier.size(54.dp)
                         )
                         Spacer(modifier = Modifier.height(16.dp))
@@ -447,7 +445,7 @@ fun TvPlayerScreen(
                                 .tvButtonFocusable(
                                     onClick = { viewModel.retryPlayback() },
                                     shape = RoundedCornerShape(12.dp),
-                                    focusedBackgroundColor = AccentPurple,
+                                    focusedBackgroundColor = YugenPurple,
                                     unfocusedBackgroundColor = Color.White.copy(alpha = 0.15f),
                                     focusedBorderColor = Color.White
                                 )
@@ -468,7 +466,11 @@ fun TvPlayerScreen(
                     exit = fadeOut(tween(250)),
                     modifier = Modifier.align(Alignment.Center)
                 ) {
-                    AppLoadingIndicator(modifier = Modifier.size(110.dp))
+                    CircularProgressIndicator(
+                        color = YugenPurple,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(56.dp)
+                    )
                 }
 
                 AnimatedVisibility(
@@ -485,6 +487,7 @@ fun TvPlayerScreen(
                         serverFocusRequester = serverFocusRequester,
                         rewindFocusRequester = rewindFocusRequester,
                         forwardFocusRequester = forwardFocusRequester,
+                        skipFocusRequester = skipFocusRequester,
                         onBackClick = {
                             viewModel.saveCurrentProgress()
                             onBackClick()
@@ -518,15 +521,7 @@ fun TvPlayerScreen(
                         .padding(bottom = if (showControls) 130.dp else 48.dp, end = 48.dp)
                 )
 
-                if (state.autoPlayCountdown == null) {
-                    TvSkipIntroOverlay(
-                        activeSkipInterval = playbackProgress.activeSkipInterval,
-                        onSkipClick = { targetMs -> viewModel.seekTo(targetMs) },
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(bottom = if (showControls) 130.dp else 48.dp, end = 48.dp)
-                    )
-                }
+                // TvSkipIntroOverlay is removed
 
                 if (!showControls && quickSeekTargetPosition != null) {
                     TvQuickSeekOverlay(
@@ -617,6 +612,7 @@ private fun TvPlayerOverlay(
     serverFocusRequester: FocusRequester,
     rewindFocusRequester: FocusRequester,
     forwardFocusRequester: FocusRequester,
+    skipFocusRequester: FocusRequester,
     onBackClick: () -> Unit,
     onPlayPauseToggle: () -> Unit,
     onPreviousClick: () -> Unit,
@@ -637,9 +633,11 @@ private fun TvPlayerOverlay(
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        Color.Black.copy(alpha = 0.85f),
-                        Color.Black.copy(alpha = 0.2f),
-                        Color.Black.copy(alpha = 0.9f)
+                        Color.Black.copy(alpha = 0.70f),
+                        Color.Black.copy(alpha = 0.25f),
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.25f),
+                        Color.Black.copy(alpha = 0.70f)
                     )
                 )
             )
@@ -664,7 +662,7 @@ private fun TvPlayerOverlay(
                         .tvButtonFocusable(
                             onClick = onBackClick,
                             shape = CircleShape,
-                            focusedBackgroundColor = AccentPurple,
+                            focusedBackgroundColor = YugenPurple,
                             unfocusedBackgroundColor = Color.White.copy(alpha = 0.15f),
                             focusedBorderColor = Color.White
                         )
@@ -720,13 +718,13 @@ private fun TvPlayerOverlay(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (isDub) Color(0xFF06B6D4).copy(alpha = 0.2f) else AccentPurple.copy(alpha = 0.2f))
-                            .border(1.dp, if (isDub) Color(0xFF06B6D4).copy(alpha = 0.5f) else AccentPurple.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            .background(if (isDub) Color(0xFF06B6D4).copy(alpha = 0.2f) else YugenPurple.copy(alpha = 0.2f))
+                            .border(1.dp, if (isDub) Color(0xFF06B6D4).copy(alpha = 0.5f) else YugenPurple.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = if (isDub) "DUB" else "SUB",
-                            color = if (isDub) Color(0xFF38BDF8) else AccentPurple,
+                            color = if (isDub) YugenTvOutroCyan else YugenPurple,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -744,6 +742,9 @@ private fun TvPlayerOverlay(
             }
         }
 
+        val skipPreviousFocusRequester = remember { FocusRequester() }
+        val skipNextFocusRequester = remember { FocusRequester() }
+
         Row(
             modifier = Modifier.align(Alignment.Center),
             horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -751,6 +752,7 @@ private fun TvPlayerOverlay(
         ) {
             Box(
                 modifier = Modifier
+                    .focusRequester(skipPreviousFocusRequester)
                     .focusProperties {
                         right = rewindFocusRequester
                         down = serverFocusRequester
@@ -773,6 +775,7 @@ private fun TvPlayerOverlay(
                 modifier = Modifier
                     .focusRequester(rewindFocusRequester)
                     .focusProperties {
+                        left = skipPreviousFocusRequester
                         right = playPauseFocusRequester
                         down = serverFocusRequester
                         up = backFocusRequester
@@ -802,8 +805,8 @@ private fun TvPlayerOverlay(
                     .tvButtonFocusable(
                         onClick = onPlayPauseToggle,
                         shape = CircleShape,
-                        focusedBackgroundColor = AccentPurple,
-                        unfocusedBackgroundColor = AccentPurple.copy(alpha = 0.85f),
+                        focusedBackgroundColor = YugenPurple,
+                        unfocusedBackgroundColor = YugenPurple.copy(alpha = 0.85f),
                         focusedBorderColor = Color.White
                     )
                     .size(76.dp),
@@ -822,7 +825,8 @@ private fun TvPlayerOverlay(
                     .focusRequester(forwardFocusRequester)
                     .focusProperties {
                         left = playPauseFocusRequester
-                        down = serverFocusRequester
+                        right = skipNextFocusRequester
+                        down = skipFocusRequester
                         up = backFocusRequester
                     }
                     .tvButtonFocusable(
@@ -840,9 +844,10 @@ private fun TvPlayerOverlay(
 
             Box(
                 modifier = Modifier
+                    .focusRequester(skipNextFocusRequester)
                     .focusProperties {
                         left = forwardFocusRequester
-                        down = serverFocusRequester
+                        down = skipFocusRequester
                         up = backFocusRequester
                     }
                     .tvButtonFocusable(
@@ -864,6 +869,71 @@ private fun TvPlayerOverlay(
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
         ) {
+            val currentSec = playbackProgress.currentPosition / 1000.0
+            val activeIntro = state.skipIntervals.find { it.isIntro && currentSec in it.startTime..it.endTime }
+            val activeOutro = state.skipIntervals.find { it.isOutro && currentSec in it.startTime..it.endTime }
+            val isNearEnd = playbackProgress.duration > 0 && playbackProgress.duration - playbackProgress.currentPosition <= 90000L
+
+            val isOutroOrNext = activeOutro != null || isNearEnd
+            val isIntroActive = activeIntro != null
+
+            val buttonLabel = when {
+                isIntroActive -> "Skip Intro"
+                isOutroOrNext -> "Next Episode"
+                else -> "+85s"
+            }
+            val buttonIcon = when {
+                isOutroOrNext -> Icons.Rounded.SkipNext
+                else -> Icons.Rounded.FastForward
+            }
+            val accentTextColor = when {
+                isIntroActive -> YugenTvIntroAmber
+                isOutroOrNext -> YugenTvOutroCyan
+                else -> Color.White
+            }
+
+            Box(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), contentAlignment = Alignment.BottomEnd) {
+                Row(
+                    modifier = Modifier
+                        .focusRequester(skipFocusRequester)
+                        .focusProperties {
+                            up = forwardFocusRequester
+                            left = playPauseFocusRequester
+                            down = serverFocusRequester
+                        }
+                        .clip(RoundedCornerShape(12.dp))
+                        .tvButtonFocusable(
+                            onClick = { 
+                                when {
+                                    activeIntro != null -> onSkipIntroClick((activeIntro.endTime * 1000).toLong())
+                                    isOutroOrNext -> onNextClick()
+                                    else -> onSeekRelative(85000L)
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            focusedBackgroundColor = YugenPurple,
+                            unfocusedBackgroundColor = Color.White.copy(alpha = 0.12f),
+                            focusedBorderColor = Color.White
+                        )
+                        .padding(horizontal = 16.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = buttonIcon,
+                        contentDescription = buttonLabel,
+                        tint = accentTextColor,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Text(
+                        text = buttonLabel,
+                        color = accentTextColor,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -871,9 +941,8 @@ private fun TvPlayerOverlay(
             ) {
                 Text(
                     text = formatTime(playbackProgress.currentPosition),
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
+                    style = TvType.playerTimestamp,
+                    color = TextPrimary
                 )
 
                 val progress = if (playbackProgress.duration > 0) {
@@ -884,13 +953,16 @@ private fun TvPlayerOverlay(
                     (playbackProgress.bufferedPosition.toFloat() / playbackProgress.duration.toFloat()).coerceIn(0f, 1f)
                 } else 0f
 
-                BoxWithConstraints(modifier = Modifier.weight(1f)) {
+                BoxWithConstraints(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterStart
+                ) {
                     val barWidth = maxWidth
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(10.dp)
-                            .clip(RoundedCornerShape(5.dp))
+                            .height(TvSpacing.progressBarH)
+                            .clip(RoundedCornerShape(TvSpacing.progressBarH / 2))
                             .background(Color.White.copy(alpha = 0.16f))
                     ) {
                         if (bufferedProgress > 0f) {
@@ -898,7 +970,7 @@ private fun TvPlayerOverlay(
                                 modifier = Modifier
                                     .fillMaxHeight()
                                     .fillMaxWidth(bufferedProgress)
-                                    .clip(RoundedCornerShape(5.dp))
+                                    .clip(RoundedCornerShape(TvSpacing.progressBarH / 2))
                                     .background(
                                         Brush.horizontalGradient(
                                             listOf(
@@ -912,8 +984,8 @@ private fun TvPlayerOverlay(
 
                         if (playbackProgress.duration > 0) {
                             state.skipIntervals.forEach { skip ->
-                                val isOutro = skip.type.contains("ed", ignoreCase = true)
-                                val intervalColor = if (isOutro) Color(0xFF38BDF8) else Color(0xFFF59E0B)
+                                val isOutro = skip.isOutro
+                                val intervalColor = if (isOutro) YugenTvOutroCyan else YugenTvIntroAmber
                                 val startRatio = (skip.startTime * 1000.0 / playbackProgress.duration).coerceIn(0.0, 1.0).toFloat()
                                 val endRatio = (skip.endTime * 1000.0 / playbackProgress.duration).coerceIn(0.0, 1.0).toFloat()
                                 val segWidth = (barWidth * (endRatio - startRatio)).coerceAtLeast(3.dp)
@@ -932,21 +1004,40 @@ private fun TvPlayerOverlay(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .fillMaxWidth(progress)
-                                .clip(RoundedCornerShape(5.dp))
+                                .clip(RoundedCornerShape(TvSpacing.progressBarH / 2))
                                 .background(
                                     Brush.horizontalGradient(
-                                        listOf(Color(0xFF7C3AED), Color(0xFFA78BFA))
+                                        listOf(YugenPurpleDark, YugenAccentViolet)
                                     )
                                 )
                         )
+                    }
+
+                    if (progress > 0f) {
+                        val thumbOffset = ((barWidth * progress) - (TvSpacing.seekThumbSize / 2)).coerceAtLeast(0.dp)
+                        Box(
+                            modifier = Modifier
+                                .offset(x = thumbOffset)
+                                .size(TvSpacing.seekThumbSize)
+                                .clip(CircleShape)
+                                .background(YugenPurple)
+                                .border(2.dp, Color.White, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                            )
+                        }
                     }
                 }
 
                 Text(
                     text = formatTime(playbackProgress.duration),
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
+                    style = TvType.playerTimestamp,
+                    color = TextSecondary
                 )
             }
 
@@ -1003,7 +1094,7 @@ private fun TvPlayerOverlay(
                     TvActionPill(
                         icon = Icons.Rounded.FormatListNumbered,
                         label = "Episodes",
-                        modifier = Modifier.focusProperties { up = playPauseFocusRequester },
+                        modifier = Modifier.focusProperties { up = skipFocusRequester },
                         onClick = onOpenEpisodeSheet
                     )
                 }
@@ -1016,7 +1107,7 @@ private fun TvPlayerOverlay(
                 TvActionPill(
                     icon = Icons.Rounded.AspectRatio,
                     label = resizeLabel,
-                    modifier = Modifier.focusProperties { up = playPauseFocusRequester },
+                    modifier = Modifier.focusProperties { up = skipFocusRequester },
                     onClick = onCycleResize
                 )
             }
@@ -1037,16 +1128,16 @@ private fun TvActionPill(
             .tvButtonFocusable(
                 onClick = onClick,
                 shape = RoundedCornerShape(12.dp),
-                focusedBackgroundColor = AccentPurple,
+                focusedBackgroundColor = YugenPurple,
                 unfocusedBackgroundColor = Color.White.copy(alpha = 0.12f),
                 focusedBorderColor = Color.White
             )
             .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(17.dp))
+        Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(17.dp))
         Spacer(modifier = Modifier.width(6.dp))
-        Text(label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, style = TvType.playerPillLabel, color = Color.White)
         if (!badge.isNullOrBlank()) {
             Spacer(modifier = Modifier.width(6.dp))
             Box(
@@ -1055,7 +1146,7 @@ private fun TvActionPill(
                     .background(Color.White.copy(alpha = 0.2f))
                     .padding(horizontal = 6.dp, vertical = 1.dp)
             ) {
-                Text(badge, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(badge, style = TvType.playerPillBadge, color = Color.White)
             }
         }
     }
@@ -1131,10 +1222,10 @@ private fun TvServerSidePanel(
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(420.dp)
+                .width(TvSpacing.panelWidth)
                 .align(Alignment.CenterEnd)
-                .background(DarkSurface)
-                .border(1.dp, GlassBorder)
+                .background(YugenDialogSurface)
+                .border(1.dp, YugenOverlayMedium)
                 .padding(24.dp)
         ) {
             Row(
@@ -1142,18 +1233,18 @@ private fun TvServerSidePanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Select Server", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Select Server", style = TvType.detailSectionHeader, color = TextPrimary)
                 Box(
                     modifier = Modifier
                         .focusRequester(panelFocusRequester)
                         .tvButtonFocusable(
                             onClick = onClose,
                             shape = CircleShape,
-                            focusedBackgroundColor = AccentPurple,
+                            focusedBackgroundColor = YugenPurple,
                             unfocusedBackgroundColor = Color.White.copy(alpha = 0.15f),
                             focusedBorderColor = Color.White
                         )
-                        .size(32.dp),
+                        .size(44.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
@@ -1187,8 +1278,8 @@ private fun TvServerSidePanel(
                                         onSelectStream(bestStream)
                                     },
                                     shape = RoundedCornerShape(12.dp),
-                                    focusedBackgroundColor = AccentPurple,
-                                    unfocusedBackgroundColor = if (isSelected) AccentPurple.copy(alpha = 0.25f) else ItemBg,
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
                                     focusedBorderColor = Color.White
                                 )
                                 .padding(horizontal = 16.dp, vertical = 13.dp),
@@ -1233,7 +1324,7 @@ private fun TvServerSidePanel(
                             }
                             if (isSelected) {
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
                             }
                         }
                     }
@@ -1270,10 +1361,10 @@ private fun TvQualitySidePanel(
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(380.dp)
+                .width(TvSpacing.panelWidth)
                 .align(Alignment.CenterEnd)
-                .background(DarkSurface)
-                .border(1.dp, GlassBorder)
+                .background(YugenDialogSurface)
+                .border(1.dp, YugenOverlayMedium)
                 .padding(24.dp)
         ) {
             Row(
@@ -1281,18 +1372,18 @@ private fun TvQualitySidePanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Video Quality", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Video Quality", style = TvType.detailSectionHeader, color = TextPrimary)
                 Box(
                     modifier = Modifier
                         .focusRequester(panelFocusRequester)
                         .tvButtonFocusable(
                             onClick = onClose,
                             shape = CircleShape,
-                            focusedBackgroundColor = AccentPurple,
+                            focusedBackgroundColor = YugenPurple,
                             unfocusedBackgroundColor = Color.White.copy(alpha = 0.15f),
                             focusedBorderColor = Color.White
                         )
-                        .size(32.dp),
+                        .size(44.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
@@ -1328,8 +1419,8 @@ private fun TvQualitySidePanel(
                                     else onSelectQuality(quality.height)
                                 },
                                 shape = RoundedCornerShape(12.dp),
-                                focusedBackgroundColor = AccentPurple,
-                                unfocusedBackgroundColor = if (isSelected) AccentPurple.copy(alpha = 0.25f) else ItemBg,
+                                focusedBackgroundColor = YugenPurple,
+                                unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
                                 focusedBorderColor = Color.White
                             )
                             .padding(horizontal = 16.dp, vertical = 13.dp),
@@ -1350,7 +1441,7 @@ private fun TvQualitySidePanel(
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(4.dp))
-                                        .background(AccentPurple)
+                                        .background(YugenPurple)
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
@@ -1364,7 +1455,7 @@ private fun TvQualitySidePanel(
                             }
                         }
                         if (isSelected) {
-                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -1416,10 +1507,10 @@ private fun TvSubtitleSidePanel(
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(400.dp)
+                .width(TvSpacing.panelWidth)
                 .align(Alignment.CenterEnd)
-                .background(DarkSurface)
-                .border(1.dp, GlassBorder)
+                .background(YugenDialogSurface)
+                .border(1.dp, YugenOverlayMedium)
                 .padding(24.dp)
         ) {
             Row(
@@ -1427,18 +1518,18 @@ private fun TvSubtitleSidePanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Subtitles", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Subtitles", style = TvType.detailSectionHeader, color = TextPrimary)
                 Box(
                     modifier = Modifier
                         .focusRequester(panelFocusRequester)
                         .tvButtonFocusable(
                             onClick = onClose,
                             shape = CircleShape,
-                            focusedBackgroundColor = AccentPurple,
+                            focusedBackgroundColor = YugenPurple,
                             unfocusedBackgroundColor = Color.White.copy(alpha = 0.15f),
                             focusedBorderColor = Color.White
                         )
-                        .size(32.dp),
+                        .size(44.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
@@ -1478,8 +1569,8 @@ private fun TvSubtitleSidePanel(
                                             }
                                         },
                                         shape = RoundedCornerShape(12.dp),
-                                        focusedBackgroundColor = AccentPurple,
-                                        unfocusedBackgroundColor = if (isSelected) AccentPurple.copy(alpha = 0.25f) else ItemBg,
+                                        focusedBackgroundColor = YugenPurple,
+                                        unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
                                         focusedBorderColor = Color.White
                                     )
                                     .padding(horizontal = 16.dp, vertical = 13.dp),
@@ -1488,7 +1579,7 @@ private fun TvSubtitleSidePanel(
                             ) {
                                 Text(type.label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                                 if (isSelected) {
-                                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(20.dp))
+                                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
                                 }
                             }
                         }
@@ -1496,7 +1587,7 @@ private fun TvSubtitleSidePanel(
 
                     item {
                         Spacer(modifier = Modifier.height(12.dp))
-                        HorizontalDivider(color = GlassBorder, modifier = Modifier.padding(vertical = 4.dp))
+                        HorizontalDivider(color = YugenOverlayMedium, modifier = Modifier.padding(vertical = 4.dp))
                         Spacer(modifier = Modifier.height(12.dp))
                     }
                 }
@@ -1519,8 +1610,8 @@ private fun TvSubtitleSidePanel(
                             .tvButtonFocusable(
                                 onClick = { onSelectSubtitle(-1) },
                                 shape = RoundedCornerShape(12.dp),
-                                focusedBackgroundColor = AccentPurple,
-                                unfocusedBackgroundColor = if (isOff) AccentPurple.copy(alpha = 0.25f) else ItemBg,
+                                focusedBackgroundColor = YugenPurple,
+                                unfocusedBackgroundColor = if (isOff) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
                                 focusedBorderColor = Color.White
                             )
                             .padding(horizontal = 16.dp, vertical = 13.dp),
@@ -1529,7 +1620,7 @@ private fun TvSubtitleSidePanel(
                     ) {
                         Text("Off", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         if (isOff) {
-                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -1542,8 +1633,8 @@ private fun TvSubtitleSidePanel(
                             .tvButtonFocusable(
                                 onClick = { onSelectSubtitle(index) },
                                 shape = RoundedCornerShape(12.dp),
-                                focusedBackgroundColor = AccentPurple,
-                                unfocusedBackgroundColor = if (isSelected) AccentPurple.copy(alpha = 0.25f) else ItemBg,
+                                focusedBackgroundColor = YugenPurple,
+                                unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
                                 focusedBorderColor = Color.White
                             )
                             .padding(horizontal = 16.dp, vertical = 13.dp),
@@ -1562,7 +1653,7 @@ private fun TvSubtitleSidePanel(
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                         )
                         if (isSelected) {
-                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -1580,8 +1671,8 @@ private fun TvSubtitleSidePanel(
                                     .tvButtonFocusable(
                                         onClick = { onAdjustSize(size) },
                                         shape = RoundedCornerShape(8.dp),
-                                        focusedBackgroundColor = AccentPurple,
-                                        unfocusedBackgroundColor = if (isCur) AccentPurple.copy(alpha = 0.7f) else ItemBg,
+                                        focusedBackgroundColor = YugenPurple,
+                                        unfocusedBackgroundColor = if (isCur) YugenPurple.copy(alpha = 0.7f) else YugenOverlayLight,
                                         focusedBorderColor = Color.White
                                     )
                                     .padding(vertical = 8.dp),
@@ -1606,8 +1697,8 @@ private fun TvSubtitleSidePanel(
                                     .tvButtonFocusable(
                                         onClick = { onAdjustOpacity(opacity) },
                                         shape = RoundedCornerShape(8.dp),
-                                        focusedBackgroundColor = AccentPurple,
-                                        unfocusedBackgroundColor = if (isCur) AccentPurple.copy(alpha = 0.7f) else ItemBg,
+                                        focusedBackgroundColor = YugenPurple,
+                                        unfocusedBackgroundColor = if (isCur) YugenPurple.copy(alpha = 0.7f) else YugenOverlayLight,
                                         focusedBorderColor = Color.White
                                     )
                                     .padding(vertical = 8.dp),
@@ -1651,10 +1742,10 @@ private fun TvSpeedSidePanel(
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(360.dp)
+                .width(TvSpacing.panelWidth)
                 .align(Alignment.CenterEnd)
-                .background(DarkSurface)
-                .border(1.dp, GlassBorder)
+                .background(YugenDialogSurface)
+                .border(1.dp, YugenOverlayMedium)
                 .padding(24.dp)
         ) {
             Row(
@@ -1662,18 +1753,18 @@ private fun TvSpeedSidePanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Playback Speed", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Playback Speed", style = TvType.detailSectionHeader, color = TextPrimary)
                 Box(
                     modifier = Modifier
                         .focusRequester(panelFocusRequester)
                         .tvButtonFocusable(
                             onClick = onClose,
                             shape = CircleShape,
-                            focusedBackgroundColor = AccentPurple,
+                            focusedBackgroundColor = YugenPurple,
                             unfocusedBackgroundColor = Color.White.copy(alpha = 0.15f),
                             focusedBorderColor = Color.White
                         )
-                        .size(32.dp),
+                        .size(44.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
@@ -1694,8 +1785,8 @@ private fun TvSpeedSidePanel(
                             .tvButtonFocusable(
                                 onClick = { onSelectSpeed(speed) },
                                 shape = RoundedCornerShape(12.dp),
-                                focusedBackgroundColor = AccentPurple,
-                                unfocusedBackgroundColor = if (isSelected) AccentPurple.copy(alpha = 0.25f) else ItemBg,
+                                focusedBackgroundColor = YugenPurple,
+                                unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
                                 focusedBorderColor = Color.White
                             )
                             .padding(horizontal = 16.dp, vertical = 13.dp),
@@ -1709,7 +1800,7 @@ private fun TvSpeedSidePanel(
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                         )
                         if (isSelected) {
-                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -1760,8 +1851,8 @@ private fun TvAutoPlayOutroOverlay(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xFF14141E).copy(alpha = 0.95f))
-                    .border(1.5.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(18.dp))
+                    .background(YugenDialogSurface)
+                    .border(1.5.dp, YugenOverlayMedium, RoundedCornerShape(18.dp))
                     .padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(20.dp)
@@ -1771,7 +1862,7 @@ private fun TvAutoPlayOutroOverlay(
                         Icon(
                             imageVector = Icons.Rounded.Schedule,
                             contentDescription = null,
-                            tint = AccentPurple,
+                            tint = YugenPurple,
                             modifier = Modifier.size(15.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -1823,8 +1914,8 @@ private fun TvAutoPlayOutroOverlay(
                             .tvButtonFocusable(
                                 onClick = onPlayNext,
                                 shape = RoundedCornerShape(100.dp),
-                                focusedBackgroundColor = AccentPurple,
-                                unfocusedBackgroundColor = Color(0xFF7C3AED),
+                                focusedBackgroundColor = YugenPurple,
+                                unfocusedBackgroundColor = YugenPurpleDark,
                                 focusedBorderColor = Color.White
                             )
                             .padding(horizontal = 18.dp, vertical = 10.dp),
@@ -1845,63 +1936,7 @@ private fun TvAutoPlayOutroOverlay(
     }
 }
 
-@Composable
-private fun TvSkipIntroOverlay(
-    activeSkipInterval: SkipInterval?,
-    onSkipClick: (Long) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    AnimatedVisibility(
-        visible = activeSkipInterval != null,
-        enter = fadeIn(tween(250)) + slideInHorizontally(initialOffsetX = { it / 2 }, animationSpec = tween(250)),
-        exit = fadeOut(tween(250)) + slideOutHorizontally(targetOffsetX = { it / 2 }, animationSpec = tween(250)),
-        modifier = modifier
-    ) {
-        if (activeSkipInterval != null) {
-            val isOutro = activeSkipInterval.type.contains("ed", ignoreCase = true)
-            val badgeColor = if (isOutro) Color(0xFF38BDF8) else Color(0xFFF59E0B)
-            val label = if (isOutro) "Skip Outro" else "Skip Intro"
 
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(100.dp))
-                    .background(Color(0xFF14141E).copy(alpha = 0.95f))
-                    .border(1.5.dp, badgeColor.copy(alpha = 0.75f), RoundedCornerShape(100.dp))
-                    .tvButtonFocusable(
-                        onClick = { onSkipClick((activeSkipInterval.endTime * 1000).toLong()) },
-                        shape = RoundedCornerShape(100.dp),
-                        focusedBackgroundColor = AccentPurple,
-                        unfocusedBackgroundColor = badgeColor.copy(alpha = 0.25f),
-                        focusedBorderColor = Color.White
-                    )
-                    .padding(horizontal = 18.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(badgeColor),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.FastForward,
-                        contentDescription = null,
-                        tint = Color.Black,
-                        modifier = Modifier.size(15.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = label,
-                    color = Color.White,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-    }
-}
 @Composable
 private fun TvEpisodeSidePanel(
     state: PlayerUiState.Ready,
@@ -1938,10 +1973,10 @@ private fun TvEpisodeSidePanel(
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(440.dp)
+                .width(TvSpacing.panelWidth)
                 .align(Alignment.CenterEnd)
-                .background(DarkSurface)
-                .border(1.dp, GlassBorder)
+                .background(YugenDialogSurface)
+                .border(1.dp, YugenOverlayMedium)
                 .padding(24.dp)
         ) {
             Row(
@@ -1949,18 +1984,28 @@ private fun TvEpisodeSidePanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Episodes", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Episodes", style = TvType.detailSectionHeader, color = TextPrimary)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(YugenOverlayMedium)
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text("${state.episodes.size}", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .focusRequester(panelFocusRequester)
                         .tvButtonFocusable(
                             onClick = onClose,
                             shape = CircleShape,
-                            focusedBackgroundColor = AccentPurple,
+                            focusedBackgroundColor = YugenPurple,
                             unfocusedBackgroundColor = Color.White.copy(alpha = 0.15f),
                             focusedBorderColor = Color.White
                         )
-                        .size(32.dp),
+                        .size(44.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
@@ -1982,22 +2027,22 @@ private fun TvEpisodeSidePanel(
                             .tvButtonFocusable(
                                 onClick = { onSelectEpisode(ep) },
                                 shape = RoundedCornerShape(12.dp),
-                                focusedBackgroundColor = AccentPurple,
-                                unfocusedBackgroundColor = if (isSelected) AccentPurple.copy(alpha = 0.25f) else ItemBg,
+                                focusedBackgroundColor = YugenPurple,
+                                unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
                                 focusedBorderColor = Color.White
                             )
-                            .padding(12.dp),
+                            .padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         val imageUrl = ep.thumbnail
-                        if (!imageUrl.isNullOrBlank()) {
-                            Box(
-                                modifier = Modifier
-                                    .size(width = 100.dp, height = 56.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.Black.copy(alpha = 0.5f))
-                            ) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 110.dp, height = 62.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(YugenCardSurface)
+                        ) {
+                            if (!imageUrl.isNullOrBlank()) {
                                 coil.compose.AsyncImage(
                                     model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                                         .data(imageUrl)
@@ -2007,33 +2052,102 @@ private fun TvEpisodeSidePanel(
                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
                                 )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(Color(0xFF2E1065), YugenIndigoDark)
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.PlayArrow,
+                                        contentDescription = null,
+                                        tint = Color.White.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(4.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color.Black.copy(alpha = 0.75f))
+                                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                            ) {
+                                Text(
+                                    text = "EP ${ep.formattedNumber}",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(YugenPurple.copy(alpha = 0.45f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                                }
                             }
                         }
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            val epNumStr = "Episode ${ep.formattedNumber}"
-                            val displayTitle = ep.title.ifBlank { epNumStr }
-                            
-                            Text(
-                                text = epNumStr,
-                                color = if (isSelected) AccentPurple else Color.White.copy(alpha = 0.7f),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                if (isSelected) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(YugenPurple)
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "PLAYING",
+                                            color = Color.White,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            letterSpacing = 0.5.sp
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = "Episode ${ep.formattedNumber}",
+                                    color = if (isSelected) YugenPurple else Color.White.copy(alpha = 0.65f),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            val cleanEpTitle = com.zenx.yugen.play.ui.player.components.shared.EpisodeTitleFormatter.formatCardTitle(
+                                number = ep.number,
+                                rawTitle = ep.title
                             )
-                            
-                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = displayTitle,
+                                text = cleanEpTitle.ifBlank { "Episode ${ep.formattedNumber}" },
                                 color = if (isSelected) Color.White else Color.White.copy(alpha = 0.9f),
-                                fontSize = 14.sp,
+                                fontSize = 13.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
-                                modifier = Modifier.basicMarquee()
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
-                        
+
                         if (isSelected) {
-                            Icon(Icons.Rounded.PlayArrow, contentDescription = "Playing", tint = AccentPurple, modifier = Modifier.size(24.dp))
+                            Icon(Icons.Rounded.CheckCircle, contentDescription = "Current", tint = YugenPurple, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -2060,8 +2174,8 @@ private fun TvQuickSeekOverlay(
             modifier = Modifier
                 .padding(bottom = 52.dp)
                 .clip(RoundedCornerShape(18.dp))
-                .background(Color(0xFF14141E).copy(alpha = 0.95f))
-                .border(1.5.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(18.dp))
+                .background(YugenDialogSurface)
+                .border(1.5.dp, YugenOverlayMedium, RoundedCornerShape(18.dp))
                 .padding(horizontal = 24.dp, vertical = 16.dp)
                 .widthIn(min = 380.dp, max = 560.dp)
         ) {
@@ -2078,8 +2192,8 @@ private fun TvQuickSeekOverlay(
                         val isForward = deltaSec >= 0
                         Icon(
                             imageVector = if (isForward) Icons.Rounded.FastForward else Icons.Rounded.FastRewind,
-                            contentDescription = null,
-                            tint = if (isForward) AccentPurple else Color(0xFFF59E0B),
+                            contentDescription = if (isForward) "Fast Forward" else "Fast Rewind",
+                            tint = if (isForward) YugenPurple else YugenTvIntroAmber,
                             modifier = Modifier.size(22.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -2105,7 +2219,7 @@ private fun TvQuickSeekOverlay(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(7.dp)
+                        .height(TvSpacing.progressBarH)
                         .clip(RoundedCornerShape(4.dp))
                         .background(Color.White.copy(alpha = 0.18f))
                 ) {
@@ -2125,7 +2239,7 @@ private fun TvQuickSeekOverlay(
                             .clip(RoundedCornerShape(4.dp))
                             .background(
                                 Brush.horizontalGradient(
-                                    listOf(Color(0xFF7C3AED), Color(0xFFA78BFA))
+                                    listOf(YugenPurpleDark, YugenAccentViolet)
                                 )
                             )
                     )

@@ -20,6 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +30,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -44,14 +46,28 @@ import com.zenx.yugen.play.domain.HomeAnimeCardUiModel
 import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.components.premiumShimmerEffect
 import com.zenx.yugen.play.ui.components.subtleMarquee
+import com.zenx.yugen.play.ui.theme.StarYellow
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenBackground
+import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenIndigoDark
+import com.zenx.yugen.play.ui.theme.YugenOverlayLight
+import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenShape
+import com.zenx.yugen.play.ui.theme.YugenSpacing
 import kotlin.math.absoluteValue
 import kotlin.time.Duration.Companion.milliseconds
 
-private val accentPurple = Color(0xFF8B5CF6)
-private val accentViolet = Color(0xFFA78BFA)
-private val cardBg = Color(0xFF141418)
-private val glassBorder = Color.White.copy(alpha = 0.12f)
-private val bgColor = Color(0xFF09090B)
+private val accentPurple = YugenPurple
+private val accentViolet = YugenAccentViolet
+private val cardBg = YugenCardSurface
+private val glassBorder = YugenOverlayMedium
+private val bgColor = YugenBackground
 
 /**
  * Anilili-inspired App Loading Indicator:
@@ -111,7 +127,7 @@ fun AppLoadingIndicator(modifier: Modifier = Modifier) {
                 .clip(RoundedCornerShape(22.dp))
                 .background(
                     Brush.linearGradient(
-                        listOf(Color(0xFF1E1B4B), Color(0xFF141418))
+                        listOf(YugenIndigoDark, YugenCardSurface)
                     )
                 )
                 .border(
@@ -148,7 +164,7 @@ fun TopGenreFilterBar(
             "Horror", "Mystery", "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller"
         )
     }
-    var selectedGenre by remember { mutableStateOf("All") }
+    var selectedGenre by rememberSaveable { mutableStateOf("All") }
     val haptic = LocalHapticFeedback.current
 
     LazyRow(
@@ -168,13 +184,13 @@ fun TopGenreFilterBar(
                 targetValue = if (isSelected) accentPurple else Color.White.copy(alpha = 0.12f),
                 label = "chipBorder"
             )
-            val textColor = if (isSelected) Color.White else Color(0xFFD1D5DB)
+            val textColor = if (isSelected) TextPrimary else TextSecondary
 
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(YugenShape.chip)
                     .background(chipBg)
-                    .border(1.dp, chipBorder, RoundedCornerShape(20.dp))
+                    .border(1.dp, chipBorder, YugenShape.chip)
                     .bounceClick {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         selectedGenre = genre
@@ -212,6 +228,8 @@ fun HeroCarousel(
 
     val pagerState = rememberPagerState(pageCount = { topList.size })
     val context = LocalContext.current
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val heroHeight = (screenHeight * 0.65f).coerceIn(480.dp, 600.dp)
 
     LaunchedEffect(pagerState.pageCount) {
         if (pagerState.pageCount > 1) {
@@ -225,7 +243,7 @@ fun HeroCarousel(
         }
     }
 
-    Box(modifier = modifier.fillMaxWidth().height(515.dp)) {
+    Box(modifier = modifier.fillMaxWidth().height(heroHeight)) {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
@@ -266,13 +284,13 @@ fun HeroCarousel(
                         .fillMaxSize()
                         .background(
                             Brush.verticalGradient(
-                                0.0f to Color(0xFF09090B).copy(alpha = 0.70f),
-                                0.18f to Color(0xFF09090B).copy(alpha = 0.28f),
+                                0.0f to bgColor.copy(alpha = 0.70f),
+                                0.18f to bgColor.copy(alpha = 0.28f),
                                 0.32f to Color.Transparent,
                                 0.55f to Color.Transparent,
-                                0.72f to Color(0xFF09090B).copy(alpha = 0.45f),
-                                0.88f to Color(0xFF09090B).copy(alpha = 0.86f),
-                                1.0f to Color(0xFF09090B)
+                                0.72f to bgColor.copy(alpha = 0.45f),
+                                0.88f to bgColor.copy(alpha = 0.86f),
+                                1.0f to bgColor
                             )
                         )
                 )
@@ -283,7 +301,7 @@ fun HeroCarousel(
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
                         .statusBarsPadding()
-                        .padding(top = 114.dp, start = 16.dp, end = 16.dp),
+                        .padding(top = 114.dp, start = YugenSpacing.screenHorizontal, end = YugenSpacing.screenHorizontal),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -303,7 +321,7 @@ fun HeroCarousel(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF141418).copy(alpha = 0.88f))
+                                .background(cardBg.copy(alpha = 0.88f))
                                 .border(1.dp, accentPurple.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
                                 .padding(horizontal = 9.dp, vertical = 4.dp)
                         ) {
@@ -335,7 +353,7 @@ fun HeroCarousel(
                                 Icon(
                                     Icons.Rounded.Star,
                                     contentDescription = null,
-                                    tint = Color(0xFFFBBF24),
+                                    tint = StarYellow,
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -416,7 +434,7 @@ fun HeroCarousel(
 
                     Text(
                         text = metaList,
-                        color = Color(0xFFD4D4D8),
+                        color = TextSecondary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         textAlign = TextAlign.Center
@@ -521,7 +539,7 @@ fun ContinueWatchingSection(
         SectionHeader(
             title = "Continue Watching",
             actionText = "Clear All",
-            actionColor = Color(0xFFEF4444).copy(alpha = 0.9f),
+            actionColor = YugenRed.copy(alpha = 0.9f),
             actionIcon = Icons.Rounded.DeleteSweep,
             onViewAllClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -595,41 +613,41 @@ fun ContinueWatchingSection(
                         // Info Button
                         Box(
                             modifier = Modifier
-                                .size(28.dp)
+                                .size(36.dp)
                                 .clip(CircleShape)
                                 .background(Color.Black.copy(alpha = 0.65f))
                                 .border(0.8.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                            .bounceClick {
-                                val mediaId = history.mediaId ?: history.episodeId.split("_").getOrNull(2) ?: ""
-                                onAnimeClick(mediaId, history.animeTitle, history.posterUrl)
-                            },
+                                .bounceClick {
+                                    val mediaId = history.mediaId ?: history.episodeId.split("_").getOrNull(2) ?: ""
+                                    onAnimeClick(mediaId, history.animeTitle, history.posterUrl)
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 Icons.Filled.Info,
-                                contentDescription = "Info",
-                                tint = Color.White.copy(alpha = 0.9f),
-                                modifier = Modifier.size(15.dp)
+                                contentDescription = "Details for ${history.animeTitle}",
+                                tint = TextPrimary.copy(alpha = 0.9f),
+                                modifier = Modifier.size(17.dp)
                             )
                         }
 
                         // Dismiss (x) Button
                         Box(
                             modifier = Modifier
-                                .size(28.dp)
+                                .size(36.dp)
                                 .clip(CircleShape)
                                 .background(Color.Black.copy(alpha = 0.65f))
                                 .border(0.8.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                            .bounceClick {
-                                itemToDelete = history
-                            },
+                                .bounceClick {
+                                    itemToDelete = history
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 Icons.Rounded.Close,
-                                contentDescription = "Dismiss",
-                                tint = Color.White.copy(alpha = 0.9f),
-                                modifier = Modifier.size(15.dp)
+                                contentDescription = "Remove ${history.animeTitle} from Continue Watching",
+                                tint = TextPrimary.copy(alpha = 0.9f),
+                                modifier = Modifier.size(17.dp)
                             )
                         }
                     }
@@ -638,7 +656,7 @@ fun ContinueWatchingSection(
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .size(42.dp)
+                            .size(44.dp)
                             .clip(CircleShape)
                             .background(Color.Black.copy(alpha = 0.65f))
                             .border(1.2.dp, accentPurple, CircleShape),
@@ -646,7 +664,7 @@ fun ContinueWatchingSection(
                     ) {
                         Icon(
                             Icons.Rounded.PlayArrow,
-                            contentDescription = "Play",
+                            contentDescription = "Resume watching ${history.animeTitle}",
                             tint = accentPurple,
                             modifier = Modifier.size(24.dp)
                         )
@@ -738,8 +756,8 @@ fun ContinueWatchingSection(
     if (itemToDelete != null) {
         AlertDialog(
             onDismissRequest = { itemToDelete = null },
-            title = { Text("Remove from History", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("Remove \"${itemToDelete?.animeTitle}\" from Continue Watching?", color = Color.LightGray) },
+            title = { Text("Remove from History", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("Remove \"${itemToDelete?.animeTitle}\" from Continue Watching?", color = TextSecondary) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -747,16 +765,16 @@ fun ContinueWatchingSection(
                         itemToDelete = null
                     }
                 ) {
-                    Text("Remove", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                    Text("Remove", color = YugenRed, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { itemToDelete = null }) {
-                    Text("Cancel", color = Color.Gray)
+                    Text("Cancel", color = TextSecondary)
                 }
             },
-            containerColor = Color(0xFF141418),
-            shape = RoundedCornerShape(16.dp)
+            containerColor = YugenDialogSurface,
+            shape = YugenShape.lg
         )
     }
 
@@ -764,8 +782,8 @@ fun ContinueWatchingSection(
     if (showClearAllDialog) {
         AlertDialog(
             onDismissRequest = { showClearAllDialog = false },
-            title = { Text("Clear Watch History", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to clear all Continue Watching history?", color = Color.LightGray) },
+            title = { Text("Clear Watch History", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to clear all Continue Watching history?", color = TextSecondary) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -773,16 +791,16 @@ fun ContinueWatchingSection(
                         showClearAllDialog = false
                     }
                 ) {
-                    Text("Clear All", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                    Text("Clear All", color = YugenRed, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearAllDialog = false }) {
-                    Text("Cancel", color = Color.Gray)
+                    Text("Cancel", color = TextSecondary)
                 }
             },
-            containerColor = Color(0xFF141418),
-            shape = RoundedCornerShape(16.dp)
+            containerColor = YugenDialogSurface,
+            shape = YugenShape.lg
         )
     }
 }
@@ -809,34 +827,49 @@ fun CategoryTabsRow(
         categories.forEach { category ->
             val isSelected = selectedCategory == category
             val tabBg by animateColorAsState(
-                targetValue = if (isSelected) accentPurple else Color.White.copy(alpha = 0.05f),
+                targetValue = if (isSelected) accentPurple.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.04f),
                 label = "tabBg"
             )
             val tabBorder by animateColorAsState(
-                targetValue = if (isSelected) accentPurple else Color.White.copy(alpha = 0.09f),
+                targetValue = if (isSelected) accentPurple.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.08f),
                 label = "tabBorder"
             )
 
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(YugenShape.tab)
                     .background(tabBg)
-                    .border(1.dp, tabBorder, RoundedCornerShape(14.dp))
+                    .border(1.dp, tabBorder, YugenShape.tab)
                     .bounceClick {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         onCategorySelected(category)
                     }
-                    .padding(vertical = 10.dp),
+                    .padding(vertical = 9.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = category.title,
-                    color = if (isSelected) Color.White else Color(0xFF9CA3AF),
-                    fontSize = 11.5.sp,
-                    fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold,
-                    maxLines = 1
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = category.title,
+                        color = if (isSelected) TextPrimary else TextSecondary,
+                        fontSize = 11.5.sp,
+                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                    if (isSelected) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Box(
+                            modifier = Modifier
+                                .width(16.dp)
+                                .height(2.5.dp)
+                                .clip(YugenShape.full)
+                                .background(accentPurple)
+                        )
+                    }
+                }
             }
         }
     }
@@ -917,9 +950,9 @@ fun AnimeGridCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.68f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF1E1E24))
-                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                .clip(YugenShape.card)
+                .background(cardBg)
+                .border(1.dp, Color.White.copy(alpha = 0.08f), YugenShape.card)
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -946,7 +979,7 @@ fun AnimeGridCard(
                         Icon(
                             Icons.Rounded.Star,
                             contentDescription = null,
-                            tint = Color(0xFFFBBF24),
+                            tint = StarYellow,
                             modifier = Modifier.size(10.dp)
                         )
                         Spacer(modifier = Modifier.width(2.5.dp))
@@ -998,7 +1031,7 @@ fun AnimeGridCard(
 
         Text(
             text = metaString,
-            color = Color(0xFF9CA3AF),
+            color = TextSecondary,
             fontSize = 10.5.sp,
             fontWeight = FontWeight.Normal,
             maxLines = 1,
@@ -1020,27 +1053,32 @@ fun LoadMoreButton(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color.White.copy(alpha = 0.06f))
-            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+            .padding(horizontal = YugenSpacing.screenHorizontal, vertical = 12.dp)
+            .clip(YugenShape.md)
+            .background(YugenOverlayLight)
+            .border(1.dp, glassBorder, YugenShape.md)
             .bounceClick { if (!isLoading) onClick() }
             .padding(vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
         if (isLoading) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = accentPurple
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(YugenSpacing.sm)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(110.dp)
+                        .height(14.dp)
+                        .clip(YugenShape.xs)
+                        .premiumShimmerEffect()
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Loading...",
-                    color = accentViolet,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
+                Box(
+                    modifier = Modifier
+                        .width(40.dp)
+                        .height(14.dp)
+                        .clip(YugenShape.xs)
+                        .premiumShimmerEffect()
                 )
             }
         } else {
@@ -1054,7 +1092,7 @@ fun LoadMoreButton(
                 Spacer(modifier = Modifier.width(4.dp))
                 Icon(
                     Icons.Rounded.KeyboardArrowDown,
-                    contentDescription = null,
+                    contentDescription = "Load more ${category.title} anime",
                     tint = accentViolet,
                     modifier = Modifier.size(18.dp)
                 )
@@ -1079,50 +1117,25 @@ fun MoviesSection(
 
     val displayedMovies = if (isExpanded) movies else movies.take(3)
 
-    Column(modifier = modifier.fillMaxWidth().padding(top = 16.dp)) {
+    Column(modifier = modifier.fillMaxWidth().padding(top = YugenSpacing.md)) {
         // Section Header with Expand / Collapse Button
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Movies",
-                color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.ExtraBold
-            )
-
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color.White.copy(alpha = 0.08f))
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
-                    .bounceClick { onExpandClick() }
-                    .padding(horizontal = 10.dp, vertical = 5.dp)
-            ) {
-                Text(
-                    text = if (isExpanded) "⊟ Collapse" else "⊞ Expand",
-                    color = accentViolet,
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
+        SectionHeader(
+            title = "Movies",
+            actionText = if (isExpanded) "Collapse" else "Expand",
+            onViewAllClick = onExpandClick
+        )
 
         // 3-Column Movie Cards
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = YugenSpacing.screenHorizontal),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             displayedMovies.chunked(3).forEach { rowMovies ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(YugenSpacing.cardGap)
                 ) {
                     rowMovies.forEach { movie ->
                         AnimeGridCard(
@@ -1155,13 +1168,13 @@ fun SectionHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = YugenSpacing.screenHorizontal, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = title,
-            color = Color.White,
+            color = TextPrimary,
             fontSize = 18.sp,
             fontWeight = FontWeight.ExtraBold
         )
@@ -1169,13 +1182,13 @@ fun SectionHeader(
         if (actionText != null && onViewAllClick != null) {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(YugenShape.sm)
                     .bounceClick { onViewAllClick() }
                     .padding(horizontal = 6.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (actionIcon != null) {
-                    Icon(actionIcon, contentDescription = null, tint = actionColor, modifier = Modifier.size(15.dp))
+                    Icon(actionIcon, contentDescription = actionText, tint = actionColor, modifier = Modifier.size(15.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                 }
                 Text(
@@ -1193,46 +1206,72 @@ fun SectionHeader(
  * Skeleton Loader for Home Screen
  */
 @Composable
-fun HomeSkeleton() {
+fun HomeSkeleton(modifier: Modifier = Modifier) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .padding(16.dp)
+            .padding(top = 64.dp)
     ) {
-        // Hero Skeleton
+        // 1. Genre Chips Skeleton Row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = YugenSpacing.screenHorizontal),
+            horizontalArrangement = Arrangement.spacedBy(YugenSpacing.sm)
+        ) {
+            val chipWidths = listOf(52.dp, 76.dp, 68.dp, 84.dp, 60.dp)
+            chipWidths.forEach { width ->
+                Box(
+                    modifier = Modifier
+                        .width(width)
+                        .height(32.dp)
+                        .clip(YugenShape.chip)
+                        .premiumShimmerEffect()
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(YugenSpacing.md))
+
+        // 2. Hero Carousel Skeleton Banner
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(340.dp)
-                .clip(RoundedCornerShape(22.dp))
+                .padding(horizontal = YugenSpacing.screenHorizontal)
+                .height(300.dp)
+                .clip(YugenShape.xl)
                 .premiumShimmerEffect()
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(YugenSpacing.sectionGap))
 
-        // Tabs Skeleton
+        // 3. Category Tabs Skeleton Row
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = YugenSpacing.screenHorizontal),
+            horizontalArrangement = Arrangement.spacedBy(YugenSpacing.sm)
         ) {
             repeat(4) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .height(36.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(YugenShape.tab)
                         .premiumShimmerEffect()
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(YugenSpacing.md))
 
-        // 3 Cards Skeleton
+        // 4. Anime Grid (3 Cards Row) Skeleton
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = YugenSpacing.screenHorizontal),
+            horizontalArrangement = Arrangement.spacedBy(YugenSpacing.cardGap)
         ) {
             repeat(3) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -1240,15 +1279,23 @@ fun HomeSkeleton() {
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(0.68f)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(YugenShape.card)
                             .premiumShimmerEffect()
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.8f)
-                            .height(14.dp)
-                            .clip(RoundedCornerShape(4.dp))
+                            .fillMaxWidth(0.85f)
+                            .height(13.dp)
+                            .clip(YugenShape.xs)
+                            .premiumShimmerEffect()
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.55f)
+                            .height(10.dp)
+                            .clip(YugenShape.xs)
                             .premiumShimmerEffect()
                     )
                 }

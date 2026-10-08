@@ -28,6 +28,8 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenPurple
 
 /**
  * Focus and remote-click modifier for Android TV 10-foot experience.
@@ -40,7 +42,7 @@ fun Modifier.tvCardFocusable(
     onFocus: (() -> Unit)? = null,
     shape: Shape = RoundedCornerShape(14.dp),
     focusedScale: Float = 1.07f,
-    focusedBorderColor: Color = Color(0xFF8B5CF6),
+    focusedBorderColor: Color = YugenPurple,
     focusedBorderWidth: Dp = 2.5.dp,
     unfocusedBorderColor: Color = Color.White.copy(alpha = 0.08f),
     unfocusedBorderWidth: Dp = 1.dp
@@ -51,8 +53,8 @@ fun Modifier.tvCardFocusable(
     val scale by animateFloatAsState(
         targetValue = if (isFocused) focusedScale else 1.0f,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
         ),
         label = "tv_card_scale"
     )
@@ -73,7 +75,7 @@ fun Modifier.tvCardFocusable(
         }
         .then(
             if (isFocused) {
-                Modifier.shadow(16.dp, shape, clip = false, ambientColor = Color(0xFF8B5CF6), spotColor = Color(0xFF8B5CF6))
+                Modifier.shadow(16.dp, shape, clip = false, ambientColor = YugenPurple, spotColor = YugenPurple)
             } else {
                 Modifier
             }
@@ -131,9 +133,9 @@ fun Modifier.tvButtonFocusable(
     onFocus: (() -> Unit)? = null,
     shape: Shape = RoundedCornerShape(12.dp),
     focusedScale: Float = 1.05f,
-    focusedBackgroundColor: Color = Color(0xFF8B5CF6),
+    focusedBackgroundColor: Color = YugenPurple,
     unfocusedBackgroundColor: Color = Color.Transparent,
-    focusedBorderColor: Color = Color(0xFFA78BFA),
+    focusedBorderColor: Color = YugenAccentViolet,
     unfocusedBorderColor: Color = Color.Transparent
 ): Modifier = composed {
     var isFocused by remember { mutableStateOf(false) }
@@ -141,7 +143,10 @@ fun Modifier.tvButtonFocusable(
 
     val scale by animateFloatAsState(
         targetValue = if (isFocused) focusedScale else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
         label = "tv_button_scale"
     )
 
@@ -165,7 +170,7 @@ fun Modifier.tvButtonFocusable(
         }
         .clip(shape)
         .background(bgColor, shape)
-        .border(BorderStroke(if (isFocused) 2.dp else 0.dp, borderColor), shape)
+        .border(BorderStroke(if (isFocused) 2.dp else if (unfocusedBorderColor != Color.Transparent) 1.dp else 0.dp, borderColor), shape)
         .onFocusChanged {
             isFocused = it.isFocused
             if (!it.isFocused) {

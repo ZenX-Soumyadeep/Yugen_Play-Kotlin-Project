@@ -8,10 +8,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.*
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.QrCodeScanner
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -40,6 +43,21 @@ import com.zenx.yugen.play.domain.AnilistListEntry
 import com.zenx.yugen.play.ui.auth.AuthViewModel
 import com.zenx.yugen.play.ui.profile.ProfileUiState
 import com.zenx.yugen.play.ui.profile.ProfileViewModel
+import com.zenx.yugen.play.ui.theme.TextMuted
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenBackground
+import com.zenx.yugen.play.ui.theme.YugenCardBorder
+import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenOverlayLight
+import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenRedDeep
+import com.zenx.yugen.play.ui.theme.YugenShape
+import com.zenx.yugen.play.ui.tv.TvSpacing
 import com.zenx.yugen.play.ui.tv.auth.TvAnilistQrDialog
 import com.zenx.yugen.play.ui.tv.components.tvButtonFocusable
 import com.zenx.yugen.play.ui.tv.components.tvCardFocusable
@@ -71,8 +89,8 @@ fun TvProfileScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
-            .padding(horizontal = 36.dp, vertical = 24.dp)
+            .background(YugenBackground)
+            .padding(horizontal = TvSpacing.overscanH, vertical = TvSpacing.overscanV)
     ) {
         // --- 1. TOP HEADER ---
         Row(
@@ -85,23 +103,33 @@ fun TvProfileScreen(
                     .focusRequester(backFocusRequester)
                     .tvButtonFocusable(
                         onClick = onBackClick,
-                        shape = RoundedCornerShape(10.dp),
-                        focusedBackgroundColor = Color(0xFF8B5CF6),
-                        unfocusedBackgroundColor = Color.White.copy(alpha = 0.08f),
-                        focusedBorderColor = Color.White
+                        shape = YugenShape.md,
+                        focusedBackgroundColor = YugenPurple,
+                        unfocusedBackgroundColor = YugenOverlayLight,
+                        focusedBorderColor = YugenAccentViolet
                     )
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(18.dp))
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "Back",
+                    tint = TextPrimary,
+                    modifier = Modifier.size(18.dp)
+                )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Back", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = "Back",
+                    color = TextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
 
             Text(
                 text = "My AniList Profile",
-                color = Color.White,
-                fontSize = 24.sp,
+                color = TextPrimary,
+                fontSize = 26.sp,
                 fontWeight = FontWeight.Black
             )
         }
@@ -112,7 +140,7 @@ fun TvProfileScreen(
         when (val state = uiState) {
             is ProfileUiState.Loading -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color(0xFF8B5CF6), strokeWidth = 3.dp)
+                    CircularProgressIndicator(color = YugenPurple, strokeWidth = 3.dp)
                 }
             }
             is ProfileUiState.Unauthenticated -> {
@@ -122,49 +150,69 @@ fun TvProfileScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier
                             .width(520.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(Color(0xFF13131A))
-                            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
+                            .clip(YugenShape.dialog)
+                            .background(YugenCardSurface)
+                            .border(1.dp, YugenCardBorder, YugenShape.dialog)
                             .padding(36.dp)
                     ) {
                         Box(
                             modifier = Modifier
                                 .size(64.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF8B5CF6).copy(alpha = 0.2f))
-                                .border(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.4f), CircleShape),
+                                .background(YugenPurple.copy(alpha = 0.18f))
+                                .border(1.dp, YugenPurple.copy(alpha = 0.35f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Rounded.AccountCircle, contentDescription = null, tint = Color(0xFFA78BFA), modifier = Modifier.size(36.dp))
+                            Icon(
+                                imageVector = Icons.Rounded.AccountCircle,
+                                contentDescription = null,
+                                tint = YugenAccentViolet,
+                                modifier = Modifier.size(36.dp)
+                            )
                         }
 
-                        Text("Connect AniList Account", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Connect AniList Account",
+                            color = TextPrimary,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
 
                         Text(
-                            "Log in with AniList to sync your watch progress across devices, manage your custom lists, and see your personal anime stats on Android TV.",
-                            color = Color.White.copy(alpha = 0.65f),
+                            text = "Log in with AniList to sync your watch progress across devices, manage your custom lists, and see your personal anime stats on Android TV.",
+                            color = TextSecondary,
                             fontSize = 13.5.sp,
                             textAlign = TextAlign.Center,
                             lineHeight = 20.sp
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         Box(
                             modifier = Modifier
                                 .tvButtonFocusable(
                                     onClick = { showQrDialog = true },
-                                    shape = RoundedCornerShape(12.dp),
-                                    focusedBackgroundColor = Color(0xFF8B5CF6),
-                                    unfocusedBackgroundColor = Color(0xFF8B5CF6).copy(alpha = 0.85f),
-                                    focusedBorderColor = Color.White
+                                    shape = YugenShape.md,
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = YugenPurple.copy(alpha = 0.85f),
+                                    focusedBorderColor = YugenAccentViolet
                                 )
                                 .padding(horizontal = 24.dp, vertical = 12.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.QrCodeScanner, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                Icon(
+                                    imageVector = Icons.Rounded.QrCodeScanner,
+                                    contentDescription = null,
+                                    tint = TextPrimary,
+                                    modifier = Modifier.size(18.dp)
+                                )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Scan QR Code with Phone", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "Scan QR Code with Phone",
+                                    color = TextPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
@@ -176,19 +224,53 @@ fun TvProfileScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text(state.message, color = Color(0xFFEF4444), fontSize = 15.sp)
                         Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(YugenRed.copy(alpha = 0.15f))
+                                .border(1.dp, YugenRed.copy(alpha = 0.35f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.ErrorOutline,
+                                contentDescription = null,
+                                tint = YugenRed,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        Text(
+                            text = state.message,
+                            color = TextSecondary,
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
                             modifier = Modifier
                                 .tvButtonFocusable(
                                     onClick = { viewModel.loadProfileData(forceRefresh = true) },
-                                    shape = RoundedCornerShape(10.dp),
-                                    focusedBackgroundColor = Color(0xFF8B5CF6),
-                                    unfocusedBackgroundColor = Color.White.copy(alpha = 0.1f),
-                                    focusedBorderColor = Color.White
+                                    shape = YugenShape.md,
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = YugenOverlayLight,
+                                    focusedBorderColor = YugenAccentViolet
                                 )
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .padding(horizontal = 18.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Retry", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                tint = TextPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Retry",
+                                color = TextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
@@ -205,10 +287,10 @@ fun TvProfileScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(Color(0xFF13131A))
-                                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
-                            .padding(24.dp),
+                                .clip(YugenShape.xl)
+                                .background(YugenCardSurface)
+                                .border(1.dp, YugenCardBorder, YugenShape.xl)
+                                .padding(24.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -220,7 +302,7 @@ fun TvProfileScreen(
                                     modifier = Modifier
                                         .size(72.dp)
                                         .clip(CircleShape)
-                                        .border(2.dp, Color(0xFF8B5CF6), CircleShape)
+                                        .border(2.dp, YugenPurple, CircleShape)
                                 )
 
                                 Spacer(modifier = Modifier.width(20.dp))
@@ -228,20 +310,21 @@ fun TvProfileScreen(
                                 Column {
                                     Text(
                                         text = user.name,
-                                        color = Color.White,
+                                        color = TextPrimary,
                                         fontSize = 22.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Box(
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(Color(0xFF8B5CF6).copy(alpha = 0.2f))
-                                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                                            .clip(YugenShape.xs)
+                                            .background(YugenPurple.copy(alpha = 0.18f))
+                                            .border(1.dp, YugenPurple.copy(alpha = 0.35f), YugenShape.xs)
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
                                     ) {
                                         Text(
                                             text = "AniList User #${user.id}",
-                                            color = Color(0xFFA78BFA),
+                                            color = YugenAccentViolet,
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -252,38 +335,47 @@ fun TvProfileScreen(
                             // Statistics Pills & Logout
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                // Stats
                                 ProfileStatItem(label = "Total Anime", value = "${user.animeCount}")
                                 ProfileStatItem(label = "Episodes", value = "${user.episodesWatched}")
                                 ProfileStatItem(label = "Days Watched", value = String.format(Locale.US, "%.1f", user.daysWatched))
 
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
 
                                 // Logout Button
                                 Box(
                                     modifier = Modifier
                                         .tvButtonFocusable(
                                             onClick = { showLogoutConfirm = true },
-                                            shape = RoundedCornerShape(12.dp),
-                                            focusedBackgroundColor = Color(0xFFEF4444),
-                                            unfocusedBackgroundColor = Color(0xFFEF4444).copy(alpha = 0.15f),
-                                            focusedBorderColor = Color.White
+                                            shape = YugenShape.md,
+                                            focusedBackgroundColor = YugenRedDeep,
+                                            unfocusedBackgroundColor = YugenRed.copy(alpha = 0.12f),
+                                            focusedBorderColor = YugenRed
                                         )
                                         .padding(horizontal = 14.dp, vertical = 10.dp)
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Rounded.Logout, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Rounded.Logout,
+                                            contentDescription = null,
+                                            tint = YugenRed,
+                                            modifier = Modifier.size(16.dp)
+                                        )
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Log Out", color = Color(0xFFEF4444), fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            text = "Log Out",
+                                            color = YugenRed,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
                                 }
                             }
                         }
                     }
 
-                    // 2. Categorized Lists (Watching, Completed, Planning, Paused, Dropped)
+                    // 2. Categorized Lists (Watching, Planning, Completed, Paused, Dropped)
                     val listOrder = listOf("Watching", "Planning", "Completed", "Paused", "Dropped")
                     listOrder.forEach { category ->
                         val entries = state.animeLists[category]
@@ -298,20 +390,21 @@ fun TvProfileScreen(
                                     ) {
                                         Text(
                                             text = category,
-                                            color = Color.White,
+                                            color = TextPrimary,
                                             fontSize = 18.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Box(
                                             modifier = Modifier
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(Color(0xFF8B5CF6).copy(alpha = 0.2f))
-                                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                                .clip(YugenShape.xs)
+                                                .background(YugenPurple.copy(alpha = 0.18f))
+                                                .border(1.dp, YugenPurple.copy(alpha = 0.35f), YugenShape.xs)
+                                                .padding(horizontal = 8.dp, vertical = 2.5.dp)
                                         ) {
                                             Text(
                                                 text = "${entries.size}",
-                                                color = Color(0xFFA78BFA),
+                                                color = YugenAccentViolet,
                                                 fontSize = 11.5.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
@@ -372,34 +465,44 @@ fun TvProfileScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.75f)),
+                    .background(Color.Black.copy(alpha = 0.82f)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
                     modifier = Modifier
                         .width(440.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xFF12121A))
-                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
+                        .clip(YugenShape.dialog)
+                        .background(YugenDialogSurface)
+                        .border(1.dp, YugenCardBorder, YugenShape.dialog)
                         .padding(28.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(52.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFFEF4444).copy(alpha = 0.15f))
-                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.3f), CircleShape),
+                            .background(YugenRed.copy(alpha = 0.15f))
+                            .border(1.dp, YugenRed.copy(alpha = 0.35f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Rounded.Logout, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(24.dp))
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.Logout,
+                            contentDescription = null,
+                            tint = YugenRed,
+                            modifier = Modifier.size(26.dp)
+                        )
                     }
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Log Out of AniList?", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Log Out of AniList?",
+                        color = TextPrimary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "You will need to log in again with a QR code or AniList token to view your account lists.",
-                        color = Color.White.copy(alpha = 0.7f),
+                        text = "You will need to log in again with a QR code or AniList token to view your account lists.",
+                        color = TextSecondary,
                         fontSize = 13.5.sp,
                         textAlign = TextAlign.Center
                     )
@@ -414,15 +517,20 @@ fun TvProfileScreen(
                                 .focusRequester(cancelFocusRequester)
                                 .tvButtonFocusable(
                                     onClick = { showLogoutConfirm = false },
-                                    shape = RoundedCornerShape(12.dp),
-                                    focusedBackgroundColor = Color(0xFF8B5CF6),
-                                    unfocusedBackgroundColor = Color.White.copy(alpha = 0.1f),
-                                    focusedBorderColor = Color.White
+                                    shape = YugenShape.md,
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = YugenOverlayLight,
+                                    focusedBorderColor = YugenAccentViolet
                                 )
                                 .padding(vertical = 12.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("Cancel", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = "Cancel",
+                                color = TextPrimary,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                         Box(
                             modifier = Modifier
@@ -432,15 +540,20 @@ fun TvProfileScreen(
                                         authViewModel.logout()
                                         showLogoutConfirm = false
                                     },
-                                    shape = RoundedCornerShape(12.dp),
-                                    focusedBackgroundColor = Color(0xFFEF4444),
-                                    unfocusedBackgroundColor = Color(0xFFEF4444).copy(alpha = 0.2f),
-                                    focusedBorderColor = Color.White
+                                    shape = YugenShape.md,
+                                    focusedBackgroundColor = YugenRedDeep,
+                                    unfocusedBackgroundColor = YugenRed.copy(alpha = 0.15f),
+                                    focusedBorderColor = YugenRed
                                 )
                                 .padding(vertical = 12.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("Log Out", color = Color(0xFFEF4444), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "Log Out",
+                                color = TextPrimary,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
@@ -453,14 +566,25 @@ fun TvProfileScreen(
 private fun ProfileStatItem(label: String, value: String) {
     Column(
         modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color.White.copy(alpha = 0.06f))
+            .clip(YugenShape.sm)
+            .background(YugenOverlayLight)
+            .border(1.dp, YugenOverlayMedium, YugenShape.sm)
             .padding(horizontal = 14.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(text = value, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Text(
+            text = value,
+            color = TextPrimary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold
+        )
         Spacer(modifier = Modifier.height(2.dp))
-        Text(text = label, color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        Text(
+            text = label,
+            color = TextMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 
@@ -471,25 +595,24 @@ private fun TvProfileAnimeCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val shape = RoundedCornerShape(14.dp)
 
     Column(
         modifier = modifier
-            .width(150.dp)
+            .width(152.dp)
             .padding(vertical = 4.dp)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(215.dp)
+                .height(220.dp)
                 .tvCardFocusable(
                     onClick = onClick,
-                    shape = shape,
+                    shape = YugenShape.card,
                     focusedScale = 1.08f,
-                    focusedBorderColor = Color(0xFF8B5CF6),
+                    focusedBorderColor = YugenPurple,
                     focusedBorderWidth = 3.dp
                 )
-                .background(Color(0xFF16161D), shape)
+                .background(YugenCardSurface, YugenShape.card)
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -509,7 +632,7 @@ private fun TvProfileAnimeCard(
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f))
                         )
                     )
             )
@@ -519,15 +642,15 @@ private fun TvProfileAnimeCard(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(8.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(YugenShape.xs)
                     .background(Color.Black.copy(alpha = 0.75f))
-                    .border(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                    .border(1.dp, YugenPurple.copy(alpha = 0.5f), YugenShape.xs)
                     .padding(horizontal = 6.dp, vertical = 3.dp)
             ) {
                 val totalStr = entry.totalEpisodes?.takeIf { it > 0 }?.toString() ?: "?"
                 Text(
                     text = "Ep ${entry.progress} / $totalStr",
-                    color = Color.White,
+                    color = TextPrimary,
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -538,7 +661,7 @@ private fun TvProfileAnimeCard(
 
         Text(
             text = entry.title,
-            color = Color.White,
+            color = TextPrimary,
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
             maxLines = 2,

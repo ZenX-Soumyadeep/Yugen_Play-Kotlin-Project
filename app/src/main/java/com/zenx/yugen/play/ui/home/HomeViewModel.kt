@@ -380,8 +380,19 @@ class HomeViewModel @Inject constructor(
     }
 
     private val sortedHistoryFlow = watchHistoryDao.getAllHistory().map { history ->
-        history.filter { it.durationMs > 0L || it.progressMs > 0L }
-            .sortedByDescending { it.lastWatchedAt }
+        val validHistory = history.filter { it.durationMs > 0L || it.progressMs > 0L }
+        val groupedBySeries = validHistory.groupBy { entity ->
+            entity.anilistId?.let { "anilist_$it" }
+                ?: "title_${com.zenx.yugen.play.util.StringUtils.normalizeTitleForComparison(entity.animeTitle)}"
+        }
+
+        groupedBySeries.values.mapNotNull { group ->
+            group.maxWithOrNull(
+                compareBy<WatchHistoryEntity> {
+                    formatEpisodeNumber(it.episodeId).toFloatOrNull() ?: 0f
+                }.thenBy { it.lastWatchedAt }
+            )
+        }.sortedByDescending { it.lastWatchedAt }
     }.distinctUntilChanged()
 
     private val historyAndFavsFlow = combine(
@@ -395,7 +406,7 @@ class HomeViewModel @Inject constructor(
                 (entity.progressMs.toFloat() / entity.durationMs.toFloat()).coerceIn(0f, 1f)
             } else 0f
 
-            val isNearEnd = progress >= 0.80f
+            val isNearEnd = progress >= 0.88f
             val epInt = cleanEpNum.toIntOrNull()
             val subtitleText = if (isNearEnd && epInt != null) {
                 "Up Next • Episode ${epInt + 1}"
@@ -418,15 +429,19 @@ class HomeViewModel @Inject constructor(
                 progress = effectiveProgress,
                 timeLeft = timeLeftStr,
                 isCloudSync = false,
-                mediaId = null,
+                mediaId = entity.anilistId?.toString(),
                 isUpNext = isNearEnd
             )
         }
 
         val localNormalizedTitles = localContinueList.map { StringUtils.normalizeTitleForComparison(it.animeTitle) }.toSet()
+        val localAnilistIds = localContinueList.mapNotNull { it.mediaId }.toSet()
 
         val cloudContinueList = anilistWatching
-            .filter { StringUtils.normalizeTitleForComparison(it.title) !in localNormalizedTitles }
+            .filter {
+                it.mediaId.toString() !in localAnilistIds &&
+                StringUtils.normalizeTitleForComparison(it.title) !in localNormalizedTitles
+            }
             .map { cloudEntry ->
                 val nextEpNum = cloudEntry.progress + 1
                 ContinueWatchingUiModel(

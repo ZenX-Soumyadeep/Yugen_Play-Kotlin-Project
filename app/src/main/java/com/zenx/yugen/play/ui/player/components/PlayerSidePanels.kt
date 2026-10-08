@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -20,28 +22,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.view.KeyEvent
-import androidx.compose.foundation.focusable
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.key.onKeyEvent
-import com.zenx.yugen.play.domain.VideoStream
-import com.zenx.yugen.play.ui.components.bounceClick
-import com.zenx.yugen.play.ui.components.tvFocusable
 import com.zenx.yugen.play.domain.AudioTrackType
+import com.zenx.yugen.play.domain.VideoStream
 import com.zenx.yugen.play.domain.audioTrackType
 import com.zenx.yugen.play.domain.cleanServerName
+import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.player.PlayerUiState
 import com.zenx.yugen.play.ui.player.PlayerViewModel
-
-private val PanelBg = Color.Black.copy(alpha = 0.70f)
-private val ItemBg = Color.White.copy(alpha = 0.08f)
-private val GlassBorder = Color.White.copy(alpha = 0.15f)
-private val AccentPurple = Color(0xFF8B5CF6)
-
-
+import com.zenx.yugen.play.ui.theme.TextMuted
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenOverlayLight
+import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenShape
 
 @Composable
 fun PlayerSidePanels(
@@ -50,17 +49,19 @@ fun PlayerSidePanels(
     modifier: Modifier = Modifier
 ) {
     val isAnyPanelVisible = state.isQualitySheetVisible || state.isSubtitleSheetVisible || state.isServerSheetVisible || state.isSpeedSheetVisible || state.isEpisodeSheetVisible
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     AnimatedVisibility(
         visible = isAnyPanelVisible,
-        enter = fadeIn(tween(300)),
-        exit = fadeOut(tween(300)),
+        enter = fadeIn(tween(250)),
+        exit = fadeOut(tween(250)),
         modifier = modifier.fillMaxSize()
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.3f))
+                .background(Color.Black.copy(alpha = 0.55f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
@@ -75,19 +76,30 @@ fun PlayerSidePanels(
     }
 
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
+        val panelWidthModifier = if (isLandscape) {
+            Modifier.widthIn(min = 360.dp, max = 420.dp)
+        } else {
+            Modifier.fillMaxWidth(0.92f)
+        }
+
         AnimatedVisibility(
             visible = isAnyPanelVisible,
             enter = slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(300)) + fadeIn(tween(300)),
             exit = slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(300)) + fadeOut(tween(300)),
             modifier = Modifier
                 .fillMaxHeight()
-                .fillMaxWidth(0.40f)
+                .then(panelWidthModifier)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(PanelBg)
-                    .border(1.dp, GlassBorder)
+                    .background(YugenDialogSurface.copy(alpha = 0.96f))
+                    .border(
+                        1.dp,
+                        YugenOverlayMedium,
+                        RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
+                    )
+                    .clip(RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -107,8 +119,8 @@ fun PlayerSidePanels(
 
 @Composable
 private fun QualityPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
-    PanelHeader("Playback Quality") { viewModel.setQualitySheetVisibility(false) }
-    LazyColumn(contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    PanelHeader("Playback Quality", icon = Icons.Rounded.HighQuality) { viewModel.setQualitySheetVisibility(false) }
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items(state.qualities) { quality ->
             PanelItem(
                 title = quality.label,
@@ -123,7 +135,7 @@ private fun QualityPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel)
 private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
     var showCustomization by remember { mutableStateOf(false) }
 
-    PanelHeader("Subtitles") { viewModel.setSubtitleSheetVisibility(false) }
+    PanelHeader("Subtitles", icon = Icons.Rounded.Subtitles) { viewModel.setSubtitleSheetVisibility(false) }
 
     val activeStream = state.activeStream
     val audioOptions = remember(state.streams, activeStream) {
@@ -139,27 +151,25 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
     }
 
     LazyColumn(
-        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // --- Audio Track Selection ---
         if (activeStream != null) {
-            
             if (audioOptions.size > 1 || audioOptions.keys.firstOrNull() != null) {
                 item {
                     Text(
                         "AUDIO TRACKS",
-                        color = Color.White.copy(alpha = 0.5f),
+                        color = TextSecondary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp,
                         modifier = Modifier.padding(bottom = 2.dp)
                     )
                 }
-                
-                // Find current active category
+
                 val currentCategory = activeStream.audioTrackType()
-                
+
                 audioOptions.forEach { (type, streams) ->
                     item {
                         PanelItem(
@@ -167,7 +177,6 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
                             isSelected = type == currentCategory,
                             onClick = {
                                 if (type != currentCategory) {
-                                    // Switch to the best stream of this audio type
                                     val matchingStream = if (state.selectedQualityHeight > 0) {
                                         streams.find { s ->
                                             val h = s.resolution?.filter { it.isDigit() }?.toIntOrNull()
@@ -175,21 +184,21 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
                                             h == state.selectedQualityHeight
                                         }
                                     } else null
-                                    
+
                                     val chosenStream = matchingStream
                                         ?: streams.maxByOrNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() ?: 0 }
                                         ?: streams.first()
-                                        
+
                                     viewModel.selectStream(chosenStream)
                                 }
                             }
                         )
                     }
                 }
-                
+
                 item {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    HorizontalDivider(color = GlassBorder, modifier = Modifier.padding(vertical = 4.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    HorizontalDivider(color = YugenOverlayMedium, modifier = Modifier.padding(vertical = 4.dp))
                 }
             }
         }
@@ -198,7 +207,7 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
         item {
             Text(
                 "SUBTITLE TRACKS",
-                color = Color.White.copy(alpha = 0.5f),
+                color = TextSecondary,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,
@@ -206,7 +215,6 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
             )
         }
 
-        // Subtitle Track Selection (Primary Experience)
         item {
             PanelItem(title = "Off", isSelected = state.selectedSubtitleIndex == -1) { viewModel.selectSubtitleTrack(-1) }
         }
@@ -219,8 +227,8 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
         }
 
         item {
-            Spacer(modifier = Modifier.height(6.dp))
-            HorizontalDivider(color = GlassBorder, modifier = Modifier.padding(vertical = 4.dp))
+            Spacer(modifier = Modifier.height(4.dp))
+            HorizontalDivider(color = YugenOverlayMedium, modifier = Modifier.padding(vertical = 4.dp))
         }
 
         // Collapsible Appearance Customization
@@ -228,9 +236,11 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(YugenShape.xs)
+                    .background(YugenOverlayLight)
+                    .border(1.dp, YugenOverlayMedium, YugenShape.xs)
                     .clickable { showCustomization = !showCustomization }
-                    .padding(vertical = 8.dp),
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -241,12 +251,12 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
                     Icon(
                         Icons.Rounded.Style,
                         contentDescription = null,
-                        tint = AccentPurple,
+                        tint = YugenPurple,
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
                         "Subtitle Styling & Appearance",
-                        color = Color.White.copy(alpha = 0.85f),
+                        color = TextPrimary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -254,7 +264,7 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
                 Icon(
                     imageVector = if (showCustomization) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.6f),
+                    tint = TextSecondary,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -265,59 +275,60 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.04f))
-                        .border(1.dp, GlassBorder, RoundedCornerShape(12.dp))
+                        .clip(YugenShape.sm)
+                        .background(YugenOverlayLight)
+                        .border(1.dp, YugenOverlayMedium, YugenShape.sm)
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     // Size Selector
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Font Size", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Font Size", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(36.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.White.copy(alpha = 0.05f)),
+                                .height(38.dp)
+                                .clip(YugenShape.xs)
+                                .background(YugenOverlayLight)
+                                .border(1.dp, YugenOverlayMedium, YugenShape.xs),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxHeight()
-                                    .clickable { 
+                                    .clickable {
                                         val step = 0.053f * 0.05f
                                         val newSize = (state.subtitleSize - step).coerceAtLeast(0.015f)
                                         viewModel.setSubtitleSize(newSize)
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Rounded.Remove, contentDescription = "Decrease", tint = Color.White, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Rounded.Remove, contentDescription = "Decrease", tint = TextPrimary, modifier = Modifier.size(18.dp))
                             }
-                            
-                            val percentage = Math.round((state.subtitleSize / 0.053f) * 100f).toInt()
-                            Text("$percentage%", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp))
-                            
+
+                            val percentage = Math.round((state.subtitleSize / 0.053f) * 100f)
+                            Text("$percentage%", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp))
+
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxHeight()
-                                    .clickable { 
+                                    .clickable {
                                         val step = 0.053f * 0.05f
                                         val newSize = (state.subtitleSize + step).coerceAtMost(0.2f)
                                         viewModel.setSubtitleSize(newSize)
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Rounded.Add, contentDescription = "Increase", tint = Color.White, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Rounded.Add, contentDescription = "Increase", tint = TextPrimary, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
 
                     // Background Opacity
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Background Box", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Background Box", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             SegmentedButton("None", state.subtitleBgOpacity == 0f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleBgOpacity(0f) }
                             SegmentedButton("Light", state.subtitleBgOpacity == 0.4f, modifier = Modifier.weight(1f)) { viewModel.setSubtitleBgOpacity(0.4f) }
@@ -343,7 +354,7 @@ private fun SpeedPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
         2.0f to "2.0×"
     )
     PanelHeader("Playback Speed", icon = Icons.Rounded.Speed) { viewModel.setSpeedSheetVisibility(false) }
-    LazyColumn(contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items(speeds) { (speed, label) ->
             PanelItem(
                 title = label,
@@ -364,33 +375,27 @@ private data class ServerGroupItem(
 
 @Composable
 private fun ServerPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
-    PanelHeader("Switch Server") { viewModel.setServerSheetVisibility(false) }
-
-    val activeIsDub = remember(state.activeStream) {
-        val s = state.activeStream
-        s?.quality?.contains("dub", ignoreCase = true) == true || s?.serverName?.contains("dub", ignoreCase = true) == true
-    }
+    PanelHeader("Switch Server", icon = Icons.Rounded.CloudQueue) { viewModel.setServerSheetVisibility(false) }
 
     val serverGroups = remember(state.streams) {
         state.streams.groupBy { stream ->
             stream.cleanServerName().ifBlank { "Server" }
         }.map { (cleanName, groupStreams) ->
             val trackTypes = groupStreams.map { it.audioTrackType() }.toSet()
-            
+
             val validBadges = mutableListOf<String>()
             if (AudioTrackType.SUB in trackTypes) validBadges.add(AudioTrackType.SUB.badge)
             if (AudioTrackType.DUB in trackTypes) validBadges.add(AudioTrackType.DUB.badge)
             if (AudioTrackType.HSUB in trackTypes) validBadges.add(AudioTrackType.HSUB.badge)
             if (AudioTrackType.HDUB in trackTypes) validBadges.add(AudioTrackType.HDUB.badge)
-            
+
             val badge = if (validBadges.size > 1) "Multi" else validBadges.firstOrNull() ?: "SUB"
-            val maxRes = groupStreams.mapNotNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() }.maxOrNull()
-            
+
             ServerGroupItem(
                 serverName = cleanName,
                 badgeText = badge,
                 streams = groupStreams,
-                maxResolution = null // Hiding resolutions from the server list as requested
+                maxResolution = null
             )
         }
     }
@@ -414,7 +419,7 @@ private fun ServerPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) 
         }
     }
 
-    LazyColumn(contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         itemsIndexed(serverGroups) { index, group ->
             val subtitleText = when {
                 group.streams.any { it.format.equals("HLS", ignoreCase = true) } -> "Adaptive Resolution"
@@ -437,15 +442,14 @@ private fun ServerPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) 
                             h == state.selectedQualityHeight
                         }
                     } else null
-                    
-                    // Maintain current audio track type (sub or dub or hsub) if possible
+
                     val currentCategory = state.activeStream?.audioTrackType() ?: AudioTrackType.SUB
-                    
+
                     val chosenStream = matchingStream
                         ?: group.streams.find { it.audioTrackType() == currentCategory }
                         ?: group.streams.maxByOrNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() ?: 0 }
                         ?: group.streams.first()
-                        
+
                     viewModel.selectStream(chosenStream)
                 }
             )
@@ -458,18 +462,24 @@ private fun PanelHeader(title: String, icon: ImageVector? = null, onClose: () ->
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 20.dp),
+            .padding(horizontal = 20.dp, vertical = 18.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (icon != null) {
-                Icon(icon, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(18.dp))
+                Icon(icon, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
             }
-            Text(text = title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(text = title, color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
-        IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(24.dp))
+        IconButton(
+            onClick = onClose,
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(YugenOverlayLight)
+        ) {
+            Icon(Icons.Rounded.Close, contentDescription = "Close", tint = TextPrimary.copy(alpha = 0.85f), modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -481,12 +491,12 @@ private fun SegmentedButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val bg = if (isSelected) AccentPurple else ItemBg
-    val textColor = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f)
+    val bg = if (isSelected) YugenPurple else YugenOverlayLight
+    val textColor = if (isSelected) Color.White else TextSecondary
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(YugenShape.xs)
             .background(bg)
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
@@ -504,16 +514,16 @@ private fun PanelItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val bg = if (isSelected) AccentPurple.copy(alpha = 0.2f) else ItemBg
-    val border = if (isSelected) AccentPurple else Color.Transparent
-    val textColor = if (isSelected) Color.White else Color.White.copy(alpha = 0.8f)
+    val bg = if (isSelected) YugenPurple.copy(alpha = 0.16f) else YugenOverlayLight
+    val border = if (isSelected) YugenPurple else Color.Transparent
+    val textColor = if (isSelected) TextPrimary else TextPrimary.copy(alpha = 0.85f)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(YugenShape.xs)
             .background(bg)
-            .border(1.dp, border, RoundedCornerShape(12.dp))
+            .border(1.dp, border, YugenShape.xs)
             .bounceClick(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -521,36 +531,41 @@ private fun PanelItem(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = title, color = textColor, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text(text = title, color = textColor, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 if (badge != null) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
-                            .background(if (isSelected) AccentPurple else Color.White.copy(alpha = 0.2f))
+                            .background(if (isSelected) YugenPurple else YugenOverlayMedium)
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        Text(text = badge, color = if (isSelected) Color.Black else Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = badge,
+                            color = if (isSelected) Color.White else TextPrimary.copy(alpha = 0.9f),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
             if (subtitle != null) {
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(text = subtitle, color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
+                Text(text = subtitle, color = TextSecondary, fontSize = 12.sp)
             }
         }
         if (isSelected) {
-            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(22.dp))
+            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
         }
     }
 }
 
 @Composable
 private fun EpisodePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
-    PanelHeader("Episodes") { viewModel.setEpisodeSheetVisibility(false) }
-    
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    
+    PanelHeader("Episodes", icon = Icons.Rounded.VideoLibrary) { viewModel.setEpisodeSheetVisibility(false) }
+
+    val listState = rememberLazyListState()
+
     LaunchedEffect(state.currentEpisodeId, state.episodes) {
         val index = state.episodes.indexOfFirst { it.id == state.currentEpisodeId }
         if (index >= 0) {
@@ -560,33 +575,33 @@ private fun EpisodePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel)
 
     LazyColumn(
         state = listState,
-        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp), 
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         items(state.episodes, key = { ep -> ep.id }) { ep ->
             val isSelected = ep.id == state.currentEpisodeId
-            val bg = if (isSelected) AccentPurple.copy(alpha = 0.2f) else ItemBg
-            val border = if (isSelected) AccentPurple else Color.Transparent
-            val textColor = if (isSelected) Color.White else Color.White.copy(alpha = 0.8f)
+            val bg = if (isSelected) YugenPurple.copy(alpha = 0.16f) else YugenOverlayLight
+            val border = if (isSelected) YugenPurple else Color.Transparent
+            val textColor = if (isSelected) TextPrimary else TextPrimary.copy(alpha = 0.85f)
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(YugenShape.xs)
                     .background(bg)
-                    .border(1.dp, border, RoundedCornerShape(12.dp))
+                    .border(1.dp, border, YugenShape.xs)
                     .bounceClick(onClick = { viewModel.selectEpisode(ep) })
-                    .padding(12.dp),
+                    .padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // Thumbnail
                 val imageUrl = ep.thumbnail
                 if (!imageUrl.isNullOrBlank()) {
-                    androidx.compose.foundation.layout.Box(
+                    Box(
                         modifier = Modifier
                             .size(width = 100.dp, height = 56.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(6.dp))
                             .background(Color.Black.copy(alpha = 0.5f))
                     ) {
                         coil.compose.AsyncImage(
@@ -599,30 +614,30 @@ private fun EpisodePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel)
                             modifier = Modifier.fillMaxSize()
                         )
                         if (isSelected) {
-                            androidx.compose.foundation.layout.Box(
+                            Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(AccentPurple.copy(alpha = 0.4f)),
+                                    .background(YugenPurple.copy(alpha = 0.45f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White)
+                                Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
                             }
                         }
                     }
                 }
-                
+
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Episode ${ep.formattedNumber}",
-                        color = if (isSelected) AccentPurple else Color.White.copy(alpha = 0.7f),
+                        color = if (isSelected) YugenPurple else TextSecondary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = ep.title.ifBlank { "Episode ${ep.formattedNumber}" },
                         color = textColor,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 2,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis

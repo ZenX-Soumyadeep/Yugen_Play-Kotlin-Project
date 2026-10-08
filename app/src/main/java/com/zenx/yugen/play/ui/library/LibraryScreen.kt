@@ -2,7 +2,9 @@ package com.zenx.yugen.play.ui.library
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -16,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -43,7 +46,20 @@ import coil.request.ImageRequest
 import com.zenx.yugen.play.domain.AnilistListEntry
 import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.components.premiumShimmerEffect
-import com.zenx.yugen.play.ui.components.subtleMarquee
+import com.zenx.yugen.play.ui.theme.TextMuted
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenBackground
+import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenGreen
+import com.zenx.yugen.play.ui.theme.YugenOverlayLight
+import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenShape
+import com.zenx.yugen.play.ui.theme.YugenTvOutroCyan
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,15 +78,10 @@ fun LibraryScreen(
     var selectedBookmarkFilter by remember { mutableStateOf("All") }
     var entryToDelete by remember { mutableStateOf<AnilistListEntry?>(null) }
     var localFavoriteToDelete by remember { mutableStateOf<String?>(null) }
+    var showClearHistoryDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-
-    val baseBackground = Color(0xFF09090B)
-    val glassBg = Color.White.copy(alpha = 0.05f)
-    val glassBorder = Color.White.copy(alpha = 0.10f)
-    val accentPurple = Color(0xFF8B5CF6)
-    val dialogBg = Color(0xFF141416)
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -81,13 +92,27 @@ fun LibraryScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // Confirmation Dialog: AniList entry removal
     if (entryToDelete != null) {
         AlertDialog(
             onDismissRequest = { entryToDelete = null },
-            containerColor = dialogBg,
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("Remove from AniList", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to remove '${entryToDelete?.title}' from your AniList collection?", color = Color.LightGray) },
+            containerColor = YugenDialogSurface,
+            shape = YugenShape.lg,
+            title = {
+                Text(
+                    text = "Remove from AniList",
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to remove '${entryToDelete?.title}' from your AniList collection?",
+                    color = TextSecondary,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -95,24 +120,42 @@ fun LibraryScreen(
                         entryToDelete = null
                     }
                 ) {
-                    Text("Remove", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Remove",
+                        color = YugenRed,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             dismissButton = {
                 TextButton(onClick = { entryToDelete = null }) {
-                    Text("Cancel", color = Color.White)
+                    Text("Cancel", color = TextSecondary)
                 }
             }
         )
     }
 
+    // Confirmation Dialog: Local favorite bookmark removal
     if (localFavoriteToDelete != null) {
         AlertDialog(
             onDismissRequest = { localFavoriteToDelete = null },
-            containerColor = dialogBg,
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("Remove Bookmark", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("Remove '${localFavoriteToDelete}' from your local bookmarks?", color = Color.LightGray) },
+            containerColor = YugenDialogSurface,
+            shape = YugenShape.lg,
+            title = {
+                Text(
+                    text = "Remove Bookmark",
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "Remove '${localFavoriteToDelete}' from your local bookmarks?",
+                    color = TextSecondary,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -120,12 +163,59 @@ fun LibraryScreen(
                         localFavoriteToDelete = null
                     }
                 ) {
-                    Text("Remove", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Remove",
+                        color = YugenRed,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             dismissButton = {
                 TextButton(onClick = { localFavoriteToDelete = null }) {
-                    Text("Cancel", color = Color.White)
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
+    }
+
+    // Confirmation Dialog: Clear all watch history
+    if (showClearHistoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearHistoryDialog = false },
+            containerColor = YugenDialogSurface,
+            shape = YugenShape.lg,
+            title = {
+                Text(
+                    text = "Clear Watch History",
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to remove all watch progress and continue-watching entries from this device?",
+                    color = TextSecondary,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearAllHistory()
+                        showClearHistoryDialog = false
+                    }
+                ) {
+                    Text(
+                        text = "Clear All",
+                        color = YugenRed,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearHistoryDialog = false }) {
+                    Text("Cancel", color = TextSecondary)
                 }
             }
         )
@@ -134,55 +224,134 @@ fun LibraryScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(baseBackground)
+            .background(YugenBackground)
             .statusBarsPadding()
             .padding(horizontal = 16.dp)
     ) {
-        // Top Title
-        Text(
-            text = "Library",
-            color = Color.White,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.ExtraBold,
-            modifier = Modifier.padding(top = 12.dp, bottom = 16.dp)
-        )
-
-        val totalBookmarksCount = (if (authState.isAuthenticated) anilistData.values.flatten().size else 0) + favorites.size
-
-        // Segmented Tab Selector
+        // Top Header Row with Cloud Sync Status
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(glassBg)
-                .border(1.dp, glassBorder, RoundedCornerShape(14.dp))
-                .padding(4.dp)
+                .padding(top = 14.dp, bottom = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            listOf("Bookmarks ($totalBookmarksCount)", "History (${history.size})").forEachIndexed { index, label ->
-                val isSelected = selectedTab == index
-                val animatedBg by animateColorAsState(
-                    targetValue = if (isSelected) accentPurple else Color.Transparent,
-                    label = "tab_bg"
+            Column {
+                Text(
+                    text = "Library",
+                    color = TextPrimary,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.5).sp
                 )
+                Text(
+                    text = "Your bookmarks & watch history",
+                    color = TextMuted,
+                    fontSize = 12.sp
+                )
+            }
+
+            // Sync Status Indicator Pill
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(
+                        if (authState.isAuthenticated) YugenGreen.copy(alpha = 0.15f)
+                        else YugenOverlayLight
+                    )
+                    .border(
+                        1.dp,
+                        if (authState.isAuthenticated) YugenGreen.copy(alpha = 0.35f)
+                        else YugenOverlayMedium,
+                        CircleShape
+                    )
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(if (authState.isAuthenticated) YugenGreen else TextMuted)
+                    )
+                    Text(
+                        text = if (authState.isAuthenticated) "AniList Synced" else "Local Only",
+                        color = if (authState.isAuthenticated) YugenGreen else TextSecondary,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
+        val totalBookmarksCount = (if (authState.isAuthenticated) anilistData.values.flatten().size else 0) + favorites.size
+
+        // Segmented Tab Selector Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(YugenShape.md)
+                    .background(YugenOverlayLight)
+                    .border(1.dp, YugenOverlayMedium, YugenShape.md)
+                    .padding(4.dp)
+            ) {
+                listOf("Bookmarks ($totalBookmarksCount)", "History (${history.size})").forEachIndexed { index, label ->
+                    val isSelected = selectedTab == index
+                    val animatedBg by animateColorAsState(
+                        targetValue = if (isSelected) YugenPurple else Color.Transparent,
+                        label = "library_tab_bg"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(YugenShape.sm)
+                            .background(animatedBg)
+                            .bounceClick {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                selectedTab = index
+                            }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (isSelected) Color.White else TextSecondary,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 13.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            // Quick Clear All History Action Button
+            if (selectedTab == 1 && history.isNotEmpty()) {
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(animatedBg)
+                        .size(46.dp)
+                        .clip(YugenShape.md)
+                        .background(YugenRed.copy(alpha = 0.12f))
+                        .border(1.dp, YugenRed.copy(alpha = 0.35f), YugenShape.md)
                         .bounceClick {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            selectedTab = index
-                        }
-                        .padding(vertical = 10.dp),
+                            showClearHistoryDialog = true
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = label,
-                        color = if (isSelected) Color.White else Color.White.copy(alpha = 0.65f),
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 13.5.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                    Icon(
+                        imageVector = Icons.Default.DeleteSweep,
+                        contentDescription = "Clear History",
+                        tint = YugenRed,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -195,7 +364,7 @@ fun LibraryScreen(
             0 -> {
                 // Bookmarks Tab
                 if (authState.isAuthenticated) {
-                    // Category Sub-filter (All, Watching, Completed, etc.)
+                    // Category Sub-filter chips (All, Watching, Completed, etc.)
                     val categories = listOf("All", "Watching", "Completed", "Planning", "Local")
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -215,16 +384,20 @@ fun LibraryScreen(
 
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isCatSelected) accentPurple.copy(alpha = 0.2f) else glassBg)
-                                    .border(1.dp, if (isCatSelected) accentPurple else glassBorder, RoundedCornerShape(8.dp))
+                                    .clip(YugenShape.sm)
+                                    .background(if (isCatSelected) YugenPurple.copy(alpha = 0.22f) else YugenOverlayLight)
+                                    .border(
+                                        1.dp,
+                                        if (isCatSelected) YugenAccentViolet else YugenOverlayMedium,
+                                        YugenShape.sm
+                                    )
                                     .bounceClick { selectedBookmarkFilter = cat }
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    .padding(horizontal = 12.dp, vertical = 7.dp)
                             ) {
                                 Text(
                                     text = "$cat ($count)",
-                                    color = if (isCatSelected) accentPurple else Color.White.copy(alpha = 0.75f),
-                                    fontSize = 12.sp,
+                                    color = if (isCatSelected) YugenAccentViolet else TextSecondary,
+                                    fontSize = 12.5.sp,
                                     fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Medium
                                 )
                             }
@@ -237,14 +410,33 @@ fun LibraryScreen(
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
                                 modifier = Modifier.padding(horizontal = 32.dp)
                             ) {
-                                Icon(Icons.Default.Bookmarks, contentDescription = null, tint = Color.White.copy(alpha = 0.25f), modifier = Modifier.size(52.dp))
-                                Text("No Bookmarks Yet", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Box(
+                                    modifier = Modifier
+                                        .size(68.dp)
+                                        .clip(CircleShape)
+                                        .background(YugenOverlayLight)
+                                        .border(1.dp, YugenOverlayMedium, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Bookmarks,
+                                        contentDescription = null,
+                                        tint = TextSecondary,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
                                 Text(
-                                    "Save your favorite anime from any detail page to keep track of shows you love.",
-                                    color = Color.White.copy(alpha = 0.65f),
+                                    text = "No Bookmarks Yet",
+                                    color = TextPrimary,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Save your favorite anime from any detail page to keep track of shows you love.",
+                                    color = TextSecondary,
                                     fontSize = 13.sp,
                                     textAlign = TextAlign.Center,
                                     lineHeight = 18.sp
@@ -256,15 +448,15 @@ fun LibraryScreen(
                             columns = GridCells.Fixed(3),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp),
-                            contentPadding = PaddingValues(bottom = 90.dp),
+                            contentPadding = PaddingValues(bottom = 115.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            // Local Bookmarks
+                            // Local Bookmarks Section
                             if ((selectedBookmarkFilter == "All" || selectedBookmarkFilter == "Local") && favorites.isNotEmpty()) {
                                 item(key = "header_local_bookmarks", span = { GridItemSpan(3) }) {
                                     Text(
                                         text = "Local Bookmarks (${favorites.size})",
-                                        color = Color.White,
+                                        color = TextPrimary,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
@@ -273,7 +465,7 @@ fun LibraryScreen(
                                 itemsIndexed(items = favorites, key = { index, favorite -> "local_fav_${favorite.title}_$index" }) { _, favorite ->
                                     Column(
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(12.dp))
+                                            .clip(YugenShape.md)
                                             .bounceClick(onLongClick = { localFavoriteToDelete = favorite.title }) {
                                                 onAnimeClick("", favorite.title, favorite.posterUrl)
                                             }
@@ -282,9 +474,9 @@ fun LibraryScreen(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .aspectRatio(0.7f)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .border(1.dp, glassBorder, RoundedCornerShape(12.dp))
-                                                .background(glassBg)
+                                                .clip(YugenShape.md)
+                                                .border(1.dp, YugenOverlayMedium, YugenShape.md)
+                                                .background(YugenCardSurface)
                                         ) {
                                             AsyncImage(
                                                 model = ImageRequest.Builder(context).data(favorite.posterUrl).crossfade(300).build(),
@@ -295,17 +487,20 @@ fun LibraryScreen(
                                         }
                                         Text(
                                             text = favorite.title,
-                                            color = Color.White,
+                                            color = TextPrimary,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium,
                                             maxLines = 1,
-                                            modifier = Modifier.padding(top = 6.dp, start = 2.dp).fillMaxWidth().subtleMarquee()
+                                            modifier = Modifier
+                                                .padding(top = 6.dp, start = 2.dp)
+                                                .fillMaxWidth()
+                                                .basicMarquee()
                                         )
                                     }
                                 }
                             }
 
-                            // AniList Categories
+                            // AniList Categories Sections
                             val order = if (selectedBookmarkFilter == "All") {
                                 listOf("Watching", "Completed", "Paused", "Dropped", "Planning")
                             } else if (selectedBookmarkFilter != "Local") {
@@ -320,7 +515,7 @@ fun LibraryScreen(
                                     item(key = "header_$category", span = { GridItemSpan(3) }) {
                                         Text(
                                             text = "$category (${list.size})",
-                                            color = Color.White,
+                                            color = TextPrimary,
                                             fontSize = 16.sp,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
@@ -329,43 +524,68 @@ fun LibraryScreen(
                                     itemsIndexed(items = list, key = { index, entry -> "${category}_${entry.mediaId}_$index" }) { _, entry ->
                                         Column(
                                             modifier = Modifier
-                                                .clip(RoundedCornerShape(12.dp))
+                                                .clip(YugenShape.md)
                                                 .bounceClick(onLongClick = { entryToDelete = entry }) {
-                                                    onAnimeClick(entry.mediaId.toString(), entry.title, entry.posterUrl)
-                                                }
+                                                onAnimeClick(entry.mediaId.toString(), entry.title, entry.posterUrl)
+                                            }
                                         ) {
                                             Box(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .aspectRatio(0.7f)
-                                                    .clip(RoundedCornerShape(12.dp))
-                                                    .border(1.dp, glassBorder, RoundedCornerShape(12.dp))
+                                                    .clip(YugenShape.md)
+                                                    .border(1.dp, YugenOverlayMedium, YugenShape.md)
+                                                    .background(YugenCardSurface)
                                             ) {
                                                 AsyncImage(
                                                     model = ImageRequest.Builder(context).data(entry.posterUrl).crossfade(300).build(),
                                                     contentDescription = entry.title,
                                                     contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize().background(glassBg)
+                                                    modifier = Modifier.fillMaxSize()
                                                 )
+
+                                                // Bottom gradient scrim
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(36.dp)
+                                                        .align(Alignment.BottomCenter)
+                                                        .background(
+                                                            Brush.verticalGradient(
+                                                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.70f))
+                                                            )
+                                                        )
+                                                )
+
+                                                // Floating Episode Progress Pill
+                                                val epText = if (entry.totalEpisodes != null) "${entry.progress} / ${entry.totalEpisodes}" else "${entry.progress} / ?"
                                                 Box(
                                                     modifier = Modifier
                                                         .align(Alignment.BottomCenter)
-                                                        .fillMaxWidth()
-                                                        .background(Color.Black.copy(alpha = 0.82f))
-                                                        .padding(vertical = 4.dp),
-                                                    contentAlignment = Alignment.Center
+                                                        .padding(bottom = 5.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(Color.Black.copy(alpha = 0.78f))
+                                                        .border(0.5.dp, YugenOverlayMedium, RoundedCornerShape(6.dp))
+                                                        .padding(horizontal = 7.dp, vertical = 2.dp)
                                                 ) {
-                                                    val epText = if (entry.totalEpisodes != null) "${entry.progress} / ${entry.totalEpisodes}" else "${entry.progress} / ?"
-                                                    Text(epText, color = accentPurple, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                                                    Text(
+                                                        text = "Ep $epText",
+                                                        color = YugenAccentViolet,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
                                                 }
                                             }
                                             Text(
                                                 text = entry.title,
-                                                color = Color.White,
+                                                color = TextPrimary,
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Medium,
                                                 maxLines = 1,
-                                                modifier = Modifier.padding(top = 6.dp, start = 2.dp).fillMaxWidth().subtleMarquee()
+                                                modifier = Modifier
+                                                    .padding(top = 6.dp, start = 2.dp)
+                                                    .fillMaxWidth()
+                                                    .basicMarquee()
                                             )
                                         }
                                     }
@@ -379,14 +599,33 @@ fun LibraryScreen(
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
                                 modifier = Modifier.padding(horizontal = 32.dp)
                             ) {
-                                Icon(Icons.Default.Bookmarks, contentDescription = null, tint = Color.White.copy(alpha = 0.25f), modifier = Modifier.size(52.dp))
-                                Text("No Local Bookmarks Yet", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Box(
+                                    modifier = Modifier
+                                        .size(68.dp)
+                                        .clip(CircleShape)
+                                        .background(YugenOverlayLight)
+                                        .border(1.dp, YugenOverlayMedium, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Bookmarks,
+                                        contentDescription = null,
+                                        tint = TextSecondary,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
                                 Text(
-                                    "Bookmark shows from any anime detail page to quickly access them offline or locally.",
-                                    color = Color.White.copy(alpha = 0.65f),
+                                    text = "No Local Bookmarks Yet",
+                                    color = TextPrimary,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Bookmark shows from any anime detail page to quickly access them offline or locally.",
+                                    color = TextSecondary,
                                     fontSize = 13.sp,
                                     textAlign = TextAlign.Center,
                                     lineHeight = 18.sp
@@ -398,13 +637,13 @@ fun LibraryScreen(
                             columns = GridCells.Fixed(3),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp),
-                            contentPadding = PaddingValues(bottom = 90.dp),
+                            contentPadding = PaddingValues(bottom = 115.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
                             itemsIndexed(items = favorites, key = { index, favorite -> "fav_${favorite.title}_$index" }) { _, favorite ->
                                 Column(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
+                                        .clip(YugenShape.md)
                                         .bounceClick(onLongClick = { localFavoriteToDelete = favorite.title }) {
                                             onAnimeClick("", favorite.title, favorite.posterUrl)
                                         }
@@ -413,9 +652,9 @@ fun LibraryScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .aspectRatio(0.7f)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .border(1.dp, glassBorder, RoundedCornerShape(12.dp))
-                                            .background(glassBg)
+                                            .clip(YugenShape.md)
+                                            .border(1.dp, YugenOverlayMedium, YugenShape.md)
+                                            .background(YugenCardSurface)
                                     ) {
                                         AsyncImage(
                                             model = ImageRequest.Builder(context).data(favorite.posterUrl).crossfade(300).build(),
@@ -426,11 +665,14 @@ fun LibraryScreen(
                                     }
                                     Text(
                                         text = favorite.title,
-                                        color = Color.White,
+                                        color = TextPrimary,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium,
                                         maxLines = 1,
-                                        modifier = Modifier.padding(top = 6.dp, start = 2.dp).fillMaxWidth().subtleMarquee()
+                                        modifier = Modifier
+                                            .padding(top = 6.dp, start = 2.dp)
+                                            .fillMaxWidth()
+                                            .basicMarquee()
                                     )
                                 }
                             }
@@ -444,14 +686,33 @@ fun LibraryScreen(
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier.padding(horizontal = 32.dp)
                         ) {
-                            Icon(Icons.Default.History, contentDescription = null, tint = Color.White.copy(alpha = 0.25f), modifier = Modifier.size(52.dp))
-                            Text("No Watch History Yet", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Box(
+                                modifier = Modifier
+                                    .size(68.dp)
+                                    .clip(CircleShape)
+                                    .background(YugenOverlayLight)
+                                    .border(1.dp, YugenOverlayMedium, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.History,
+                                    contentDescription = null,
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
                             Text(
-                                "Episodes you play on mobile or TV will automatically appear here with your saved timestamp progress.",
-                                color = Color.White.copy(alpha = 0.65f),
+                                text = "No Watch History Yet",
+                                color = TextPrimary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Episodes you play on mobile or TV will automatically appear here with your saved timestamp progress.",
+                                color = TextSecondary,
                                 fontSize = 13.sp,
                                 textAlign = TextAlign.Center,
                                 lineHeight = 18.sp
@@ -461,7 +722,7 @@ fun LibraryScreen(
                 } else {
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = PaddingValues(bottom = 90.dp),
+                        contentPadding = PaddingValues(bottom = 115.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(history, key = { it.episodeId }) { item ->
@@ -493,8 +754,8 @@ fun LibraryScreen(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .clip(RoundedCornerShape(14.dp))
-                                            .background(if (isDismissing) Color(0xFFEF4444) else Color.Transparent)
+                                            .clip(YugenShape.md)
+                                            .background(if (isDismissing) YugenRed else Color.Transparent)
                                             .padding(horizontal = 20.dp),
                                         contentAlignment = Alignment.CenterEnd
                                     ) {
@@ -509,9 +770,9 @@ fun LibraryScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(glassBg)
-                                        .border(1.dp, glassBorder, RoundedCornerShape(14.dp))
+                                        .clip(YugenShape.md)
+                                        .background(YugenCardSurface)
+                                        .border(1.dp, YugenOverlayMedium, YugenShape.md)
                                         .bounceClick {
                                             if (isCloudSync) {
                                                 val mediaId = item.episodeId.split("_").getOrNull(2) ?: ""
@@ -523,11 +784,12 @@ fun LibraryScreen(
                                         .padding(10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    // 16:9 Thumbnail with Gradient Progress Bar
                                     Box(
                                         modifier = Modifier
-                                            .width(115.dp)
+                                            .width(118.dp)
                                             .aspectRatio(16f / 9f)
-                                            .clip(RoundedCornerShape(8.dp))
+                                            .clip(YugenShape.sm)
                                             .background(Color.Black)
                                     ) {
                                         AsyncImage(
@@ -540,32 +802,44 @@ fun LibraryScreen(
                                             (item.progressMs.toFloat() / item.durationMs).coerceIn(0f, 1f)
                                         } else 0f
 
-                                        LinearProgressIndicator(
-                                            progress = { progress },
+                                        // Dual-Tone Gradient Progress Bar
+                                        Box(
                                             modifier = Modifier
                                                 .align(Alignment.BottomCenter)
                                                 .fillMaxWidth()
-                                                .height(3.dp),
-                                            color = accentPurple,
-                                            trackColor = Color.Black.copy(alpha = 0.5f)
-                                        )
+                                                .height(3.5.dp)
+                                                .background(Color.Black.copy(alpha = 0.60f))
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth(fraction = progress)
+                                                    .fillMaxHeight()
+                                                    .background(
+                                                        Brush.horizontalGradient(
+                                                            listOf(YugenPurple, YugenTvOutroCyan)
+                                                        )
+                                                    )
+                                            )
+                                        }
                                     }
 
-                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Spacer(modifier = Modifier.width(14.dp))
 
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = item.animeTitle,
-                                            color = Color.White,
+                                            color = TextPrimary,
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold,
                                             maxLines = 1,
-                                            modifier = Modifier.fillMaxWidth().subtleMarquee()
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .basicMarquee()
                                         )
-                                        Spacer(modifier = Modifier.height(3.dp))
+                                        Spacer(modifier = Modifier.height(4.dp))
                                         Text(
                                             text = subtitleText,
-                                            color = accentPurple,
+                                            color = YugenAccentViolet,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium
                                         )
@@ -586,6 +860,7 @@ private fun LibrarySkeletonGrid() {
         columns = GridCells.Fixed(3),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(bottom = 115.dp),
         modifier = Modifier.fillMaxSize()
     ) {
         items(9) {
@@ -594,7 +869,7 @@ private fun LibrarySkeletonGrid() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(0.7f)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(YugenShape.md)
                         .premiumShimmerEffect()
                 )
                 Spacer(modifier = Modifier.height(6.dp))

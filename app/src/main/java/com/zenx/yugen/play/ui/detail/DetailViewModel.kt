@@ -19,6 +19,7 @@ import androidx.media3.exoplayer.offline.DownloadService
 import com.zenx.yugen.play.data.local.AuthPreferences
 import com.zenx.yugen.play.data.local.FavoriteDao
 import com.zenx.yugen.play.data.local.FavoriteEntity
+import com.zenx.yugen.play.data.local.Mp4DownloadDao
 import com.zenx.yugen.play.data.local.PlayerPreferences
 import com.zenx.yugen.play.domain.AudioTrackType
 import com.zenx.yugen.play.domain.audioTrackType
@@ -27,6 +28,7 @@ import com.zenx.yugen.play.data.local.WatchHistoryEntity
 import com.zenx.yugen.play.data.remote.AnilistService
 import com.zenx.yugen.play.data.remote.EpisodeMetadataService
 import com.zenx.yugen.play.data.remote.ExternalEpisodeMeta
+import com.zenx.yugen.play.data.repository.EpisodeRepository
 import com.zenx.yugen.play.data.repository.ProviderSearchRepository
 import com.zenx.yugen.play.data.repository.TitleMappingRepository
 import com.zenx.yugen.play.domain.AnimeDetails
@@ -111,7 +113,7 @@ data class EpisodeUiModel(
     val downloadPercent: Float = 0f, val isPreparing: Boolean = false
 )
 
-private data class EpisodeData(val episodes: List<Episode>, val provider: String, val isMapped: Boolean, val isLoading: Boolean, val error: String?)
+private data class EpisodeData(val episodes: List<Episode>, val provider: String, val isMapped: Boolean, val isLoading: Boolean, val error: String?, val resolvedUrl: String)
 private data class UserData(val favorites: List<FavoriteEntity>, val anilistEntry: UserListEntry?)
 private data class PlaybackData(val historyMap: Map<String, WatchHistoryEntity>, val dlStates: Map<String, DownloadState>, val dlProgresses: Map<String, Float>, val preparing: Set<String>)
 private data class MetadataPayloadResult(val data: ByteArray, val wasSubtitlesTruncated: Boolean)
@@ -124,6 +126,7 @@ class DetailViewModel @Inject constructor(
     private val getEpisodesUseCase: GetEpisodesUseCase,
     private val providerSearchRepository: ProviderSearchRepository,
     private val titleMappingRepository: TitleMappingRepository,
+    private val episodeRepository: EpisodeRepository,
     private val providerRegistry: ProviderRegistry,
     private val getVideoStreamsUseCase: GetVideoStreamsUseCase,
     private val favoriteDao: FavoriteDao,
@@ -135,12 +138,14 @@ class DetailViewModel @Inject constructor(
     private val anilistService: AnilistService,
     private val episodeMetadataService: EpisodeMetadataService,
     private val streamDataCache: StreamDataCache,
+    private val mp4DownloadDao: Mp4DownloadDao,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val animeId: String = savedStateHandle.get<String>("id") ?: ""
     val animeUrl: String = savedStateHandle.get<String>("url") ?: ""
     val animeTitle: String = savedStateHandle.get<String>("title") ?: ""
+    private val _resolvedAnimeUrl = MutableStateFlow<String>("")
     val navPosterUrl: String = savedStateHandle.get<String>("poster") ?: ""
 
     private val episodePrefixRegex = Regex("(?i)^Episode\\s*\\d+\\s*-\\s*")
@@ -309,6 +314,7 @@ class DetailViewModel @Inject constructor(
             isMappedFlow.value = (!mappedUrl.isNullOrBlank())
 
             val targetUrl = mappedUrl ?: animeUrl.takeIf { it.startsWith("http") }
+            _resolvedAnimeUrl.value = targetUrl ?: animeUrl
 
             val details = animeDetailsFlow.value
             val compositeTitle = if (details != null && details.romajiTitle.isNotBlank() && !details.title.contains(details.romajiTitle, ignoreCase = true)) {
@@ -360,6 +366,7 @@ class DetailViewModel @Inject constructor(
         val mediaId = currentMediaId ?: animeId.toIntOrNull() ?: return
         viewModelScope.launch {
             titleMappingRepository.saveMapping(mediaId, _activeProvider.value, mappedUrl)
+            episodeRepository.invalidateCache(_activeProvider.value, anilistId = mediaId, title = animeTitle)
             isMappedFlow.value = true
             hideMappingSheet()
             withContext(Dispatchers.Main) {
@@ -373,6 +380,7 @@ class DetailViewModel @Inject constructor(
         val mediaId = currentMediaId ?: animeId.toIntOrNull() ?: return
         viewModelScope.launch {
             titleMappingRepository.deleteMapping(mediaId, _activeProvider.value)
+            episodeRepository.invalidateCache(_activeProvider.value, anilistId = mediaId, title = animeTitle)
             isMappedFlow.value = false
             hideMappingSheet()
             withContext(Dispatchers.Main) {
@@ -384,6 +392,7 @@ class DetailViewModel @Inject constructor(
 
     fun changeProvider(providerName: String) {
         if (_activeProvider.value == providerName) { hideSourceSheet(); return }
+        episodeRepository.invalidateCache(providerName, anilistId = currentMediaId, title = animeTitle)
         _activeProvider.value = providerName
         _mappingSearchQuery.value = animeTitle
         _mappingSearchResults.value = Resource.Success(emptyList())
@@ -397,7 +406,19 @@ class DetailViewModel @Inject constructor(
             // Flow 1: UI State Header Updates
             launch {
                 val userFlow = combine(favoriteDao.getAllFavorites(), anilistEntryFlow) { favs, entry -> UserData(favs, entry) }.distinctUntilChanged()
-                val epFlow = combine(rawEpisodesFlow, _activeProvider, isMappedFlow, isEpisodesLoading, episodeError) { eps, provider, mapped, loading, error -> EpisodeData(eps, provider, mapped, loading, error) }.distinctUntilChanged()
+                val epFlow = combine(
+                    rawEpisodesFlow, _activeProvider, isMappedFlow, isEpisodesLoading, episodeError, _resolvedAnimeUrl
+                ) { args ->
+                    @Suppress("UNCHECKED_CAST")
+                    EpisodeData(
+                        episodes = args[0] as List<Episode>,
+                        provider = args[1] as String,
+                        isMapped = args[2] as Boolean,
+                        isLoading = args[3] as Boolean,
+                        error = args[4] as String?,
+                        resolvedUrl = args[5] as String
+                    )
+                }.distinctUntilChanged()
 
                 combine(animeDetailsFlow, epFlow, userFlow) { details, epData, userData ->
                     if (details == null) return@combine DetailsUiState.Loading
@@ -421,7 +442,7 @@ class DetailViewModel @Inject constructor(
                     }
 
                     DetailsUiState.Success(
-                        id = details.id, animeUrl = animeUrl, title = displayTitle, bannerUrl = banner, posterUrl = poster, format = details.format, episodeCount = totalEp, year = yearText, score = scoreText, genres = details.genres, synopsis = details.description, isFavorite = isFav, isEpisodesLoading = epData.isLoading, episodeError = epData.error, isUserLoggedIn = authPreferences.authState.value.token != null, anilistStatus = userData.anilistEntry?.status, anilistEntryId = userData.anilistEntry?.id, activeProvider = epData.provider, installedProviders = providerRegistry.getAllProviders().map { it.name }, isMapped = epData.isMapped, nextAiringAt = details.nextAiringAt, nextAiringEpisode = details.nextAiringEpisode
+                        id = details.id, animeUrl = epData.resolvedUrl, title = displayTitle, bannerUrl = banner, posterUrl = poster, format = details.format, episodeCount = totalEp, year = yearText, score = scoreText, genres = details.genres, synopsis = details.description, isFavorite = isFav, isEpisodesLoading = epData.isLoading, episodeError = epData.error, isUserLoggedIn = authPreferences.authState.value.token != null, anilistStatus = userData.anilistEntry?.status, anilistEntryId = userData.anilistEntry?.id, activeProvider = epData.provider, installedProviders = providerRegistry.getAllProviders().map { it.name }, isMapped = epData.isMapped, nextAiringAt = details.nextAiringAt, nextAiringEpisode = details.nextAiringEpisode
                     )
                 }.flowOn(Dispatchers.Default).collect { _uiState.value = it }
             }
@@ -469,11 +490,29 @@ class DetailViewModel @Inject constructor(
 
             // Flow 3: FAST playback and download mapping
             launch {
-                val pbFlow = combine(watchHistoryDao.getAllHistory(), downloadTracker.downloads, _preparingDownloads) { history, downloadsMap, preparing ->
+                val pbFlow = combine(watchHistoryDao.getAllHistory(), downloadTracker.downloads, mp4DownloadDao.getAllDownloads(), _preparingDownloads) { history, downloadsMap, mp4List, preparing ->
                     // Convert History List to O(1) Map to kill the N^2 bottleneck
                     val historyMap = history.associateBy { it.episodeId }
-                    val dlStates = downloadsMap.mapValues { mapExoDownloadState(it.value.state) }
-                    val dlProgresses = downloadsMap.mapValues { it.value.percentDownloaded.coerceIn(0f, 100f) }
+                    val dlStates = HashMap<String, DownloadState>()
+                    val dlProgresses = HashMap<String, Float>()
+
+                    downloadsMap.forEach { (epId, d) ->
+                        dlStates[epId] = mapExoDownloadState(d.state)
+                        dlProgresses[epId] = d.percentDownloaded.coerceIn(0f, 100f)
+                    }
+
+                    mp4List.forEach { mp4 ->
+                        val st = when (mp4.state) {
+                            "COMPLETED" -> DownloadState.COMPLETED
+                            "DOWNLOADING" -> DownloadState.DOWNLOADING
+                            "PAUSED" -> DownloadState.PAUSED
+                            "FAILED" -> DownloadState.FAILED
+                            else -> DownloadState.DOWNLOADING
+                        }
+                        dlStates[mp4.episodeId] = st
+                        dlProgresses[mp4.episodeId] = if (mp4.totalBytes > 0) (mp4.bytesDownloaded.toFloat() / mp4.totalBytes.toFloat()) * 100f else 0f
+                    }
+
                     PlaybackData(historyMap, dlStates, dlProgresses, preparing)
                 }
 
@@ -670,12 +709,37 @@ class DetailViewModel @Inject constructor(
                 }
             }
 
-            val secureStreamUrl = "${stream.url}${if(stream.url.contains("?")) "&" else "?"}y_ref=${Uri.encode(stream.headers["Referer"] ?: "https://megaplay.buzz/")}&y_ori=${Uri.encode(stream.headers["Origin"] ?: "https://megaplay.buzz/")}"
-            val request = DownloadRequest.Builder(episode.id, secureStreamUrl.toUri())
-                .setMimeType(if (stream.isM3U8 || stream.url.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.VIDEO_MP4)
-                .setData(payloadResult.data).build()
+            val isM3u8 = stream.isM3U8 || stream.url.contains(".m3u8", ignoreCase = true)
+            if (isM3u8) {
+                val secureStreamUrl = "${stream.url}${if(stream.url.contains("?")) "&" else "?"}y_ref=${Uri.encode(stream.headers["Referer"] ?: "https://megaplay.buzz/")}&y_ori=${Uri.encode(stream.headers["Origin"] ?: "https://megaplay.buzz/")}"
+                val request = DownloadRequest.Builder(episode.id, secureStreamUrl.toUri())
+                    .setMimeType(MimeTypes.APPLICATION_M3U8)
+                    .setData(payloadResult.data).build()
 
-            DownloadService.sendAddDownload(context, VideoDownloadService::class.java, request, false)
+                DownloadService.sendAddDownload(context, VideoDownloadService::class.java, request, false)
+            } else {
+                val headersJson = JSONObject().apply {
+                    stream.headers.forEach { (k, v) -> put(k, v) }
+                }.toString()
+
+                val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.zenx.yugen.play.worker.Mp4DownloadWorker>()
+                    .setInputData(
+                        androidx.work.workDataOf(
+                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_ID to episode.id,
+                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_EPISODE_ID to episode.id,
+                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_ANIME_TITLE to animeTitle,
+                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_EPISODE_NUMBER to episode.number,
+                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_POSTER_URL to navPosterUrl,
+                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_VIDEO_URL to stream.url,
+                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_HEADERS_JSON to headersJson
+                        )
+                    )
+                    .build()
+                androidx.work.WorkManager.getInstance(context).enqueue(workRequest)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Queued MP4 download: Episode ${episode.number}", Toast.LENGTH_SHORT).show()
+                }
+            }
         } finally {
             _preparingDownloads.update { it - episode.id }
         }

@@ -15,6 +15,8 @@ class YugenApplication : Application(), Configuration.Provider { // <-- Renamed 
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var animeDetailsDao: AnimeDetailsDao
+    @Inject lateinit var playbackCacheManager: com.zenx.yugen.play.data.manager.PlaybackCacheManager
+    @Inject lateinit var databaseProvider: androidx.media3.database.DatabaseProvider
     @Inject @ApplicationScope lateinit var applicationScope: CoroutineScope
 
     companion object {
@@ -38,5 +40,6 @@ class YugenApplication : Application(), Configuration.Provider { // <-- Renamed 
                 )
             } catch (_: Exception) {}
         }
+        playbackCacheManager.cleanupLegacyAppDataAsync(databaseProvider, applicationScope)
     }
 }

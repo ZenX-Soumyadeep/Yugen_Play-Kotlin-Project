@@ -3,7 +3,9 @@ package com.zenx.yugen.play.ui.tv.components
 import android.view.KeyEvent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -33,15 +35,27 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.style.TextOverflow
 import coil.compose.AsyncImage
+import com.zenx.yugen.play.ui.theme.TextMuted
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenBillboardBg
+import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenPurpleDark
+import com.zenx.yugen.play.ui.theme.YugenPurpleGlow
+import com.zenx.yugen.play.ui.theme.YugenShape
+import com.zenx.yugen.play.ui.theme.YugenSurface
 
 sealed class TvNavItem(val route: String, val title: String, val icon: ImageVector) {
     data object Home : TvNavItem("home", "Home", Icons.Filled.Home)
@@ -72,7 +86,10 @@ fun TvNavigationRail(
 
     val railWidth by animateDpAsState(
         targetValue = if (railHasFocus) 210.dp else 68.dp,
-        animationSpec = spring(stiffness = 300f),
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = 320f
+        ),
         label = "tv_rail_width"
     )
 
@@ -84,13 +101,13 @@ fun TvNavigationRail(
             .background(
                 brush = Brush.horizontalGradient(
                     colors = listOf(
-                        Color(0xFF09090C).copy(alpha = 0.98f),
-                        Color(0xFF0E0E14).copy(alpha = 0.94f)
+                        YugenBillboardBg.copy(alpha = 0.98f),
+                        YugenSurface.copy(alpha = 0.95f)
                     )
                 )
             )
             .border(
-                BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
+                BorderStroke(1.dp, YugenOverlayMedium.copy(alpha = 0.40f)),
                 shape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
             )
             .onFocusChanged { focusState ->
@@ -120,7 +137,7 @@ fun TvNavigationRail(
                             .tvButtonFocusable(
                                 onClick = onProfileClick,
                                 shape = CircleShape,
-                                focusedBackgroundColor = Color(0xFF8B5CF6),
+                                focusedBackgroundColor = YugenPurple,
                                 unfocusedBackgroundColor = Color.Transparent,
                                 focusedBorderColor = Color.White
                             )
@@ -135,7 +152,7 @@ fun TvNavigationRail(
                                 modifier = Modifier
                                     .size(34.dp)
                                     .clip(CircleShape)
-                                    .border(1.5.dp, Color(0xFF8B5CF6), CircleShape)
+                                    .border(1.5.dp, YugenPurple, CircleShape)
                             )
                         } else {
                             Box(
@@ -144,14 +161,14 @@ fun TvNavigationRail(
                                     .clip(CircleShape)
                                     .background(
                                         Brush.linearGradient(
-                                            listOf(Color(0xFF8B5CF6), Color(0xFF6D28D9))
+                                            listOf(YugenPurple, YugenPurpleDark)
                                         )
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = "Y",
-                                    color = Color.White,
+                                    color = TextPrimary,
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Black
                                 )
@@ -165,7 +182,7 @@ fun TvNavigationRail(
                             Column {
                                 Text(
                                     text = userName?.ifBlank { "Profile" } ?: "Profile",
-                                    color = Color.White,
+                                    color = TextPrimary,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
@@ -173,7 +190,7 @@ fun TvNavigationRail(
                                 )
                                 Text(
                                     text = "AniList",
-                                    color = Color(0xFFA78BFA),
+                                    color = YugenAccentViolet,
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -182,7 +199,7 @@ fun TvNavigationRail(
                             Row {
                                 Text(
                                     text = "YUGEN",
-                                    color = Color.White,
+                                    color = TextPrimary,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Black,
                                     letterSpacing = 1.sp
@@ -190,7 +207,7 @@ fun TvNavigationRail(
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = "PLAY",
-                                    color = Color(0xFFA78BFA),
+                                    color = YugenAccentViolet,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 1.sp
@@ -227,18 +244,18 @@ fun TvNavigationRail(
             ) {
                 if (railHasFocus) {
                     Text(
-                        text = "TV Mode",
-                        color = Color.White.copy(alpha = 0.35f),
+                        text = "TV Leanback Mode",
+                        color = TextMuted,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
-                        letterSpacing = 1.sp
+                        letterSpacing = 0.8.sp
                     )
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(6.dp)
+                            .size(7.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF8B5CF6).copy(alpha = 0.6f))
+                            .background(YugenPurple.copy(alpha = 0.70f))
                     )
                 }
             }
@@ -257,8 +274,8 @@ private fun TvRailItemRow(
 
     val bgColor by animateColorAsState(
         targetValue = when {
-            isFocused -> Color(0xFF8B5CF6)
-            isSelected -> Color(0xFF8B5CF6).copy(alpha = 0.18f)
+            isFocused -> YugenPurple
+            isSelected -> YugenPurple.copy(alpha = 0.20f)
             else -> Color.Transparent
         },
         animationSpec = tween(160),
@@ -267,29 +284,38 @@ private fun TvRailItemRow(
 
     val iconTint by animateColorAsState(
         targetValue = when {
-            isFocused -> Color.White
-            isSelected -> Color(0xFFA78BFA)
-            else -> Color.White.copy(alpha = 0.6f)
+            isFocused -> TextPrimary
+            isSelected -> YugenAccentViolet
+            else -> TextSecondary
         },
         animationSpec = tween(160),
         label = "tv_rail_item_icon"
     )
 
-    val shape = RoundedCornerShape(12.dp)
+    val iconScale by animateFloatAsState(
+        targetValue = if (isFocused) 1.10f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "tv_rail_item_scale"
+    )
 
-    Row(
+    val shape = YugenShape.md
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(46.dp)
+            .height(48.dp)
             .clip(shape)
             .background(bgColor)
             .then(
                 if (isFocused) {
                     Modifier
-                        .shadow(12.dp, shape, ambientColor = Color(0xFF8B5CF6), spotColor = Color(0xFF8B5CF6))
-                        .border(BorderStroke(2.dp, Color(0xFFA78BFA)), shape)
+                        .shadow(14.dp, shape, ambientColor = YugenPurpleGlow, spotColor = YugenPurple)
+                        .border(BorderStroke(2.dp, YugenAccentViolet), shape)
                 } else if (isSelected) {
-                    Modifier.border(BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.35f)), shape)
+                    Modifier.border(BorderStroke(1.dp, YugenPurple.copy(alpha = 0.40f)), shape)
                 } else {
                     Modifier
                 }
@@ -313,32 +339,60 @@ private fun TvRailItemRow(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick
-            )
-            .padding(horizontal = if (isExpanded) 14.dp else 0.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = if (isExpanded) Arrangement.Start else Arrangement.Center
+            ),
+        contentAlignment = Alignment.CenterStart
     ) {
-        Icon(
-            imageVector = item.icon,
-            contentDescription = item.title,
-            tint = iconTint,
-            modifier = Modifier.size(22.dp)
+        // Left Active Indicator Pill
+        Box(
+            modifier = Modifier
+                .padding(start = 3.dp)
+                .width(3.5.dp)
+                .height(20.dp)
+                .clip(CircleShape)
+                .background(
+                    when {
+                        isFocused -> Color.White
+                        isSelected -> YugenAccentViolet
+                        else -> Color.Transparent
+                    }
+                )
         )
 
-        AnimatedVisibility(
-            visible = isExpanded,
-            enter = fadeIn(tween(140)),
-            exit = fadeOut(tween(100))
+        // Main Icon & Title Row
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = if (isExpanded) 14.dp else 0.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (isExpanded) Arrangement.Start else Arrangement.Center
         ) {
-            Row {
-                Spacer(modifier = Modifier.width(14.dp))
-                Text(
-                    text = item.title,
-                    color = if (isFocused || isSelected) Color.White else Color.White.copy(alpha = 0.75f),
-                    fontSize = 14.sp,
-                    fontWeight = if (isFocused || isSelected) FontWeight.Bold else FontWeight.Normal,
-                    maxLines = 1
-                )
+            Icon(
+                imageVector = item.icon,
+                contentDescription = item.title,
+                tint = iconTint,
+                modifier = Modifier
+                    .size(22.dp)
+                    .graphicsLayer {
+                        scaleX = iconScale
+                        scaleY = iconScale
+                    }
+            )
+
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = fadeIn(tween(140)),
+                exit = fadeOut(tween(100))
+            ) {
+                Row {
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Text(
+                        text = item.title,
+                        color = if (isFocused || isSelected) TextPrimary else TextSecondary,
+                        fontSize = 14.sp,
+                        fontWeight = if (isFocused || isSelected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }

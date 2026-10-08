@@ -44,6 +44,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.zenx.yugen.play.ui.home.AppLoadingIndicator
 import com.zenx.yugen.play.domain.HeroUiModel
 import com.zenx.yugen.play.domain.HomeAnimeCardUiModel
@@ -51,6 +58,16 @@ import com.zenx.yugen.play.ui.home.ContinueWatchingUiModel
 import com.zenx.yugen.play.ui.home.HomeCategory
 import com.zenx.yugen.play.ui.home.HomeUiState
 import com.zenx.yugen.play.ui.home.HomeViewModel
+import com.zenx.yugen.play.ui.theme.StarYellow
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenBillboardBg
+import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenPurpleDark
+import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenRedDeep
+import com.zenx.yugen.play.ui.tv.TvSpacing
+import com.zenx.yugen.play.ui.tv.TvType
 import com.zenx.yugen.play.ui.tv.components.TvAnimeCard
 import com.zenx.yugen.play.ui.tv.components.TvContinueWatchingCard
 import com.zenx.yugen.play.ui.tv.components.tvButtonFocusable
@@ -79,21 +96,57 @@ fun TvHomeScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
+            .background(YugenBillboardBg)
     ) {
         when (val state = uiState) {
             is HomeUiState.Loading -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    AppLoadingIndicator()
-                }
+                TvHomeSkeleton()
             }
             is HomeUiState.Error -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "Failed to load content: ${state.message}",
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 16.sp
-                    )
+                val retryFocusRequester = remember { FocusRequester() }
+                LaunchedEffect(Unit) {
+                    try { retryFocusRequester.requestFocus() } catch (_: Exception) {}
+                }
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.padding(TvSpacing.overscanH)
+                    ) {
+                        Text(
+                            text = "Unable to load content",
+                            color = Color.White,
+                            style = TvType.swimlaneHeader,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            text = state.message,
+                            color = Color.White.copy(alpha = 0.7f),
+                            style = TvType.billboardDescription,
+                            textAlign = TextAlign.Center
+                        )
+                        Box(
+                            modifier = Modifier
+                                .focusRequester(retryFocusRequester)
+                                .tvButtonFocusable(
+                                    onClick = { viewModel.retry() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = Color.White.copy(alpha = 0.12f),
+                                    focusedBorderColor = Color.White
+                                )
+                                .padding(horizontal = 28.dp, vertical = 12.dp)
+                        ) {
+                            Text(
+                                text = "Retry",
+                                color = Color.White,
+                                style = TvType.button
+                            )
+                        }
+                    }
                 }
             }
             is HomeUiState.Success -> {
@@ -104,6 +157,114 @@ fun TvHomeScreen(
                     onDeleteContinueWatching = { viewModel.deleteHistoryItem(it) },
                     onCategorySelect = { viewModel.selectCategory(it) }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvHomeSkeleton() {
+    val infiniteTransition = rememberInfiniteTransition(label = "tv_skeleton")
+    val shimmerAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.55f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "tv_shimmer_alpha"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = TvSpacing.overscanV)
+    ) {
+        // Billboard skeleton
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(TvSpacing.billboardHeight)
+                .padding(horizontal = TvSpacing.overscanH)
+        ) {
+            Column(
+                modifier = Modifier
+                    .width(TvSpacing.billboardTextWidth)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.Bottom
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(110.dp)
+                        .height(24.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.White.copy(alpha = shimmerAlpha * 0.4f))
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.7f)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White.copy(alpha = shimmerAlpha * 0.5f))
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.4f)
+                        .height(20.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.White.copy(alpha = shimmerAlpha * 0.3f))
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .width(140.dp)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = shimmerAlpha * 0.5f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(110.dp)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = shimmerAlpha * 0.3f))
+                    )
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(TvSpacing.swimlaneGap))
+
+        // Swimlane row skeleton
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = TvSpacing.overscanH)
+                    .width(180.dp)
+                    .height(26.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color.White.copy(alpha = shimmerAlpha * 0.35f))
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = TvSpacing.overscanH),
+                horizontalArrangement = Arrangement.spacedBy(TvSpacing.itemGap)
+            ) {
+                repeat(6) {
+                    Box(
+                        modifier = Modifier
+                            .width(TvSpacing.cardWidth)
+                            .height(TvSpacing.cardHeight)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = shimmerAlpha * 0.25f))
+                    )
+                }
             }
         }
     }
@@ -149,23 +310,27 @@ private fun TvHomeContent(
 
     LaunchedEffect(Unit) {
         listState.scrollToItem(0, 0)
-        delay(200)
-        try {
-            watchNowFocusRequester.requestFocus()
-        } catch (_: Exception) {}
+    }
+
+    LaunchedEffect(activeBillboard != null) {
+        if (activeBillboard != null) {
+            try {
+                watchNowFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
     }
 
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 60.dp)
+        contentPadding = PaddingValues(top = TvSpacing.overscanV, bottom = 60.dp)
     ) {
         // --- 1. HERO BILLBOARD ---
         item(key = "billboard") {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(315.dp)
+                    .height(TvSpacing.billboardHeight)
             ) {
                 // Animated crossfade of billboard backdrop
                 AnimatedContent(
@@ -173,6 +338,7 @@ private fun TvHomeContent(
                     transitionSpec = {
                         fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(350))
                     },
+                    contentKey = { it?.id },
                     label = "tv_billboard_bg"
                 ) { billboard ->
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -194,9 +360,9 @@ private fun TvHomeContent(
                                 .fillMaxSize()
                                 .background(
                                     Brush.horizontalGradient(
-                                        0.0f to Color(0xFF09090C).copy(alpha = 0.96f),
-                                        0.45f to Color(0xFF09090C).copy(alpha = 0.85f),
-                                        0.75f to Color(0xFF09090C).copy(alpha = 0.35f),
+                                        0.0f to YugenBillboardBg.copy(alpha = 0.98f),
+                                        0.45f to YugenBillboardBg.copy(alpha = 0.88f),
+                                        0.75f to YugenBillboardBg.copy(alpha = 0.35f),
                                         1.0f to Color.Transparent
                                     )
                                 )
@@ -208,9 +374,9 @@ private fun TvHomeContent(
                                 .background(
                                     Brush.verticalGradient(
                                         0.0f to Color.Transparent,
-                                        0.55f to Color.Transparent,
-                                        0.85f to Color(0xFF09090C).copy(alpha = 0.85f),
-                                        1.0f to Color(0xFF09090C)
+                                        0.50f to Color.Transparent,
+                                        0.85f to YugenBillboardBg.copy(alpha = 0.88f),
+                                        1.0f to YugenBillboardBg
                                     )
                                 )
                         )
@@ -222,8 +388,8 @@ private fun TvHomeContent(
                     Column(
                         modifier = Modifier
                             .fillMaxHeight()
-                            .width(580.dp)
-                            .padding(start = 36.dp, top = 24.dp, bottom = 20.dp),
+                            .width(TvSpacing.billboardTextWidth)
+                            .padding(start = TvSpacing.overscanH, top = 24.dp, bottom = 24.dp),
                         verticalArrangement = Arrangement.Bottom
                     ) {
                         // Airing Countdown Badge
@@ -231,31 +397,29 @@ private fun TvHomeContent(
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(0xFF8B5CF6).copy(alpha = 0.9f))
+                                    .background(YugenPurple)
                                     .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
                                 Text(
                                     text = billboard.airingCountdown,
                                     color = Color.White,
-                                    fontSize = 11.5.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
                         }
 
                         // Title
                         Text(
                             text = billboard.title,
                             color = Color.White,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Black,
+                            style = TvType.billboardTitle,
                             maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            lineHeight = 30.sp
+                            overflow = TextOverflow.Ellipsis
                         )
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         // Metadata Row: Score, Format, Genres
                         Row(
@@ -273,15 +437,14 @@ private fun TvHomeContent(
                                     Icon(
                                         Icons.Rounded.Star,
                                         contentDescription = null,
-                                        tint = Color(0xFFFBBF24),
-                                        modifier = Modifier.size(13.dp)
+                                        tint = StarYellow,
+                                        modifier = Modifier.size(14.dp)
                                     )
                                     Spacer(modifier = Modifier.width(3.dp))
                                     Text(
                                         text = "${billboard.score}%",
                                         color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
+                                        style = TvType.badge
                                     )
                                 }
                             }
@@ -290,35 +453,32 @@ private fun TvHomeContent(
                                 Text(
                                     text = billboard.format,
                                     color = Color.White.copy(alpha = 0.7f),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
+                                    style = TvType.billboardMeta
                                 )
                             }
 
                             if (billboard.genres.isNotEmpty()) {
                                 Text(
                                     text = "•  " + billboard.genres.take(3).joinToString(", "),
-                                    color = Color(0xFFA78BFA),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
+                                    color = YugenAccentViolet,
+                                    style = TvType.billboardMeta
                                 )
                             }
                         }
 
                         // Synopsis preview
                         if (billboard.description.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 text = billboard.description,
                                 color = Color.White.copy(alpha = 0.75f),
-                                fontSize = 12.sp,
+                                style = TvType.billboardDescription,
                                 maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                lineHeight = 16.sp
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(18.dp))
 
                         // Billboard Buttons
                         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -326,15 +486,16 @@ private fun TvHomeContent(
                             Row(
                                 modifier = Modifier
                                     .focusRequester(watchNowFocusRequester)
+                                    .semantics { contentDescription = "Watch Now: ${billboard.title}" }
                                     .tvButtonFocusable(
                                         onClick = {
                                             onAnimeClick(billboard.id, billboard.title, billboard.posterUrl)
                                         },
-                                        focusedBackgroundColor = Color(0xFF8B5CF6),
-                                        unfocusedBackgroundColor = Color(0xFF8B5CF6).copy(alpha = 0.85f),
+                                        focusedBackgroundColor = YugenPurple,
+                                        unfocusedBackgroundColor = YugenPurple.copy(alpha = 0.85f),
                                         focusedBorderColor = Color.White
                                     )
-                                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                                    .padding(horizontal = 22.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -347,23 +508,23 @@ private fun TvHomeContent(
                                 Text(
                                     text = "Watch Now",
                                     color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold
+                                    style = TvType.button
                                 )
                             }
 
                             // More Details Button
                             Row(
                                 modifier = Modifier
+                                    .semantics { contentDescription = "Details: ${billboard.title}" }
                                     .tvButtonFocusable(
                                         onClick = {
                                             onAnimeClick(billboard.id, billboard.title, billboard.posterUrl)
                                         },
                                         focusedBackgroundColor = Color.White.copy(alpha = 0.25f),
                                         unfocusedBackgroundColor = Color.White.copy(alpha = 0.12f),
-                                        focusedBorderColor = Color(0xFFA78BFA)
+                                        focusedBorderColor = YugenAccentViolet
                                     )
-                                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                                    .padding(horizontal = 20.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -376,8 +537,7 @@ private fun TvHomeContent(
                                 Text(
                                     text = "Details",
                                     color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    style = TvType.button
                                 )
                             }
                         }
@@ -392,8 +552,8 @@ private fun TvHomeContent(
                 TvSwimlaneHeader(title = "Continue Watching")
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 36.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    contentPadding = PaddingValues(horizontal = TvSpacing.overscanH),
+                    horizontalArrangement = Arrangement.spacedBy(TvSpacing.itemGap)
                 ) {
                     items(state.watchHistory, key = { it.episodeId }) { item ->
                         TvContinueWatchingCard(
@@ -427,8 +587,8 @@ private fun TvHomeContent(
                 TvSwimlaneHeader(title = "Trending This Season")
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 36.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    contentPadding = PaddingValues(horizontal = TvSpacing.overscanH),
+                    horizontalArrangement = Arrangement.spacedBy(TvSpacing.itemGap)
                 ) {
                     items(state.heroAnime, key = { it.id }) { hero ->
                         val animeCardModel = HomeAnimeCardUiModel(
@@ -472,8 +632,8 @@ private fun TvHomeContent(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 36.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        .padding(horizontal = TvSpacing.overscanH, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(TvSpacing.chipGap)
                 ) {
                     HomeCategory.entries.forEach { category ->
                         val isSelected = category == state.activeCategory
@@ -482,17 +642,17 @@ private fun TvHomeContent(
                                 .tvButtonFocusable(
                                     onClick = { onCategorySelect(category) },
                                     shape = RoundedCornerShape(100.dp),
-                                    focusedBackgroundColor = Color(0xFF8B5CF6),
-                                    unfocusedBackgroundColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
-                                    focusedBorderColor = Color(0xFFA78BFA),
-                                    unfocusedBorderColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.6f) else Color.Transparent
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
+                                    focusedBorderColor = YugenAccentViolet,
+                                    unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.6f) else Color.Transparent
                                 )
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
                         ) {
                             Text(
                                 text = category.title,
                                 color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f),
-                                fontSize = 13.sp,
+                                style = TvType.chip,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                             )
                         }
@@ -505,8 +665,8 @@ private fun TvHomeContent(
             if (state.categoryAnime.isNotEmpty()) {
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 36.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    contentPadding = PaddingValues(horizontal = TvSpacing.overscanH, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(TvSpacing.itemGap)
                 ) {
                     items(state.categoryAnime, key = { it.id }) { anime ->
                         TvAnimeCard(
@@ -535,8 +695,8 @@ private fun TvHomeContent(
                 TvSwimlaneHeader(title = "Top Anime Movies")
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 36.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    contentPadding = PaddingValues(horizontal = TvSpacing.overscanH),
+                    horizontalArrangement = Arrangement.spacedBy(TvSpacing.itemGap)
                 ) {
                     items(state.movies, key = { it.id }) { movie ->
                         TvAnimeCard(
@@ -577,14 +737,14 @@ private fun TvHomeContent(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.75f)),
+                    .background(Color.Black.copy(alpha = 0.82f)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
                     modifier = Modifier
                         .width(440.dp)
                         .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xFF12121A))
+                        .background(YugenDialogSurface)
                         .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
                         .padding(28.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -593,14 +753,14 @@ private fun TvHomeContent(
                         modifier = Modifier
                             .size(48.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFFEF4444).copy(alpha = 0.15f))
-                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.3f), CircleShape),
+                            .background(YugenRed.copy(alpha = 0.15f))
+                            .border(1.dp, YugenRed.copy(alpha = 0.3f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.DeleteOutline,
                             contentDescription = null,
-                            tint = Color(0xFFEF4444),
+                            tint = YugenRed,
                             modifier = Modifier.size(26.dp)
                         )
                     }
@@ -631,7 +791,7 @@ private fun TvHomeContent(
                                 .tvButtonFocusable(
                                     onClick = { if (canInteract) itemToDelete = null },
                                     shape = RoundedCornerShape(12.dp),
-                                    focusedBackgroundColor = Color(0xFF8B5CF6),
+                                    focusedBackgroundColor = YugenPurple,
                                     unfocusedBackgroundColor = Color.White.copy(alpha = 0.1f),
                                     focusedBorderColor = Color.White
                                 )
@@ -651,8 +811,8 @@ private fun TvHomeContent(
                                         }
                                     },
                                     shape = RoundedCornerShape(12.dp),
-                                    focusedBackgroundColor = Color(0xFF7F1D1D),
-                                    unfocusedBackgroundColor = Color(0xFFEF4444).copy(alpha = 0.12f),
+                                    focusedBackgroundColor = YugenRedDeep,
+                                    unfocusedBackgroundColor = YugenRed.copy(alpha = 0.12f),
                                     focusedBorderColor = Color(0xFFF87171)
                                 )
                                 .padding(vertical = 12.dp),
@@ -672,11 +832,27 @@ private fun TvSwimlaneHeader(
     title: String,
     modifier: Modifier = Modifier
 ) {
-    Text(
-        text = title,
-        color = Color.White,
-        fontSize = 18.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = modifier.padding(start = 36.dp, end = 36.dp, top = 20.dp, bottom = 10.dp)
-    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.padding(
+            start = TvSpacing.overscanH,
+            end = TvSpacing.overscanH,
+            top = TvSpacing.swimlaneGap,
+            bottom = 12.dp
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(18.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(YugenAccentViolet.copy(alpha = 0.85f))
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = title,
+            color = Color.White,
+            style = TvType.swimlaneHeader
+        )
+    }
 }

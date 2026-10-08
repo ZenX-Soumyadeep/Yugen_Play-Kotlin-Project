@@ -14,7 +14,8 @@ import javax.inject.Singleton
 
 @Singleton
 class AniSkipRepository @Inject constructor(
-    @ProviderClient private val client: OkHttpClient
+    @ProviderClient private val client: OkHttpClient,
+    private val animeDetailsDao: com.zenx.yugen.play.data.local.AnimeDetailsDao
 ) {
     companion object {
         private const val TAG = "AniSkipRepository"
@@ -32,7 +33,15 @@ class AniSkipRepository @Inject constructor(
         if (resolvedMalId == null && anilistId != null && anilistId > 0) {
             resolvedMalId = malIdCache.get(anilistId)
             if (resolvedMalId == null) {
-                resolvedMalId = fetchMalIdFromAniZip(anilistId)
+                // Check local cached details first
+                try {
+                    resolvedMalId = animeDetailsDao.getById(anilistId.toString())?.idMal
+                } catch (_: Exception) {}
+
+                if (resolvedMalId == null || resolvedMalId <= 0) {
+                    resolvedMalId = fetchMalIdFromAniZip(anilistId)
+                }
+
                 if (resolvedMalId != null && resolvedMalId > 0) {
                     malIdCache.put(anilistId, resolvedMalId)
                 }

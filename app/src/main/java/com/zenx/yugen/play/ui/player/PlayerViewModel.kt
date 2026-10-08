@@ -23,6 +23,9 @@ import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSink
 import androidx.media3.datasource.cache.CacheDataSource
+import com.zenx.yugen.play.di.DownloadCache
+import com.zenx.yugen.play.di.PlaybackCache
+import com.zenx.yugen.play.data.manager.PlaybackCacheManager
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
@@ -169,11 +172,15 @@ class PlayerViewModel @Inject constructor(
     private val playerPreferences: PlayerPreferences,
     private val providerRegistry: ProviderRegistry,
     private val downloadManager: DownloadManager,
-    private val downloadCache: Cache,
+    @DownloadCache private val downloadCache: Cache,
+    @PlaybackCache private val playbackCache: Cache,
+    private val playbackCacheManager: PlaybackCacheManager,
     private val playerEngine: PlayerEngine,
     private val castSessionManager: CastSessionManager,
     private val aniSkipRepository: AniSkipRepository,
     private val streamDataCache: com.zenx.yugen.play.ui.detail.StreamDataCache,
+    private val mp4DownloadDao: com.zenx.yugen.play.data.local.Mp4DownloadDao,
+    private val titleMappingRepository: com.zenx.yugen.play.data.repository.TitleMappingRepository,
     @ApplicationScope private val externalScope: CoroutineScope
 ) : ViewModel() {
 
@@ -207,9 +214,14 @@ class PlayerViewModel @Inject constructor(
 
     private val hasSyncedThisEpisodeToCloud = AtomicBoolean(false)
     private val currentEpisodeNumberInt = AtomicInteger(1)
+    private var currentPlayingStreamUrl: String? = null
+
+    private val navEpisodeNumber: Int? = savedStateHandle.get<String>("episodeNumber")?.toIntOrNull()
+    private val navMediaId: Int? = savedStateHandle.get<String>("mediaId")?.takeIf { it.isNotBlank() && it != "null" }?.toIntOrNull()
+    private var requestedEpisodeNumber: Int? = navEpisodeNumber
 
     @Volatile
-    private var anilistMediaId: Int? = savedStateHandle.get<String>("mediaId")?.toIntOrNull()
+    private var anilistMediaId: Int? = navMediaId
 
     @Volatile
     private var streamRetryCount = 0
@@ -321,6 +333,9 @@ class PlayerViewModel @Inject constructor(
                     if (wasBuffering) {
                         updateReadyState { it.copy(isBuffering = false) }
                     }
+                    if (getActivePlayer().playbackParameters.speed != savedPlaybackSpeed) {
+                        getActivePlayer().setPlaybackSpeed(savedPlaybackSpeed)
+                    }
                     if (getActivePlayer().isPlaying) {
                         startProgressTracker()
                     }
@@ -332,6 +347,12 @@ class PlayerViewModel @Inject constructor(
                     }
                     stopProgressTracker()
                     saveCurrentProgress()
+                    val finishedUrl = currentPlayingStreamUrl
+                    if (!finishedUrl.isNullOrBlank()) {
+                        viewModelScope.launch(Dispatchers.IO) {
+                            playbackCacheManager.evictStream(finishedUrl)
+                        }
+                    }
                     handlePlaybackEnded()
                 }
                 Player.STATE_IDLE -> {
@@ -741,6 +762,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun playStream(stream: VideoStream, startPositionMs: Long? = null) {
+        currentPlayingStreamUrl = stream.url
         val targetPlayer = getActivePlayer()
 
         val epTitle = (_uiState.value as? PlayerUiState.Ready)?.episodeTitle ?: "Episode ${currentEpisodeNumberInt.get()}"
@@ -775,10 +797,18 @@ class PlayerViewModel @Inject constructor(
                     .build()
             }
 
+            val isOffline = stream.quality == "Offline (Local)"
+            val activeCache = if (isOffline) downloadCache else playbackCache
+            val cacheSinkFactory = if (isOffline) null else CacheDataSink.Factory().setCache(playbackCache)
+
             val cacheDataSourceFactory = CacheDataSource.Factory()
-                .setCache(downloadCache)
+                .setCache(activeCache)
                 .setUpstreamDataSourceFactory(resolvingDataSourceFactory)
-                .setCacheWriteDataSinkFactory(CacheDataSink.Factory().setCache(downloadCache))
+                .apply {
+                    if (cacheSinkFactory != null) {
+                        setCacheWriteDataSinkFactory(cacheSinkFactory)
+                    }
+                }
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
             val dataSourceFactory = DefaultDataSource.Factory(context, cacheDataSourceFactory)
@@ -901,10 +931,10 @@ class PlayerViewModel @Inject constructor(
         val parsedEpisode = EpisodeId.parse(episodeId)
         if (parsedEpisode.isCloudSync) {
             parsedEpisode.cloudSyncMediaId?.let { anilistMediaId = it }
-            currentEpisodeNumberInt.set(parsedEpisode.episodeNumberInt)
-        } else {
-            currentEpisodeNumberInt.set(parsedEpisode.episodeNumberInt)
         }
+        val epNum = requestedEpisodeNumber ?: parsedEpisode.episodeNumberInt
+        currentEpisodeNumberInt.set(epNum)
+        requestedEpisodeNumber = null
 
         val targetStreamUrl = preselectedStreamUrl
         preselectedStreamUrl = null
@@ -914,8 +944,10 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             // Check if this target episode is already downloaded locally before firing network requests
             val initialDownload = withContext(Dispatchers.IO) { downloadManager.downloadIndex.getDownload(episodeId) }
-            val isInitiallyDownloaded = initialDownload != null && initialDownload.state == Download.STATE_COMPLETED
-            val initialMeta = if (isInitiallyDownloaded) {
+            val initialMp4 = withContext(Dispatchers.IO) { mp4DownloadDao.getDownloadByEpisodeId(episodeId) }
+            val isInitialMp4Downloaded = initialMp4 != null && initialMp4.state == "COMPLETED" && java.io.File(initialMp4.localFilePath).exists()
+            val isInitiallyDownloaded = (initialDownload != null && initialDownload.state == Download.STATE_COMPLETED) || isInitialMp4Downloaded
+            val initialMeta = if (initialDownload != null && initialDownload.state == Download.STATE_COMPLETED) {
                 try { JSONObject(String(initialDownload.request.data)) } catch (_: Exception) { JSONObject() }
             } else null
 
@@ -931,10 +963,15 @@ class PlayerViewModel @Inject constructor(
                     anilistMediaId = details?.id?.toIntOrNull()
                 }
 
-                val fallbackUrl = parsedEpisode.sourceUrl.takeIf { !parsedEpisode.isCloudSync } ?: ""
-                val validUrl = if (animeUrl.isNotBlank() && animeUrl != "null") animeUrl else fallbackUrl
+                val mappedUrl = anilistMediaId?.let {
+                    titleMappingRepository.getMappedUrl(it, activeProviderName)
+                }
 
-                if (allEpisodes.isEmpty()) {
+                val fallbackUrl = parsedEpisode.sourceUrl.takeIf { !parsedEpisode.isCloudSync } ?: ""
+                val candidateUrl = if (animeUrl.isNotBlank() && animeUrl != "null") animeUrl else fallbackUrl
+                val validUrl = mappedUrl ?: candidateUrl
+
+                if (allEpisodes.isEmpty() || allEpisodes.none { it.id == episodeId || it.numberInt == currentEpisodeNumberInt.get() }) {
                     val epResult = getEpisodesUseCase(
                         animeUrlOrTitle = validUrl.ifBlank { animeTitle },
                         title = animeTitle,
@@ -951,7 +988,22 @@ class PlayerViewModel @Inject constructor(
                 }
             }
 
-            if (isInitiallyDownloaded && initialMeta != null) {
+            if (isInitialMp4Downloaded && initialMp4 != null) {
+                currentEpisodeId = episodeId
+                playOfflineMp4(initialMp4, episodeId)
+                viewModelScope.launch(Dispatchers.Main) {
+                    try {
+                        val resolved = episodesDeferred.await()
+                        if (resolved.isNotEmpty()) {
+                            allEpisodes = resolved
+                            updateReadyState { it.copy(episodes = resolved) }
+                        }
+                    } catch (_: Exception) {}
+                }
+                return@launch
+            }
+
+            if (isInitiallyDownloaded && initialMeta != null && initialDownload != null) {
                 currentEpisodeId = episodeId
                 playOfflineEpisode(initialDownload, initialMeta, episodeId)
                 viewModelScope.launch(Dispatchers.Main) {
@@ -971,29 +1023,34 @@ class PlayerViewModel @Inject constructor(
 
             var targetEpId = episodeId
             val currentEpInt = currentEpisodeNumberInt.get()
-            if (parsedEpisode.isCloudSync && resolvedEpisodes.isNotEmpty()) {
-                val matchedEp = resolvedEpisodes.find { it.number.toInt() == currentEpInt }
-                    ?: resolvedEpisodes.firstOrNull()
-                if (matchedEp != null) {
-                    targetEpId = matchedEp.id
-                    currentEpisodeNumberInt.set(matchedEp.number.toInt())
-                }
-            } else {
-                resolvedEpisodes.find { it.id == targetEpId }?.let {
-                    currentEpisodeNumberInt.set(it.number.toInt())
+            if (resolvedEpisodes.isNotEmpty()) {
+                val foundById = resolvedEpisodes.find { it.id == targetEpId }
+                if (foundById != null) {
+                    currentEpisodeNumberInt.set(foundById.numberInt)
+                } else {
+                    val matchedEp = resolvedEpisodes.find { it.numberInt == currentEpInt }
+                        ?: resolvedEpisodes.firstOrNull()
+                    if (matchedEp != null) {
+                        targetEpId = matchedEp.id
+                        currentEpisodeNumberInt.set(matchedEp.numberInt)
+                    }
                 }
             }
             currentEpisodeId = targetEpId
 
             val download = withContext(Dispatchers.IO) { downloadManager.downloadIndex.getDownload(targetEpId) }
-            val isDownloaded = download != null && download.state == Download.STATE_COMPLETED
-            val meta = if (isDownloaded) {
+            val mp4Record = withContext(Dispatchers.IO) { mp4DownloadDao.getDownloadByEpisodeId(targetEpId) }
+            val isMp4Downloaded = mp4Record != null && mp4Record.state == "COMPLETED" && java.io.File(mp4Record.localFilePath).exists()
+            val isDownloaded = (download != null && download.state == Download.STATE_COMPLETED) || isMp4Downloaded
+            val meta = if (download != null && download.state == Download.STATE_COMPLETED) {
                 try { JSONObject(String(download.request.data)) } catch (_: Exception) { JSONObject() }
             } else null
 
             val savedPosition = getSavedPosition(targetEpId)
 
-            if (isDownloaded && meta != null) {
+            if (isMp4Downloaded && mp4Record != null) {
+                playOfflineMp4(mp4Record, targetEpId)
+            } else if (isDownloaded && meta != null && download != null) {
                 playOfflineEpisode(download, meta, targetEpId)
             } else {
                 val cachedStreams = streamDataCache.get(targetEpId)
@@ -1160,19 +1217,19 @@ class PlayerViewModel @Inject constructor(
                 val currentSec = pos / 1000.0
 
                 val tolerance = 3.0
-                val activeEd = skipIntervals.find { it.type.lowercase() in listOf("ed", "mixed-ed", "outro") && currentSec in (it.startTime - tolerance)..it.endTime }
-                val activeSkip = skipIntervals.find { it.type.lowercase() in listOf("op", "mixed-op", "recap", "intro") && currentSec in (it.startTime - tolerance)..it.endTime }
-                    ?: (if ((_uiState.value as? PlayerUiState.Ready)?.autoPlayCountdown == null) activeEd else null)
+                val activeEd = skipIntervals.find { it.isOutro && currentSec in (it.startTime - tolerance)..it.endTime }
 
                 if (activeEd != null) {
                     triggerOutroCountdown()
                 }
 
+                val currentSkip = skipIntervals.find { currentSec in it.startTime..it.endTime }
+
                 val updatedProgress = PlayerPlaybackProgress(
                     currentPosition = pos,
                     bufferedPosition = bufferedPos,
                     duration = dur,
-                    activeSkipInterval = activeSkip
+                    activeSkipInterval = currentSkip
                 )
                 if (_playbackProgress.value != updatedProgress) {
                     _playbackProgress.value = updatedProgress
@@ -1202,7 +1259,8 @@ class PlayerViewModel @Inject constructor(
         val isAutoPlayEnabled = (_uiState.value as? PlayerUiState.Ready)?.autoPlayNext ?: savedAutoPlayNext
         if (!isAutoPlayEnabled) return
 
-        val currentIndex = allEpisodes.indexOfFirst { it.id == currentEpisodeId }
+        val currentIndex = allEpisodes.indexOfFirst { it.id == currentEpisodeId }.takeIf { it != -1 }
+            ?: allEpisodes.indexOfFirst { it.numberInt == currentEpisodeNumberInt.get() }
         if (currentIndex != -1 && currentIndex < allEpisodes.size - 1) {
             val nextEp = allEpisodes[currentIndex + 1]
             hasTriggeredOutroAutoPlay = true
@@ -1315,6 +1373,16 @@ class PlayerViewModel @Inject constructor(
     fun selectEpisode(episode: Episode) {
         cancelAutoPlayCountdown()
         saveCurrentProgress()
+        val previousUrl = currentPlayingStreamUrl
+        val currentProgress = _playbackProgress.value
+        val isAlmostDone = currentProgress.duration > 0 && (currentProgress.currentPosition.toFloat() / currentProgress.duration.toFloat()) >= 0.88f
+        if (isAlmostDone && !previousUrl.isNullOrBlank()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                playbackCacheManager.evictStream(previousUrl)
+            }
+        }
+        requestedEpisodeNumber = episode.numberInt
+        currentEpisodeNumberInt.set(episode.numberInt)
         if (castSessionManager.castPlayer?.isCastSessionAvailable != true) {
             stopCastProxy()
         }
@@ -1400,6 +1468,59 @@ class PlayerViewModel @Inject constructor(
     fun setQualitySheetVisibility(visible: Boolean) = updateReadyState { it.copy(isQualitySheetVisible = visible) }
     fun setSpeedSheetVisibility(visible: Boolean) = updateReadyState { it.copy(isSpeedSheetVisible = visible) }
     fun retryPlayback() { loadEpisodesAndPlay(currentEpisodeId) }
+
+    private suspend fun playOfflineMp4(mp4: com.zenx.yugen.play.data.local.Mp4DownloadEntity, targetEpId: String) {
+        val fileUri = android.net.Uri.fromFile(java.io.File(mp4.localFilePath)).toString()
+        val offlineStream = VideoStream(
+            quality = "Offline (MP4)",
+            url = fileUri,
+            isM3U8 = false,
+            format = "MP4"
+        )
+        val savedPosition = getSavedPosition(targetEpId)
+        playStream(offlineStream, startPositionMs = savedPosition)
+
+        val epTitle = allEpisodes.find { it.id == targetEpId }?.title ?: "Episode ${mp4.episodeNumber}"
+        val activePlayer = getActivePlayer()
+        if (savedPlaybackSpeed != 1.0f) {
+            activePlayer.setPlaybackSpeed(savedPlaybackSpeed)
+        }
+        val liveTracks = activePlayer.currentTracks.takeIf { !it.isEmpty } ?: cachedTracks
+        val liveQualities = buildAvailableQualities(null, emptyList(), liveTracks, isOffline = true)
+        val liveIsPlaying = activePlayer.isPlaying || cachedIsPlaying
+        val liveBuffering = activePlayer.playbackState == Player.STATE_BUFFERING || cachedIsBuffering
+        val liveDuration = activePlayer.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
+
+        val nextProgress = PlayerPlaybackProgress(
+            currentPosition = activePlayer.currentPosition.coerceAtLeast(0L),
+            bufferedPosition = activePlayer.bufferedPosition.coerceAtLeast(0L),
+            duration = liveDuration,
+            activeSkipInterval = null
+        )
+        if (_playbackProgress.value != nextProgress) {
+            _playbackProgress.value = nextProgress
+        }
+
+        _uiState.value = PlayerUiState.Ready(
+            animeTitle = animeTitle, episodeTitle = epTitle, currentEpisodeId = targetEpId,
+            streams = listOf(offlineStream), activeStream = offlineStream, episodes = allEpisodes,
+            subtitles = emptyList(),
+            selectedSubtitleIndex = -1,
+            qualities = liveQualities, selectedQualityHeight = -1,
+            currentPlayingHeight = cachedVideoHeight,
+            playbackSpeed = savedPlaybackSpeed, isPlaying = liveIsPlaying, isBuffering = liveBuffering,
+            currentPosition = _playbackProgress.value.currentPosition,
+            bufferedPosition = _playbackProgress.value.bufferedPosition,
+            duration = liveDuration, skipIntervals = emptyList(),
+            subtitleSize = savedSubtitleSize,
+            subtitleEdgeStyle = savedSubtitleEdgeStyle,
+            subtitleTextColor = savedSubtitleTextColor,
+            subtitleBgOpacity = savedSubtitleBgOpacity,
+            seekDurationSec = savedSeekDurationSec,
+            autoPlayNext = savedAutoPlayNext
+        )
+        if (liveIsPlaying) startProgressTracker()
+    }
 
     private suspend fun playOfflineEpisode(download: Download, meta: JSONObject, targetEpId: String) {
         val parsedSubtitles = mutableListOf<Subtitle>()
@@ -1553,7 +1674,9 @@ class PlayerViewModel @Inject constructor(
                                 posterUrl = currentPosterUrl,
                                 progressMs = position,
                                 durationMs = duration,
-                                lastWatchedAt = System.currentTimeMillis()
+                                lastWatchedAt = System.currentTimeMillis(),
+                                anilistId = anilistMediaId,
+                                providerName = activeProviderName
                             )
                         )
                     }
@@ -1574,6 +1697,15 @@ class PlayerViewModel @Inject constructor(
 
     override fun onCleared() {
         saveCurrentProgress()
+
+        val exitingUrl = currentPlayingStreamUrl
+        val currentProgress = _playbackProgress.value
+        val isFinished = currentProgress.duration > 0 && (currentProgress.currentPosition.toFloat() / currentProgress.duration.toFloat()) >= 0.88f
+        if (isFinished && !exitingUrl.isNullOrBlank()) {
+            externalScope.launch(Dispatchers.IO) {
+                playbackCacheManager.evictStream(exitingUrl)
+            }
+        }
 
         autoPlayJob?.cancel()
         warningClearJob?.cancel()

@@ -4,11 +4,12 @@ import android.text.format.Formatter
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,9 +29,13 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,16 +43,23 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.zenx.yugen.play.ui.components.bounceClick
-import com.zenx.yugen.play.ui.components.subtleMarquee
 import com.zenx.yugen.play.ui.detail.DownloadState
-
-private val BaseBackground = Color(0xFF09090D)
-private val CardSurface = Color(0xFF14141E).copy(alpha = 0.85f)
-private val GlassBorder = Color.White.copy(alpha = 0.08f)
-private val AccentPurple = Color(0xFF8B5CF6)
-private val AccentCyan = Color(0xFF06B6D4)
-private val DangerRed = Color(0xFFEF4444)
-private val WarningAmber = Color(0xFFF59E0B)
+import com.zenx.yugen.play.ui.theme.TextMuted
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenBackground
+import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenGreen
+import com.zenx.yugen.play.ui.theme.YugenOverlayLight
+import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenShape
+import com.zenx.yugen.play.ui.theme.YugenSurface
+import com.zenx.yugen.play.ui.theme.YugenTvIntroAmber
+import com.zenx.yugen.play.ui.theme.YugenTvOutroCyan
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,28 +73,29 @@ fun DownloadsScreen(
     val freeStorage by viewModel.freeStorageFlow.collectAsStateWithLifecycle()
     val totalSpeed by viewModel.totalSpeedFlow.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
 
     var showClearDialog by remember { mutableStateOf(false) }
 
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
-            containerColor = Color(0xFF161622),
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("Clear All Downloads", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to delete all offline episodes? This cannot be undone.", color = Color.White.copy(alpha = 0.7f)) },
+            containerColor = YugenDialogSurface,
+            shape = YugenShape.md,
+            title = { Text("Clear All Downloads", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete all offline episodes? This cannot be undone.", color = TextSecondary) },
             confirmButton = {
                 TextButton(onClick = {
                     val allDownloads = groupedDownloads.flatMap { it.episodes }
                     viewModel.clearAllDownloads(allDownloads)
                     showClearDialog = false
                 }) {
-                    Text("Delete All", color = DangerRed, fontWeight = FontWeight.Bold)
+                    Text("Delete All", color = YugenRed, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearDialog = false }) {
-                    Text("Cancel", color = Color.White.copy(alpha = 0.8f))
+                    Text("Cancel", color = TextSecondary)
                 }
             }
         )
@@ -90,55 +103,96 @@ fun DownloadsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Downloads", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp) },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                    }
-                },
-                actions = {
-                    val usedFormatted = Formatter.formatFileSize(context, totalStorage)
-                    val freeFormatted = Formatter.formatFileSize(context, freeStorage)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onBackClick()
+                    },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(YugenShape.xs)
+                        .background(YugenSurface.copy(alpha = 0.65f))
+                        .border(1.dp, YugenOverlayMedium, YugenShape.xs)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = TextPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
 
-                    if (freeStorage > 0L || totalStorage > 0L) {
-                        Box(
-                            modifier = Modifier
-                                .padding(end = 4.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color.White.copy(alpha = 0.08f))
-                                .border(1.dp, GlassBorder, RoundedCornerShape(10.dp))
-                                .padding(horizontal = 9.dp, vertical = 5.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Storage,
-                                    contentDescription = null,
-                                    tint = AccentCyan,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Spacer(modifier = Modifier.width(5.dp))
-                                Text(
-                                    text = if (totalStorage > 0L) "$usedFormatted • $freeFormatted Free" else "$freeFormatted Free",
-                                    color = Color.White.copy(alpha = 0.85f),
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Text(
+                    text = "Downloads",
+                    color = TextPrimary,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.weight(1f)
+                )
+
+                val usedFormatted = Formatter.formatFileSize(context, totalStorage)
+                val freeFormatted = Formatter.formatFileSize(context, freeStorage)
+
+                if (freeStorage > 0L || totalStorage > 0L) {
+                    Box(
+                        modifier = Modifier
+                            .clip(YugenShape.xs)
+                            .background(YugenOverlayLight)
+                            .border(1.dp, YugenOverlayMedium, YugenShape.xs)
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Rounded.Storage,
+                                contentDescription = null,
+                                tint = YugenTvOutroCyan,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = if (totalStorage > 0L) "$usedFormatted • $freeFormatted Free" else "$freeFormatted Free",
+                                color = TextPrimary.copy(alpha = 0.9f),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
+                }
 
-                    if (groupedDownloads.isNotEmpty()) {
-                        IconButton(onClick = { showClearDialog = true }) {
-                            Icon(Icons.Rounded.DeleteSweep, contentDescription = "Clear All", tint = DangerRed.copy(alpha = 0.85f))
-                        }
+                if (groupedDownloads.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showClearDialog = true
+                        },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(YugenShape.xs)
+                            .background(YugenRed.copy(alpha = 0.12f))
+                            .border(1.dp, YugenRed.copy(alpha = 0.3f), YugenShape.xs)
+                    ) {
+                        Icon(
+                            Icons.Rounded.DeleteSweep,
+                            contentDescription = "Clear All",
+                            tint = YugenRed,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = BaseBackground)
-            )
+                }
+            }
         },
-        containerColor = BaseBackground
+        containerColor = YugenBackground
     ) { paddingValues ->
         if (groupedDownloads.isEmpty()) {
             Box(
@@ -147,20 +201,39 @@ fun DownloadsScreen(
                     .padding(paddingValues),
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 32.dp)
+                ) {
                     Box(
                         modifier = Modifier
                             .size(80.dp)
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.04f)),
+                            .background(YugenSurface.copy(alpha = 0.65f))
+                            .border(1.dp, YugenPurple.copy(alpha = 0.3f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Rounded.CloudDownload, contentDescription = null, tint = Color.White.copy(alpha = 0.25f), modifier = Modifier.size(40.dp))
+                        Icon(
+                            Icons.Rounded.CloudDownload,
+                            contentDescription = null,
+                            tint = YugenPurple,
+                            modifier = Modifier.size(38.dp)
+                        )
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("No offline downloads found", color = Color.White.copy(alpha = 0.6f), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(
+                        "No offline downloads found",
+                        color = TextPrimary,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                     Spacer(modifier = Modifier.height(6.dp))
-                    Text("Saved episodes will appear here for offline viewing", color = Color.White.copy(alpha = 0.35f), fontSize = 13.sp)
+                    Text(
+                        "Saved episodes will appear here for offline viewing",
+                        color = TextSecondary,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         } else {
@@ -178,21 +251,46 @@ fun DownloadsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Brush.horizontalGradient(listOf(AccentPurple.copy(alpha = 0.15f), AccentCyan.copy(alpha = 0.08f))))
-                            .border(1.dp, AccentPurple.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
+                            .clip(YugenShape.sm)
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        YugenPurple.copy(alpha = 0.14f),
+                                        YugenTvOutroCyan.copy(alpha = 0.08f),
+                                        YugenCardSurface
+                                    )
+                                )
+                            )
+                            .border(1.dp, YugenOverlayMedium, YugenShape.sm)
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
-                            Text("STORAGE USED", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                            Text(
+                                "STORAGE USED",
+                                color = TextSecondary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(verticalAlignment = Alignment.Bottom) {
-                                Text(Formatter.formatFileSize(context, totalStorage), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                                Text(
+                                    Formatter.formatFileSize(context, totalStorage),
+                                    color = TextPrimary,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
                                 if (freeStorage > 0L) {
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("(${Formatter.formatFileSize(context, freeStorage)} free)", color = Color.White.copy(alpha = 0.45f), fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 2.dp))
+                                    Text(
+                                        "(${Formatter.formatFileSize(context, freeStorage)} free)",
+                                        color = TextSecondary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(bottom = 2.dp)
+                                    )
                                 }
                             }
                         }
@@ -200,9 +298,9 @@ fun DownloadsScreen(
                         if (activeCount > 0) {
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(AccentPurple.copy(alpha = 0.2f))
-                                    .border(1.dp, AccentPurple.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                                    .clip(YugenShape.xs)
+                                    .background(YugenTvOutroCyan.copy(alpha = 0.16f))
+                                    .border(1.dp, YugenTvOutroCyan.copy(alpha = 0.4f), YugenShape.xs)
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -210,7 +308,7 @@ fun DownloadsScreen(
                                         modifier = Modifier
                                             .size(7.dp)
                                             .clip(CircleShape)
-                                            .background(AccentCyan)
+                                            .background(YugenTvOutroCyan)
                                     )
                                     Spacer(modifier = Modifier.width(7.dp))
                                     Text(
@@ -219,7 +317,7 @@ fun DownloadsScreen(
                                         } else {
                                             "$activeCount Active"
                                         },
-                                        color = Color.White,
+                                        color = TextPrimary,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -251,6 +349,7 @@ private fun AnimeDownloadGroupItem(
 ) {
     var expanded by remember(group.animeTitle) { mutableStateOf(group.activeDownloadsCount > 0 || group.episodes.size <= 3) }
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
 
     var showGroupDeleteDialog by remember { mutableStateOf(false) }
     var episodeToDelete by remember { mutableStateOf<DownloadUiModel?>(null) }
@@ -258,21 +357,21 @@ private fun AnimeDownloadGroupItem(
     if (showGroupDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showGroupDeleteDialog = false },
-            containerColor = Color(0xFF161622),
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("Delete ${group.animeTitle}?", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to delete all ${group.episodes.size} downloaded episodes for this anime?", color = Color.White.copy(alpha = 0.7f)) },
+            containerColor = YugenDialogSurface,
+            shape = YugenShape.md,
+            title = { Text("Delete ${group.animeTitle}?", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete all ${group.episodes.size} downloaded episodes for this anime?", color = TextSecondary) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.clearAllDownloads(group.episodes)
                     showGroupDeleteDialog = false
                 }) {
-                    Text("Delete", color = DangerRed, fontWeight = FontWeight.Bold)
+                    Text("Delete All", color = YugenRed, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showGroupDeleteDialog = false }) {
-                    Text("Cancel", color = Color.White.copy(alpha = 0.8f))
+                    Text("Cancel", color = TextSecondary)
                 }
             }
         )
@@ -282,21 +381,21 @@ private fun AnimeDownloadGroupItem(
         val ep = episodeToDelete!!
         AlertDialog(
             onDismissRequest = { episodeToDelete = null },
-            containerColor = Color(0xFF161622),
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("Delete Episode ${ep.episodeNumber}?", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to delete this episode?", color = Color.White.copy(alpha = 0.7f)) },
+            containerColor = YugenDialogSurface,
+            shape = YugenShape.md,
+            title = { Text("Delete Episode ${ep.episodeNumber}?", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete this episode?", color = TextSecondary) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.cancelDownload(ep.id)
                     episodeToDelete = null
                 }) {
-                    Text("Delete", color = DangerRed, fontWeight = FontWeight.Bold)
+                    Text("Delete", color = YugenRed, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { episodeToDelete = null }) {
-                    Text("Cancel", color = Color.White.copy(alpha = 0.8f))
+                    Text("Cancel", color = TextSecondary)
                 }
             }
         )
@@ -307,21 +406,24 @@ private fun AnimeDownloadGroupItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(CardSurface)
+                .clip(YugenShape.sm)
+                .background(YugenCardSurface)
                 .border(
                     1.dp,
-                    if (group.activeDownloadsCount > 0) AccentPurple.copy(alpha = 0.45f) else GlassBorder,
-                    RoundedCornerShape(14.dp)
+                    if (group.activeDownloadsCount > 0) YugenPurple.copy(alpha = 0.45f) else YugenOverlayMedium,
+                    YugenShape.sm
                 )
-                .clickable { expanded = !expanded }
+                .bounceClick {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    expanded = !expanded
+                }
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
                     .size(52.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(YugenShape.xs)
                     .background(Color.Black.copy(alpha = 0.5f))
             ) {
                 AsyncImage(
@@ -335,7 +437,7 @@ private fun AnimeDownloadGroupItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = group.animeTitle,
-                    color = Color.White,
+                    color = TextPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.5.sp,
                     maxLines = 1,
@@ -348,28 +450,28 @@ private fun AnimeDownloadGroupItem(
                 ) {
                     StatusPill(
                         text = "${group.episodes.size} Episodes",
-                        bgColor = AccentPurple.copy(alpha = 0.18f),
-                        textColor = AccentPurple
+                        bgColor = YugenPurple.copy(alpha = 0.16f),
+                        textColor = YugenPurple
                     )
                     if (group.totalBytes > 0L) {
                         StatusPill(
                             text = Formatter.formatFileSize(context, group.totalBytes),
-                            bgColor = Color.White.copy(alpha = 0.1f),
-                            textColor = Color.White.copy(alpha = 0.85f)
+                            bgColor = YugenOverlayLight,
+                            textColor = TextPrimary.copy(alpha = 0.85f)
                         )
                     }
                     if (group.activeDownloadsCount > 0) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(
-                                color = AccentCyan,
+                                color = YugenTvOutroCyan,
                                 strokeWidth = 2.dp,
                                 modifier = Modifier.size(10.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             StatusPill(
                                 text = "${group.activeDownloadsCount} Active",
-                                bgColor = AccentCyan.copy(alpha = 0.2f),
-                                textColor = AccentCyan
+                                bgColor = YugenTvOutroCyan.copy(alpha = 0.18f),
+                                textColor = YugenTvOutroCyan
                             )
                         }
                     }
@@ -384,7 +486,7 @@ private fun AnimeDownloadGroupItem(
                 Icon(
                     imageVector = Icons.Rounded.DeleteOutline,
                     contentDescription = "Delete All Episodes in Anime",
-                    tint = DangerRed.copy(alpha = 0.85f),
+                    tint = YugenRed.copy(alpha = 0.85f),
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -392,8 +494,8 @@ private fun AnimeDownloadGroupItem(
             Icon(
                 imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.7f),
-                modifier = Modifier.size(24.dp)
+                tint = TextSecondary,
+                modifier = Modifier.size(22.dp)
             )
         }
 
@@ -406,7 +508,7 @@ private fun AnimeDownloadGroupItem(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp, start = 8.dp, end = 8.dp),
+                    .padding(top = 10.dp, start = 6.dp, end = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 group.episodes.forEach { item ->
@@ -425,13 +527,13 @@ private fun AnimeDownloadGroupItem(
                         enableDismissFromStartToEnd = false,
                         backgroundContent = {
                             val color by animateColorAsState(
-                                targetValue = if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) DangerRed.copy(alpha = 0.85f) else Color.Transparent,
+                                targetValue = if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) YugenRed.copy(alpha = 0.85f) else Color.Transparent,
                                 label = "SwipeColor"
                             )
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .clip(RoundedCornerShape(16.dp))
+                                    .clip(YugenShape.sm)
                                     .background(color)
                                     .padding(horizontal = 24.dp),
                                 contentAlignment = Alignment.CenterEnd
@@ -473,30 +575,30 @@ private fun DownloadCard(
         label = "DownloadProgress"
     )
 
-    val borderModifier = when {
-        item.state == DownloadState.DOWNLOADING -> {
+    val borderModifier = when (item.state) {
+        DownloadState.DOWNLOADING -> {
             Modifier.border(
                 width = 1.dp,
-                color = AccentPurple.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(16.dp)
+                color = YugenPurple.copy(alpha = 0.6f),
+                shape = YugenShape.sm
             )
         }
-        item.state == DownloadState.PAUSED -> {
-            Modifier.border(1.dp, WarningAmber.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+        DownloadState.PAUSED -> {
+            Modifier.border(1.dp, YugenTvIntroAmber.copy(alpha = 0.4f), YugenShape.sm)
         }
-        item.state == DownloadState.FAILED -> {
-            Modifier.border(1.dp, DangerRed.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+        DownloadState.FAILED -> {
+            Modifier.border(1.dp, YugenRed.copy(alpha = 0.4f), YugenShape.sm)
         }
         else -> {
-            Modifier.border(1.dp, GlassBorder, RoundedCornerShape(16.dp))
+            Modifier.border(1.dp, YugenOverlayMedium, YugenShape.sm)
         }
     }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(CardSurface)
+            .clip(YugenShape.sm)
+            .background(YugenCardSurface)
             .then(borderModifier)
             .clickable(enabled = isCompleted, onClick = onPlayClick)
     ) {
@@ -509,12 +611,12 @@ private fun DownloadCard(
                 modifier = Modifier
                     .matchParentSize()
                     .blur(40.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(YugenShape.sm)
             )
             Box(
                 modifier = Modifier
                     .matchParentSize()
-                    .background(Color(0xFF0D0D14).copy(alpha = 0.88f))
+                    .background(YugenCardSurface.copy(alpha = 0.90f))
             )
         }
 
@@ -529,7 +631,7 @@ private fun DownloadCard(
                     modifier = Modifier
                         .width(100.dp)
                         .aspectRatio(16f / 9f)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(YugenShape.xs)
                         .background(Color.Black.copy(alpha = 0.5f))
                 ) {
                     AsyncImage(
@@ -542,21 +644,31 @@ private fun DownloadCard(
 
                     if (isCompleted) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Rounded.PlayCircleFilled, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(30.dp))
+                            Icon(
+                                Icons.Rounded.PlayCircleFilled,
+                                contentDescription = "Play",
+                                tint = Color.White,
+                                modifier = Modifier.size(30.dp)
+                            )
                         }
                     } else if (item.state == DownloadState.DOWNLOADING) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(
                                 progress = { progressAnimated },
                                 modifier = Modifier.size(26.dp),
-                                color = AccentCyan,
+                                color = YugenTvOutroCyan,
                                 strokeWidth = 2.5.dp,
                                 trackColor = Color.White.copy(alpha = 0.2f)
                             )
                         }
                     } else if (item.state == DownloadState.PAUSED) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Rounded.PauseCircleFilled, contentDescription = "Paused", tint = WarningAmber, modifier = Modifier.size(26.dp))
+                            Icon(
+                                Icons.Rounded.PauseCircleFilled,
+                                contentDescription = "Paused",
+                                tint = YugenTvIntroAmber,
+                                modifier = Modifier.size(26.dp)
+                            )
                         }
                     }
                 }
@@ -567,16 +679,16 @@ private fun DownloadCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = item.animeTitle,
-                        color = Color.White,
+                        color = TextPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         maxLines = 1,
-                        modifier = Modifier.fillMaxWidth().subtleMarquee()
+                        modifier = Modifier.fillMaxWidth().basicMarquee()
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "Episode ${item.episodeNumber} • ${item.episodeTitle.ifBlank { "Episode ${item.episodeNumber}" }}",
-                        color = Color.White.copy(alpha = 0.6f),
+                        color = TextSecondary,
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -590,29 +702,29 @@ private fun DownloadCard(
                     ) {
                         when (item.state) {
                             DownloadState.COMPLETED -> {
-                                StatusPill("Completed", AccentPurple.copy(alpha = 0.2f), AccentPurple)
+                                StatusPill("Completed", YugenPurple.copy(alpha = 0.16f), YugenPurple)
                                 val sizeBytes = if (item.downloadedBytes > 0L) item.downloadedBytes else item.totalBytes
                                 if (sizeBytes > 0L) {
                                     StatusPill(
                                         text = Formatter.formatFileSize(context, sizeBytes),
-                                        bgColor = Color.White.copy(alpha = 0.1f),
-                                        textColor = Color.White.copy(alpha = 0.9f)
+                                        bgColor = YugenOverlayLight,
+                                        textColor = TextPrimary.copy(alpha = 0.9f)
                                     )
                                 }
-                                StatusPill("1080p", AccentCyan.copy(alpha = 0.18f), AccentCyan)
+                                StatusPill("1080p", YugenTvOutroCyan.copy(alpha = 0.16f), YugenTvOutroCyan)
                             }
                             DownloadState.DOWNLOADING -> {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     StatusPill(
                                         text = if (item.percentDownloaded > 0f) "${item.percentDownloaded.toInt()}% Downloading" else "Downloading",
-                                        bgColor = AccentCyan.copy(alpha = 0.2f),
-                                        textColor = AccentCyan
+                                        bgColor = YugenTvOutroCyan.copy(alpha = 0.18f),
+                                        textColor = YugenTvOutroCyan
                                     )
                                     if (item.speedBytesPerSecond > 0L) {
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = "↓ ${Formatter.formatFileSize(context, item.speedBytesPerSecond)}/s",
-                                            color = AccentCyan.copy(alpha = 0.9f),
+                                            color = YugenTvOutroCyan,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.SemiBold
                                         )
@@ -620,13 +732,13 @@ private fun DownloadCard(
                                 }
                             }
                             DownloadState.PAUSED -> {
-                                StatusPill("Paused", WarningAmber.copy(alpha = 0.2f), WarningAmber)
+                                StatusPill("Paused", YugenTvIntroAmber.copy(alpha = 0.18f), YugenTvIntroAmber)
                             }
                             DownloadState.FAILED -> {
-                                StatusPill("Failed", DangerRed.copy(alpha = 0.2f), DangerRed)
+                                StatusPill("Failed", YugenRed.copy(alpha = 0.18f), YugenRed)
                             }
                             else -> {
-                                StatusPill("Queued", Color.White.copy(alpha = 0.12f), Color.White.copy(alpha = 0.7f))
+                                StatusPill("Queued", YugenOverlayLight, TextSecondary)
                             }
                         }
                     }
@@ -641,14 +753,14 @@ private fun DownloadCard(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(6.dp)
+                        .height(5.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.08f))
+                        .background(Color.White.copy(alpha = 0.10f))
                 ) {
                     val progressBrush = when (item.state) {
-                        DownloadState.PAUSED -> Brush.horizontalGradient(listOf(WarningAmber.copy(alpha = 0.7f), WarningAmber))
-                        DownloadState.FAILED -> Brush.horizontalGradient(listOf(DangerRed.copy(alpha = 0.7f), DangerRed))
-                        else -> Brush.horizontalGradient(listOf(AccentPurple, AccentCyan))
+                        DownloadState.PAUSED -> Brush.horizontalGradient(listOf(YugenTvIntroAmber.copy(alpha = 0.7f), YugenTvIntroAmber))
+                        DownloadState.FAILED -> Brush.horizontalGradient(listOf(YugenRed.copy(alpha = 0.7f), YugenRed))
+                        else -> Brush.horizontalGradient(listOf(YugenPurple, YugenTvOutroCyan))
                     }
                     Box(
                         modifier = Modifier
@@ -673,14 +785,14 @@ private fun DownloadCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "$downloadedStr / $totalStr",
-                            color = Color.White.copy(alpha = 0.45f),
+                            color = TextSecondary,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium
                         )
                         if (etaStr != null) {
                             Text(
                                 text = " • ~$etaStr left",
-                                color = AccentCyan.copy(alpha = 0.85f),
+                                color = YugenTvOutroCyan,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -691,17 +803,17 @@ private fun DownloadCard(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         when (item.state) {
                             DownloadState.DOWNLOADING -> {
-                                ActionButton(icon = Icons.Rounded.Pause, tint = WarningAmber, onClick = onPauseClick)
+                                ActionButton(icon = Icons.Rounded.Pause, tint = YugenTvIntroAmber, onClick = onPauseClick)
                             }
                             DownloadState.PAUSED -> {
-                                ActionButton(icon = Icons.Rounded.PlayArrow, tint = AccentCyan, onClick = onResumeClick)
+                                ActionButton(icon = Icons.Rounded.PlayArrow, tint = YugenTvOutroCyan, onClick = onResumeClick)
                             }
                             DownloadState.FAILED -> {
-                                ActionButton(icon = Icons.Rounded.Refresh, tint = DangerRed, onClick = onRetryClick)
+                                ActionButton(icon = Icons.Rounded.Refresh, tint = YugenRed, onClick = onRetryClick)
                             }
                             else -> {}
                         }
-                        ActionButton(icon = Icons.Rounded.Close, tint = Color.White.copy(alpha = 0.5f), onClick = onCancelClick)
+                        ActionButton(icon = Icons.Rounded.Close, tint = TextSecondary, onClick = onCancelClick)
                     }
                 }
             }
@@ -730,12 +842,13 @@ private fun StatusPill(text: String, bgColor: Color, textColor: Color) {
 }
 
 @Composable
-private fun ActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, onClick: () -> Unit) {
+private fun ActionButton(icon: ImageVector, tint: Color, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(32.dp)
             .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.08f))
+            .background(YugenOverlayLight)
+            .border(1.dp, YugenOverlayMedium, CircleShape)
             .bounceClick { onClick() },
         contentAlignment = Alignment.Center
     ) {

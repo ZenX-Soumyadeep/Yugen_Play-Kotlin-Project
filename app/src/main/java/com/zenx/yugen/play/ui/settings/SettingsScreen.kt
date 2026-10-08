@@ -17,7 +17,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -30,6 +29,22 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zenx.yugen.play.BuildConfig
 import com.zenx.yugen.play.ui.components.bounceClick
+import com.zenx.yugen.play.ui.theme.TextMuted
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenBackground
+import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenGreen
+import com.zenx.yugen.play.ui.theme.YugenOverlayLight
+import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenShape
+import com.zenx.yugen.play.ui.theme.YugenSurface
+import com.zenx.yugen.play.ui.theme.YugenTvIntroAmber
+import com.zenx.yugen.play.ui.theme.YugenTvOutroCyan
 import com.zenx.yugen.play.ui.updater.UpdateDialog
 import com.zenx.yugen.play.ui.updater.UpdateViewModel
 import kotlinx.coroutines.launch
@@ -53,6 +68,7 @@ fun SettingsScreen(
     var showWhatsNewSheet by remember { mutableStateOf(false) }
     var showClearHistoryDialog by remember { mutableStateOf(false) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
+    var showClearVideoCacheDialog by remember { mutableStateOf(false) }
     var showProvidersDialog by remember { mutableStateOf(false) }
     var isCheckingUpdate by remember { mutableStateOf(false) }
 
@@ -69,18 +85,9 @@ fun SettingsScreen(
         }
     }
 
-    val baseBackground = Color(0xFF09090B)
-    val cardBg = Color(0xFF141416)
-    val glassBg = Color.White.copy(alpha = 0.05f)
-    val glassBorder = Color.White.copy(alpha = 0.10f)
-    val accentPurple = Color(0xFF8B5CF6)
-    val accentRed = Color(0xFFEF4444)
-    val accentBlue = Color(0xFF38BDF8)
-    val dialogBg = Color(0xFF141416)
-
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        containerColor = baseBackground,
+        containerColor = YugenBackground,
         topBar = {
             Row(
                 modifier = Modifier
@@ -95,15 +102,16 @@ fun SettingsScreen(
                         onBackClick()
                     },
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(glassBg)
-                        .border(1.dp, glassBorder, CircleShape)
+                        .size(42.dp)
+                        .clip(YugenShape.xs)
+                        .background(YugenSurface.copy(alpha = 0.65f))
+                        .border(1.dp, YugenOverlayMedium, YugenShape.xs)
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
-                        tint = Color.White
+                        tint = TextPrimary,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
@@ -112,13 +120,13 @@ fun SettingsScreen(
                 Column {
                     Text(
                         text = "Settings",
-                        color = Color.White,
+                        color = TextPrimary,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
                     Text(
                         text = "Preferences & Diagnostics",
-                        color = Color.White.copy(alpha = 0.65f),
+                        color = TextSecondary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -141,99 +149,138 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(glassBg)
-                        .border(1.dp, glassBorder, RoundedCornerShape(18.dp))
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                        .clip(YugenShape.sm)
+                        .background(YugenCardSurface)
+                        .border(1.dp, YugenOverlayMedium, YugenShape.sm)
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .bounceClick { showProvidersDialog = true },
+                            .bounceClick { showProvidersDialog = true }
+                            .padding(16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
                             modifier = Modifier.weight(1f)
                         ) {
                             Box(
                                 modifier = Modifier
                                     .size(38.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(accentPurple.copy(alpha = 0.2f)),
+                                    .clip(YugenShape.xs)
+                                    .background(YugenPurple.copy(alpha = 0.14f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     Icons.Default.Extension,
                                     contentDescription = null,
-                                    tint = accentPurple,
+                                    tint = YugenPurple,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
                             Column {
                                 Text(
                                     "Active Providers",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.5.sp
                                 )
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     "Anikoto, AnimePahe (Built-in)",
-                                    color = Color.White.copy(alpha = 0.65f),
+                                    color = TextSecondary,
                                     fontSize = 12.sp
                                 )
                             }
                         }
-                        Icon(
-                            Icons.Default.ChevronRight,
-                            contentDescription = null,
-                            tint = Color.Gray
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(YugenShape.pill)
+                                    .background(YugenGreen.copy(alpha = 0.15f))
+                                    .border(1.dp, YugenGreen.copy(alpha = 0.4f), YugenShape.pill)
+                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                            ) {
+                                Text(
+                                    text = "2 Active",
+                                    color = YugenGreen,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Icon(
+                                Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = TextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }
 
-            // Section 0: Player Preferences
+            // Section: Player Preferences
             item {
                 SectionLabel(title = "Player Preferences")
                 Spacer(modifier = Modifier.height(8.dp))
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(glassBg)
-                        .border(1.dp, glassBorder, RoundedCornerShape(18.dp))
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                        .clip(YugenShape.sm)
+                        .background(YugenCardSurface)
+                        .border(1.dp, YugenOverlayMedium, YugenShape.sm)
+                        .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     // Double-tap Seek Duration
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.FastForward, contentDescription = null, tint = accentPurple, modifier = Modifier.size(18.dp))
-                            Text("Double-Tap Seek", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(YugenShape.xs)
+                                    .background(YugenPurple.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.FastForward, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(18.dp))
+                            }
+                            Column {
+                                Text("Double-Tap Seek", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp)
+                                Text("Duration when double-tapping to skip forward/backward", color = TextSecondary, fontSize = 12.sp)
+                            }
                         }
-                        Text("Duration when double-tapping left/right to seek", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf(5, 10, 15, 30).forEach { sec ->
                                 val isSelected = seekDurationSec == sec
+                                val bg = if (isSelected) YugenPurple.copy(alpha = 0.18f) else YugenOverlayLight
+                                val border = if (isSelected) YugenPurple else YugenOverlayMedium
+                                val textColor = if (isSelected) YugenPurple else TextSecondary
+
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(if (isSelected) accentPurple.copy(alpha = 0.2f) else glassBg)
-                                        .border(1.dp, if (isSelected) accentPurple.copy(alpha = 0.6f) else glassBorder, RoundedCornerShape(10.dp))
+                                        .clip(YugenShape.xs)
+                                        .background(bg)
+                                        .border(1.dp, border, YugenShape.xs)
                                         .bounceClick { viewModel.setSeekDuration(sec) }
-                                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                                        .padding(horizontal = 16.dp, vertical = 9.dp)
                                 ) {
-                                    Text("${sec}s", color = if (isSelected) accentPurple else Color.LightGray, fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium, fontSize = 13.sp)
+                                    Text(
+                                        "${sec}s",
+                                        color = textColor,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 13.sp
+                                    )
                                 }
                             }
                         }
                     }
 
-                    HorizontalDivider(color = glassBorder)
+                    HorizontalDivider(color = YugenOverlayMedium)
 
                     // Auto-play next episode
                     Row(
@@ -241,21 +288,36 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(YugenShape.xs)
+                                    .background(YugenGreen.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.PlayCircle, contentDescription = null, tint = YugenGreen, modifier = Modifier.size(18.dp))
+                            }
                             Column {
-                                Text("Auto-Play Next Episode", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                Text("Show countdown and auto-advance at episode end", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp)
+                                Text("Auto-Play Next Episode", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text("Countdown & auto-advance at episode finish", color = TextSecondary, fontSize = 12.sp)
                             }
                         }
                         Switch(
                             checked = autoPlayNext,
                             onCheckedChange = { viewModel.setAutoPlayNext(it) },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = accentPurple)
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = YugenPurple,
+                                uncheckedThumbColor = TextMuted,
+                                uncheckedTrackColor = YugenOverlayLight,
+                                uncheckedBorderColor = YugenOverlayMedium
+                            )
                         )
                     }
 
-                    HorizontalDivider(color = glassBorder)
+                    HorizontalDivider(color = YugenOverlayMedium)
 
                     // Prefer Dub
                     Row(
@@ -263,122 +325,164 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = accentBlue, modifier = Modifier.size(18.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(YugenShape.xs)
+                                    .background(YugenTvOutroCyan.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = YugenTvOutroCyan, modifier = Modifier.size(18.dp))
+                            }
                             Column {
-                                Text("Prefer Dub Streams", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                Text("Prioritize English dub servers when available", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp)
+                                Text("Prefer Dub Streams", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text("Prioritize English dub audio streams when available", color = TextSecondary, fontSize = 12.sp)
                             }
                         }
                         Switch(
                             checked = preferDub,
                             onCheckedChange = { viewModel.setPreferDub(it) },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = accentBlue)
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = YugenPurple,
+                                uncheckedThumbColor = TextMuted,
+                                uncheckedTrackColor = YugenOverlayLight,
+                                uncheckedBorderColor = YugenOverlayMedium
+                            )
                         )
                     }
                 }
             }
 
-            // Section 1: Data & Storage
+            // Section: Data & Storage
             item {
                 SectionLabel(title = "Data & Storage")
                 Spacer(modifier = Modifier.height(8.dp))
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(glassBg)
-                        .border(1.dp, glassBorder, RoundedCornerShape(18.dp))
+                        .clip(YugenShape.sm)
+                        .background(YugenCardSurface)
+                        .border(1.dp, YugenOverlayMedium, YugenShape.sm)
                 ) {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.Download, contentDescription = null, tint = accentPurple, modifier = Modifier.size(18.dp))
-                            Text("Max Parallel Downloads", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(YugenShape.xs)
+                                    .background(YugenPurple.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(18.dp))
+                            }
+                            Column {
+                                Text("Max Parallel Downloads", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp)
+                                Text("Simultaneous episode downloads in a queue", color = TextSecondary, fontSize = 12.sp)
+                            }
                         }
-                        Text("Number of episodes to download simultaneously in a batch.", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf(1, 2, 3, 5).forEach { count ->
                                 val isSelected = maxParallelDownloads == count
+                                val bg = if (isSelected) YugenPurple.copy(alpha = 0.18f) else YugenOverlayLight
+                                val border = if (isSelected) YugenPurple else YugenOverlayMedium
+                                val textColor = if (isSelected) YugenPurple else TextSecondary
+
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(if (isSelected) accentPurple.copy(alpha = 0.2f) else glassBg)
-                                        .border(1.dp, if (isSelected) accentPurple.copy(alpha = 0.6f) else glassBorder, RoundedCornerShape(10.dp))
+                                        .clip(YugenShape.xs)
+                                        .background(bg)
+                                        .border(1.dp, border, YugenShape.xs)
                                         .bounceClick { viewModel.setMaxParallelDownloads(count) }
-                                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                                        .padding(horizontal = 16.dp, vertical = 9.dp)
                                 ) {
-                                    Text("$count", color = if (isSelected) accentPurple else Color.LightGray, fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium, fontSize = 13.sp)
+                                    Text(
+                                        "$count",
+                                        color = textColor,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 13.sp
+                                    )
                                 }
                             }
                         }
                     }
 
-                    HorizontalDivider(color = glassBorder)
+                    HorizontalDivider(color = YugenOverlayMedium)
 
                     SettingsItem(
                         icon = Icons.Default.Refresh,
                         title = "Clear Image Cache",
                         subtitle = "Free up device storage used by cached posters and banners",
-                        iconTint = accentBlue,
+                        iconTint = YugenTvOutroCyan,
                         onClick = { showClearCacheDialog = true }
                     )
-                    HorizontalDivider(color = glassBorder)
+                    HorizontalDivider(color = YugenOverlayMedium)
+                    SettingsItem(
+                        icon = Icons.Default.Delete,
+                        title = "Clear Playback Video Cache",
+                        subtitle = "Free up storage by clearing temporary video stream segments",
+                        iconTint = YugenPurple,
+                        onClick = { showClearVideoCacheDialog = true }
+                    )
+                    HorizontalDivider(color = YugenOverlayMedium)
                     SettingsItem(
                         icon = Icons.Default.Delete,
                         title = "Clear Watch History",
-                        subtitle = "Wipe all playback positions and watched episodes from local database",
-                        iconTint = accentRed,
-                        titleColor = accentRed,
+                        subtitle = "Wipe all playback positions and watched episodes from database",
+                        iconTint = YugenRed,
+                        titleColor = YugenRed,
                         onClick = { showClearHistoryDialog = true }
                     )
                 }
             }
 
-            // Section 2: Application Info & Updates
+            // Section: Application Info & Updates
             item {
                 SectionLabel(title = "Application")
                 Spacer(modifier = Modifier.height(8.dp))
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(glassBg)
-                        .border(1.dp, glassBorder, RoundedCornerShape(18.dp))
+                        .clip(YugenShape.sm)
+                        .background(YugenCardSurface)
+                        .border(1.dp, YugenOverlayMedium, YugenShape.sm)
                 ) {
                     SettingsItem(
                         icon = Icons.Default.Info,
                         title = "App Version",
                         subtitle = "v${BuildConfig.VERSION_NAME} • Build ${BuildConfig.VERSION_CODE} (Kotlin + Compose)",
-                        iconTint = accentPurple,
+                        iconTint = YugenPurple,
                         onClick = {
                             coroutineScope.launch {
                                 snackbarHostState.showSnackbar("YugenPlay v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})")
                             }
                         }
                     )
-                    HorizontalDivider(color = glassBorder)
+                    HorizontalDivider(color = YugenOverlayMedium)
                     SettingsItem(
                         icon = Icons.Default.NewReleases,
                         title = "What's New",
                         subtitle = "See recent features and improvements in v${BuildConfig.VERSION_NAME}",
-                        iconTint = Color(0xFFF59E0B),
+                        iconTint = YugenTvIntroAmber,
                         onClick = { showWhatsNewSheet = true }
                     )
-                    HorizontalDivider(color = glassBorder)
+                    HorizontalDivider(color = YugenOverlayMedium)
                     SettingsItem(
                         icon = Icons.Default.SystemUpdateAlt,
                         title = "Check for Updates",
                         subtitle = if (isCheckingUpdate) "Checking GitHub releases..." else "Look for the latest release on GitHub",
-                        iconTint = Color(0xFF10B981),
+                        iconTint = YugenGreen,
                         trailingContent = {
                             if (isCheckingUpdate) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(18.dp),
                                     strokeWidth = 2.dp,
-                                    color = accentPurple
+                                    color = YugenPurple
                                 )
                             }
                         },
@@ -397,56 +501,56 @@ fun SettingsScreen(
                 }
             }
 
-            // Section 3: Engine & Platform Specs
+            // Section: Engine & Platform Specs
             item {
                 SectionLabel(title = "Engine & Stack")
                 Spacer(modifier = Modifier.height(8.dp))
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(glassBg)
-                        .border(1.dp, glassBorder, RoundedCornerShape(18.dp))
+                        .clip(YugenShape.sm)
+                        .background(YugenCardSurface)
+                        .border(1.dp, YugenOverlayMedium, YugenShape.sm)
                 ) {
                     SettingsItem(
                         icon = Icons.Default.PlayCircle,
                         title = "Playback Engine",
                         subtitle = "Media3 ExoPlayer • HLS / DASH / MP4 with Hardware Acceleration",
-                        iconTint = accentPurple,
+                        iconTint = YugenPurple,
                         onClick = {}
                     )
-                    HorizontalDivider(color = glassBorder)
+                    HorizontalDivider(color = YugenOverlayMedium)
                     SettingsItem(
                         icon = Icons.Default.CloudSync,
                         title = "Cloud & Metadata",
-                        subtitle = "AniList GraphQL API + Room DB Schema v4",
-                        iconTint = accentBlue,
+                        subtitle = "AniList GraphQL API + Room DB Schema v6",
+                        iconTint = YugenTvOutroCyan,
                         onClick = {}
                     )
                 }
             }
 
-            // Section 4: Open Source & Community
+            // Section: Open Source & Community
             item {
                 SectionLabel(title = "Community & Support")
                 Spacer(modifier = Modifier.height(8.dp))
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(glassBg)
-                        .border(1.dp, glassBorder, RoundedCornerShape(18.dp))
+                        .clip(YugenShape.sm)
+                        .background(YugenCardSurface)
+                        .border(1.dp, YugenOverlayMedium, YugenShape.sm)
                 ) {
                     SettingsItem(
                         icon = Icons.Default.Code,
                         title = "Source Code Repository",
                         subtitle = "github.com/ZenX-Soumyadeep/Yugen_Play-Kotlin-Project",
-                        iconTint = Color.White,
+                        iconTint = TextPrimary,
                         trailingContent = {
                             Icon(
                                 Icons.AutoMirrored.Filled.OpenInNew,
                                 contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.5f),
+                                tint = TextMuted,
                                 modifier = Modifier.size(18.dp)
                             )
                         },
@@ -460,17 +564,17 @@ fun SettingsScreen(
                             } catch (_: Exception) {}
                         }
                     )
-                    HorizontalDivider(color = glassBorder)
+                    HorizontalDivider(color = YugenOverlayMedium)
                     SettingsItem(
                         icon = Icons.Default.BugReport,
                         title = "Report an Issue",
                         subtitle = "Submit bugs, suggestions, or feature requests",
-                        iconTint = Color(0xFFF59E0B),
+                        iconTint = YugenTvIntroAmber,
                         trailingContent = {
                             Icon(
                                 Icons.AutoMirrored.Filled.OpenInNew,
                                 contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.5f),
+                                tint = TextMuted,
                                 modifier = Modifier.size(18.dp)
                             )
                         },
@@ -511,10 +615,10 @@ fun SettingsScreen(
     if (showClearCacheDialog) {
         AlertDialog(
             onDismissRequest = { showClearCacheDialog = false },
-            containerColor = dialogBg,
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("Clear Image Cache?", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("This will remove all cached poster and banner images. They will seamlessly reload when needed.", color = Color.LightGray) },
+            containerColor = YugenDialogSurface,
+            shape = YugenShape.md,
+            title = { Text("Clear Image Cache?", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("This will remove all cached poster and banner images. They will seamlessly reload when needed.", color = TextSecondary) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -524,12 +628,39 @@ fun SettingsScreen(
                         }
                     }
                 ) {
-                    Text("Clear Cache", color = accentRed, fontWeight = FontWeight.Bold)
+                    Text("Clear Cache", color = YugenRed, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearCacheDialog = false }) {
-                    Text("Cancel", color = Color.White)
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
+    }
+
+    if (showClearVideoCacheDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearVideoCacheDialog = false },
+            containerColor = YugenDialogSurface,
+            shape = YugenShape.md,
+            title = { Text("Clear Video Cache?", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("This will remove temporary video streaming segments. Your downloads, watch history, and bookmarks will not be affected.", color = TextSecondary) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearVideoCacheDialog = false
+                        viewModel.clearPlaybackCache {
+                            coroutineScope.launch { snackbarHostState.showSnackbar("Playback video cache cleared successfully.") }
+                        }
+                    }
+                ) {
+                    Text("Clear Video Cache", color = YugenPurple, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearVideoCacheDialog = false }) {
+                    Text("Cancel", color = TextSecondary)
                 }
             }
         )
@@ -538,10 +669,10 @@ fun SettingsScreen(
     if (showClearHistoryDialog) {
         AlertDialog(
             onDismissRequest = { showClearHistoryDialog = false },
-            containerColor = dialogBg,
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("Wipe Watch History?", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("This will permanently delete all watch progress and completed episode markers from your local database.", color = Color.LightGray) },
+            containerColor = YugenDialogSurface,
+            shape = YugenShape.md,
+            title = { Text("Wipe Watch History?", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("This will permanently delete all watch progress and completed episode markers from your local database.", color = TextSecondary) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -551,12 +682,12 @@ fun SettingsScreen(
                         }
                     }
                 ) {
-                    Text("Delete All", color = accentRed, fontWeight = FontWeight.Bold)
+                    Text("Delete All", color = YugenRed, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearHistoryDialog = false }) {
-                    Text("Cancel", color = Color.White)
+                    Text("Cancel", color = TextSecondary)
                 }
             }
         )
@@ -565,64 +696,67 @@ fun SettingsScreen(
     if (showProvidersDialog) {
         AlertDialog(
             onDismissRequest = { showProvidersDialog = false },
+            containerColor = YugenDialogSurface,
+            shape = YugenShape.md,
             title = {
-                Text("Streaming Providers", fontWeight = FontWeight.Bold, color = Color.White)
+                Text("Streaming Providers", fontWeight = FontWeight.Bold, color = TextPrimary)
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         "Yugen Play includes 2 high-performance built-in providers directly compiled into the app for maximum reliability and speed.",
                         fontSize = 13.sp,
-                        color = Color.White.copy(alpha = 0.75f)
+                        color = TextSecondary
                     )
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.White.copy(alpha = 0.05f))
+                            .clip(YugenShape.xs)
+                            .background(YugenOverlayLight)
+                            .border(1.dp, YugenOverlayMedium, YugenShape.xs)
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
-                            Text("Anikoto", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
-                            Text("Fast multi-server HLS streaming", fontSize = 11.sp, color = Color.Gray)
+                            Text("Anikoto", fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 14.sp)
+                            Text("Fast multi-server HLS streaming", fontSize = 11.sp, color = TextSecondary)
                         }
                         Text(
                             "ACTIVE",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF10B981)
+                            color = YugenGreen
                         )
                     }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.White.copy(alpha = 0.05f))
+                            .clip(YugenShape.xs)
+                            .background(YugenOverlayLight)
+                            .border(1.dp, YugenOverlayMedium, YugenShape.xs)
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
-                            Text("AnimePahe", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
-                            Text("High-efficiency AV1 & MP4 streams", fontSize = 11.sp, color = Color.Gray)
+                            Text("AnimePahe", fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 14.sp)
+                            Text("High-efficiency AV1 & MP4 streams", fontSize = 11.sp, color = TextSecondary)
                         }
                         Text(
                             "ACTIVE",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF10B981)
+                            color = YugenGreen
                         )
                     }
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showProvidersDialog = false }) {
-                    Text("OK", color = accentPurple, fontWeight = FontWeight.Bold)
+                    Text("OK", color = YugenPurple, fontWeight = FontWeight.Bold)
                 }
-            },
-            containerColor = Color(0xFF18181B)
+            }
         )
     }
 }
@@ -630,12 +764,12 @@ fun SettingsScreen(
 @Composable
 private fun SectionLabel(title: String) {
     Text(
-        text = title,
-        color = Color(0xFFA1A1AA),
-        fontSize = 12.5.sp,
+        text = title.uppercase(),
+        color = TextSecondary,
+        fontSize = 11.sp,
         fontWeight = FontWeight.Bold,
-        letterSpacing = 0.5.sp,
-        modifier = Modifier.padding(start = 6.dp)
+        letterSpacing = 1.2.sp,
+        modifier = Modifier.padding(start = 4.dp)
     )
 }
 
@@ -644,8 +778,8 @@ private fun SettingsItem(
     icon: ImageVector,
     title: String,
     subtitle: String,
-    iconTint: Color = Color.White,
-    titleColor: Color = Color.White,
+    iconTint: Color = TextPrimary,
+    titleColor: Color = TextPrimary,
     trailingContent: @Composable (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
@@ -662,8 +796,8 @@ private fun SettingsItem(
     ) {
         Box(
             modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .size(38.dp)
+                .clip(YugenShape.xs)
                 .background(iconTint.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center
         ) {
@@ -671,7 +805,7 @@ private fun SettingsItem(
                 imageVector = icon,
                 contentDescription = null,
                 tint = iconTint,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier.size(20.dp)
             )
         }
 
@@ -682,12 +816,12 @@ private fun SettingsItem(
                 text = title,
                 color = titleColor,
                 fontSize = 14.5.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = subtitle,
-                color = Color.White.copy(alpha = 0.65f),
+                color = TextSecondary,
                 fontSize = 12.sp,
                 lineHeight = 16.sp
             )

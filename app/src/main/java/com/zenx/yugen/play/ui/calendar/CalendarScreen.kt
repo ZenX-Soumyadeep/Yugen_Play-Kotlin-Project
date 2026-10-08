@@ -1,6 +1,5 @@
 package com.zenx.yugen.play.ui.calendar
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -11,9 +10,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.*
-import androidx.compose.material3.*
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.FilterAlt
+import androidx.compose.material.icons.rounded.FilterAltOff
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.NotificationsNone
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -24,6 +32,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,8 +44,22 @@ import com.zenx.yugen.play.domain.AiringAnimeItem
 import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.components.subtleMarquee
 import com.zenx.yugen.play.ui.home.AppLoadingIndicator
+import com.zenx.yugen.play.ui.theme.TextMuted
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenBackground
+import com.zenx.yugen.play.ui.theme.YugenCardBorder
+import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenOverlayLight
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenPurpleDark
+import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenShape
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 data class DayTabItem(
     val offset: Int,
@@ -55,12 +78,6 @@ fun CalendarScreen(
     val remindedIds by viewModel.remindedAnimeIds.collectAsStateWithLifecycle()
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
-
-    val baseBackground = Color(0xFF09090B)
-    val cardBg = Color(0xFF15151C)
-    val glassBorder = Color.White.copy(alpha = 0.10f)
-    val accentPurple = Color(0xFF8B5CF6)
-    val accentViolet = Color(0xFFA78BFA)
 
     // Generate days of the week: yesterday (-1) to +6 days
     val daysOfWeek = remember {
@@ -86,20 +103,21 @@ fun CalendarScreen(
 
     // Default to index 1 which is "Today"
     var selectedTabIndex by remember { mutableIntStateOf(1) }
+    var hideChineseDonghua by rememberSaveable { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(baseBackground)
+            .background(YugenBackground)
     ) {
         // Ambient Top Purple Glow
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(280.dp)
+                .height(260.dp)
                 .background(
                     Brush.verticalGradient(
-                        listOf(accentPurple.copy(alpha = 0.14f), Color.Transparent)
+                        listOf(YugenPurple.copy(alpha = 0.12f), Color.Transparent)
                     )
                 )
         )
@@ -109,26 +127,29 @@ fun CalendarScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
         ) {
-            // Top Bar: Back Button, Title, Today Shortcut
+            // Top Bar: Back Button, Title, Filter Chip & Today Shortcut
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.08f))
-                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                        .bounceClick { onBackClick() },
+                        .background(YugenOverlayLight)
+                        .border(1.dp, YugenCardBorder, CircleShape)
+                        .bounceClick {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onBackClick()
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.AutoMirrored.Rounded.ArrowBack,
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                         contentDescription = "Back",
-                        tint = Color.White,
+                        tint = TextPrimary,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -138,49 +159,88 @@ fun CalendarScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Schedule",
-                        color = Color.White,
+                        color = TextPrimary,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Black,
-                        letterSpacing = 0.8.sp
+                        letterSpacing = 0.5.sp
                     )
                     Text(
                         text = "Airing anime & broadcast times",
-                        color = Color.White.copy(alpha = 0.65f),
+                        color = TextSecondary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
 
-                // "Today" Button Shortcut
-                if (selectedTabIndex != 1) {
+                // Action Controls Row: Donghua Filter + Today Shortcut
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Donghua Filter Chip
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(accentPurple.copy(alpha = 0.22f))
-                            .border(1.dp, accentPurple.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                            .clip(YugenShape.pill)
+                            .background(if (hideChineseDonghua) YugenPurple.copy(alpha = 0.22f) else YugenOverlayLight)
+                            .border(
+                                1.dp,
+                                if (hideChineseDonghua) YugenPurple.copy(alpha = 0.6f) else YugenCardBorder,
+                                YugenShape.pill
+                            )
+                            .bounceClick {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                hideChineseDonghua = !hideChineseDonghua
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (hideChineseDonghua) Icons.Rounded.FilterAlt else Icons.Rounded.FilterAltOff,
+                                contentDescription = "Filter Donghua",
+                                tint = if (hideChineseDonghua) YugenAccentViolet else TextSecondary,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (hideChineseDonghua) "Anime" else "All",
+                                color = if (hideChineseDonghua) TextPrimary else TextSecondary,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // "Today" Button Shortcut
+                    if (selectedTabIndex != 1) {
+                        Box(
+                            modifier = Modifier
+                                .clip(YugenShape.pill)
+                                .background(YugenPurple.copy(alpha = 0.22f))
+                                .border(1.dp, YugenPurple.copy(alpha = 0.55f), YugenShape.pill)
                             .bounceClick {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 selectedTabIndex = 1
                             }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = "Today",
-                            color = accentViolet,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
+                        ) {
+                            Text(
+                                text = "Today",
+                                color = YugenAccentViolet,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
                     }
                 }
             }
 
-            // Horizontal Day Selector Cards (Generous spacing & vibrant active state)
+            // Horizontal Day Selector Cards
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp, bottom = 18.dp)
+                    .padding(top = 4.dp, bottom = 14.dp)
             ) {
                 itemsIndexed(daysOfWeek) { index, tab ->
                     val isSelected = selectedTabIndex == index
@@ -188,55 +248,51 @@ fun CalendarScreen(
                     Box(
                         modifier = Modifier
                             .width(78.dp)
-                            .clip(RoundedCornerShape(16.dp))
+                            .clip(YugenShape.md)
                             .background(
                                 if (isSelected) {
-                                    Brush.linearGradient(
-                                        listOf(Color(0xFF8B5CF6), Color(0xFF6D28D9))
-                                    )
+                                    Brush.linearGradient(listOf(YugenPurple, YugenPurpleDark))
                                 } else {
-                                    Brush.linearGradient(
-                                        listOf(Color(0xFF16161C), Color(0xFF141418))
-                                    )
+                                    Brush.linearGradient(listOf(YugenCardSurface, YugenCardSurface.copy(alpha = 0.85f)))
                                 }
                             )
                             .border(
                                 width = if (isSelected) 1.5.dp else 1.dp,
-                                color = if (isSelected) Color(0xFFA78BFA).copy(alpha = 0.8f) else glassBorder,
-                                shape = RoundedCornerShape(16.dp)
+                                color = if (isSelected) YugenAccentViolet else YugenCardBorder,
+                                shape = YugenShape.md
                             )
                             .bounceClick {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 selectedTabIndex = index
                             }
-                            .padding(vertical = 12.dp, horizontal = 6.dp),
+                            .padding(vertical = 10.dp, horizontal = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 text = tab.dayName,
-                                color = if (isSelected) Color.White else Color(0xFF9CA3AF),
+                                color = if (isSelected) TextPrimary else TextSecondary,
                                 fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold,
                                 fontSize = 12.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(3.dp))
                             Text(
                                 text = tab.dateLabel,
-                                color = if (isSelected) Color.White else Color(0xFFD4D4D8),
-                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
-                                fontSize = 13.5.sp,
+                                color = if (isSelected) TextPrimary else TextMuted,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 13.sp,
                                 maxLines = 1
                             )
                             if (tab.isToday) {
-                                Spacer(modifier = Modifier.height(6.dp))
+                                Spacer(modifier = Modifier.height(5.dp))
                                 Box(
                                     modifier = Modifier
-                                        .width(12.dp)
+                                        .width(14.dp)
                                         .height(3.dp)
-                                        .clip(RoundedCornerShape(100.dp))
-                                        .background(if (isSelected) Color.White else accentPurple)
+                                        .clip(YugenShape.pill)
+                                        .background(if (isSelected) TextPrimary else YugenPurple)
                                 )
                             }
                         }
@@ -251,14 +307,78 @@ fun CalendarScreen(
                 }
                 is CalendarUiState.Error -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(state.message, color = Color(0xFFEF4444), fontSize = 14.sp)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.padding(horizontal = 32.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(YugenRed.copy(alpha = 0.15f))
+                                    .border(1.dp, YugenRed.copy(alpha = 0.35f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = YugenRed,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Text(
+                                text = "Failed to load schedule",
+                                color = TextPrimary,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = state.message,
+                                color = TextSecondary,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier
+                                    .clip(YugenShape.md)
+                                    .background(YugenPurple)
+                                    .bounceClick {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        viewModel.refresh()
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Refresh,
+                                    contentDescription = null,
+                                    tint = TextPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Retry",
+                                    color = TextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
                 is CalendarUiState.Success -> {
                     val selectedTab = daysOfWeek[selectedTabIndex]
 
-                    // Filter anime for selected day (including global/donghua)
-                    val filteredAnime = remember(state.data, selectedTab, state.bookmarkedMediaIds, state.bookmarkedTitles) {
+                    // Filter anime for selected day (respecting donghua toggle)
+                    val filteredAnime = remember(
+                        state.data,
+                        selectedTab,
+                        state.bookmarkedMediaIds,
+                        state.bookmarkedTitles,
+                        hideChineseDonghua
+                    ) {
                         val targetCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, selectedTab.offset) }
                         targetCal.set(Calendar.HOUR_OF_DAY, 0)
                         targetCal.set(Calendar.MINUTE, 0)
@@ -266,12 +386,23 @@ fun CalendarScreen(
                         val startOfDayUnix = targetCal.timeInMillis / 1000L
                         val endOfDayUnix = startOfDayUnix + 86399L
 
-                        state.data
+                        val baseList = if (hideChineseDonghua) {
+                            state.data.filter { item ->
+                                val isChinese = item.countryOfOrigin.equals("CN", ignoreCase = true) ||
+                                    (item.format.equals("ONA", ignoreCase = true) && !item.countryOfOrigin.equals("JP", ignoreCase = true)) ||
+                                    (item.countryOfOrigin.isNotBlank() && !item.countryOfOrigin.equals("JP", ignoreCase = true) && !item.countryOfOrigin.equals("KR", ignoreCase = true))
+                                !isChinese
+                            }
+                        } else {
+                            state.data
+                        }
+
+                        baseList
                             .filter { it.airingAt in startOfDayUnix..endOfDayUnix }
                             .sortedWith(
                                 compareByDescending<AiringAnimeItem> {
                                     state.bookmarkedMediaIds.contains(it.id) ||
-                                            state.bookmarkedTitles.contains(viewModel.normalizeTitleForComparison(it.title))
+                                        state.bookmarkedTitles.contains(viewModel.normalizeTitleForComparison(it.title))
                                 }.thenBy { it.airingAt }
                             )
                     }
@@ -281,25 +412,35 @@ fun CalendarScreen(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    Icons.Rounded.Schedule,
-                                    contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.25f),
-                                    modifier = Modifier.size(56.dp)
-                                )
-                                Spacer(modifier = Modifier.height(14.dp))
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(60.dp)
+                                        .clip(CircleShape)
+                                        .background(YugenCardSurface)
+                                        .border(1.dp, YugenCardBorder, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Schedule,
+                                        contentDescription = null,
+                                        tint = YugenPurple.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(30.dp)
+                                    )
+                                }
                                 Text(
-                                    "No broadcasts scheduled for ${selectedTab.dayName}",
-                                    color = Color.White,
+                                    text = "No broadcasts scheduled for ${selectedTab.dayName}",
+                                    color = TextPrimary,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    "Select another day to view upcoming releases",
-                                    color = Color.White.copy(alpha = 0.65f),
-                                    fontSize = 12.sp
+                                    text = "Select another day to view upcoming releases",
+                                    color = TextSecondary,
+                                    fontSize = 12.5.sp
                                 )
                             }
                         }
@@ -315,7 +456,7 @@ fun CalendarScreen(
                                 val airingTime = remember(anime.airingAt) { timeFormat.format(Date(anime.airingAt * 1000L)) }
                                 val isAired = (anime.airingAt * 1000L) <= currentTime
                                 val isBookmarked = state.bookmarkedMediaIds.contains(anime.id) ||
-                                        state.bookmarkedTitles.contains(viewModel.normalizeTitleForComparison(anime.title))
+                                    state.bookmarkedTitles.contains(viewModel.normalizeTitleForComparison(anime.title))
                                 val isReminded = remindedIds.contains(anime.id)
 
                                 // Timeline Row: Left Timeline Node + Right Content Card
@@ -338,26 +479,26 @@ fun CalendarScreen(
                                                 .height(14.dp)
                                                 .background(
                                                     if (index == 0) Color.Transparent
-                                                    else Color.White.copy(alpha = 0.16f)
+                                                    else YugenCardBorder
                                                 )
                                         )
 
-                                        // Glowing Circular Timeline Node
+                                        // Circular Timeline Node
                                         if (isAired) {
                                             // Aired Node
                                             Box(
                                                 modifier = Modifier
                                                     .size(16.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color(0xFF27272A))
-                                                    .border(2.dp, Color(0xFF52525B), CircleShape),
+                                                    .background(YugenCardSurface)
+                                                    .border(2.dp, YugenCardBorder, CircleShape),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Box(
                                                     modifier = Modifier
                                                         .size(6.dp)
                                                         .clip(CircleShape)
-                                                        .background(Color(0xFF71717A))
+                                                        .background(TextMuted)
                                                 )
                                             }
                                         } else {
@@ -366,15 +507,15 @@ fun CalendarScreen(
                                                 modifier = Modifier
                                                     .size(18.dp)
                                                     .clip(CircleShape)
-                                                    .background(accentPurple.copy(alpha = 0.25f))
-                                                    .border(2.dp, accentPurple, CircleShape),
+                                                    .background(YugenPurple.copy(alpha = 0.25f))
+                                                    .border(2.dp, YugenPurple, CircleShape),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Box(
                                                     modifier = Modifier
                                                         .size(8.dp)
                                                         .clip(CircleShape)
-                                                        .background(accentViolet)
+                                                        .background(YugenAccentViolet)
                                                 )
                                             }
                                         }
@@ -384,7 +525,7 @@ fun CalendarScreen(
                                             modifier = Modifier
                                                 .width(2.dp)
                                                 .weight(1f)
-                                                .background(Color.White.copy(alpha = 0.16f))
+                                                .background(YugenCardBorder)
                                         )
                                     }
 
@@ -401,29 +542,29 @@ fun CalendarScreen(
                                         ) {
                                             Text(
                                                 text = airingTime,
-                                                color = Color.White,
+                                                color = TextPrimary,
                                                 fontSize = 13.5.sp,
                                                 fontWeight = FontWeight.Black
                                             )
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Text(
                                                 text = if (isAired) "• Aired" else "• Upcoming",
-                                                color = if (isAired) Color(0xFF71717A) else accentViolet,
+                                                color = if (isAired) TextMuted else YugenAccentViolet,
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
                                         }
 
-                                        // Schedule Card (High Contrast & Vibrant)
+                                        // Schedule Card
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .clip(RoundedCornerShape(14.dp))
-                                                .background(cardBg)
+                                                .clip(YugenShape.card)
+                                                .background(YugenCardSurface)
                                                 .border(
-                                                    1.5.dp,
-                                                    if (isBookmarked || isReminded) accentPurple.copy(alpha = 0.65f) else glassBorder,
-                                                    RoundedCornerShape(14.dp)
+                                                    1.dp,
+                                                    if (isBookmarked || isReminded) YugenPurple.copy(alpha = 0.65f) else YugenCardBorder,
+                                                    YugenShape.card
                                                 )
                                                 .bounceClick {
                                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -437,9 +578,9 @@ fun CalendarScreen(
                                                 modifier = Modifier
                                                     .width(68.dp)
                                                     .aspectRatio(0.7f)
-                                                    .clip(RoundedCornerShape(10.dp))
-                                                    .background(Color(0xFF222226))
-                                                    .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(10.dp))
+                                                    .clip(YugenShape.sm)
+                                                    .background(YugenBackground)
+                                                    .border(1.dp, YugenCardBorder, YugenShape.sm)
                                             ) {
                                                 AsyncImage(
                                                     model = ImageRequest.Builder(context)
@@ -456,20 +597,43 @@ fun CalendarScreen(
 
                                             // Anime Details Column
                                             Column(modifier = Modifier.weight(1f)) {
-                                                // Episode Pill
-                                                Box(
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .background(accentPurple.copy(alpha = 0.22f))
-                                                        .border(0.8.dp, accentPurple.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
-                                                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                                                // Episode Pill & Bookmark Badge Row
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
-                                                    Text(
-                                                        text = "Episode ${anime.episode}",
-                                                        color = accentViolet,
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.ExtraBold
-                                                    )
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(YugenShape.xs)
+                                                            .background(YugenPurple.copy(alpha = 0.22f))
+                                                            .border(0.8.dp, YugenPurple.copy(alpha = 0.45f), YugenShape.xs)
+                                                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "Episode ${anime.episode}",
+                                                            color = YugenAccentViolet,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.ExtraBold
+                                                        )
+                                                    }
+
+                                                    if (isBookmarked) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(18.dp)
+                                                                .clip(YugenShape.xs)
+                                                                .background(YugenPurple.copy(alpha = 0.22f))
+                                                                .border(0.8.dp, YugenPurple.copy(alpha = 0.45f), YugenShape.xs),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Rounded.Bookmark,
+                                                                contentDescription = "Bookmarked",
+                                                                tint = YugenAccentViolet,
+                                                                modifier = Modifier.size(11.dp)
+                                                            )
+                                                        }
+                                                    }
                                                 }
 
                                                 Spacer(modifier = Modifier.height(4.dp))
@@ -477,7 +641,7 @@ fun CalendarScreen(
                                                 // Anime Title
                                                 Text(
                                                     text = anime.title,
-                                                    color = Color.White,
+                                                    color = TextPrimary,
                                                     fontSize = 14.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     maxLines = 2,
@@ -495,7 +659,7 @@ fun CalendarScreen(
 
                                                 Text(
                                                     text = tagString,
-                                                    color = Color(0xFF9CA3AF),
+                                                    color = TextSecondary,
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.Normal
                                                 )
@@ -511,22 +675,22 @@ fun CalendarScreen(
                                                     // Status Pill
                                                     Box(
                                                         modifier = Modifier
-                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .clip(YugenShape.xs)
                                                             .background(
-                                                                if (isAired) Color(0xFF27272A)
-                                                                else accentPurple.copy(alpha = 0.22f)
+                                                                if (isAired) YugenOverlayLight
+                                                                else YugenPurple.copy(alpha = 0.22f)
                                                             )
                                                             .border(
                                                                 1.dp,
-                                                                if (isAired) Color.White.copy(0.12f)
-                                                                else accentPurple.copy(alpha = 0.5f),
-                                                                RoundedCornerShape(6.dp)
+                                                                if (isAired) YugenCardBorder
+                                                                else YugenPurple.copy(alpha = 0.5f),
+                                                                YugenShape.xs
                                                             )
                                                             .padding(horizontal = 8.dp, vertical = 3.dp)
                                                     ) {
                                                         Text(
                                                             text = if (isAired) "AIRED" else "UPCOMING",
-                                                            color = if (isAired) Color(0xFF9CA3AF) else accentViolet,
+                                                            color = if (isAired) TextMuted else YugenAccentViolet,
                                                             fontSize = 10.sp,
                                                             fontWeight = FontWeight.Black
                                                         )
@@ -538,12 +702,12 @@ fun CalendarScreen(
                                                             .size(34.dp)
                                                             .clip(CircleShape)
                                                             .background(
-                                                                if (isReminded) accentPurple.copy(alpha = 0.35f)
-                                                                else Color.White.copy(alpha = 0.07f)
+                                                                if (isReminded) YugenPurple.copy(alpha = 0.35f)
+                                                                else YugenOverlayLight
                                                             )
                                                             .border(
                                                                 1.dp,
-                                                                if (isReminded) accentPurple else Color.White.copy(alpha = 0.12f),
+                                                                if (isReminded) YugenPurple else YugenCardBorder,
                                                                 CircleShape
                                                             )
                                                             .bounceClick {
@@ -555,7 +719,7 @@ fun CalendarScreen(
                                                         Icon(
                                                             imageVector = if (isReminded) Icons.Rounded.NotificationsActive else Icons.Rounded.NotificationsNone,
                                                             contentDescription = "Remind",
-                                                            tint = if (isReminded) accentViolet else Color.White.copy(alpha = 0.85f),
+                                                            tint = if (isReminded) YugenAccentViolet else TextPrimary,
                                                             modifier = Modifier.size(17.dp)
                                                         )
                                                     }

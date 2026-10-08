@@ -73,6 +73,19 @@ import androidx.media3.ui.PlayerView
 import androidx.media3.ui.SubtitleView
 import com.zenx.yugen.play.domain.Episode
 import com.zenx.yugen.play.domain.SkipInterval
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenBackground
+import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenOverlayLight
+import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenPurpleDark
+import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenShape
+import com.zenx.yugen.play.ui.theme.YugenTvIntroAmber
+import com.zenx.yugen.play.ui.theme.YugenTvOutroCyan
 import com.zenx.yugen.play.ui.player.components.*
 import com.zenx.yugen.play.util.rememberDeviceController
 import com.zenx.yugen.play.util.toAnnotatedString
@@ -306,7 +319,7 @@ fun PlayerScreen(
 
         when (val state = uiState) {
             is PlayerUiState.Loading -> {
-                CircularProgressIndicator(color = Color(0xFF8B5CF6), modifier = Modifier.align(Alignment.Center))
+                CircularProgressIndicator(color = YugenPurple, modifier = Modifier.align(Alignment.Center))
             }
             is PlayerUiState.Error -> {
                 Column(
@@ -318,7 +331,7 @@ fun PlayerScreen(
                 ) {
                     Text(
                         text = state.message,
-                        color = Color.White,
+                        color = YugenRed,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                         textAlign = TextAlign.Center
@@ -327,18 +340,19 @@ fun PlayerScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(
                             onClick = onBackClick,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.15f)),
-                            shape = RoundedCornerShape(100.dp)
+                            colors = ButtonDefaults.buttonColors(containerColor = YugenOverlayLight),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, YugenOverlayMedium),
+                            shape = YugenShape.pill
                         ) {
-                            Text("Go Back", color = Color.White)
+                            Text("Go Back", color = TextPrimary)
                         }
 
                         Button(
                             onClick = { viewModel.retryPlayback() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
-                            shape = RoundedCornerShape(100.dp)
+                            colors = ButtonDefaults.buttonColors(containerColor = YugenPurple),
+                            shape = YugenShape.pill
                         ) {
-                            Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Rounded.Refresh, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Retry", color = Color.White)
                         }
@@ -354,7 +368,7 @@ fun PlayerScreen(
                 }
 
                 if (state.isBuffering && !isLocked && !isInPipMode) {
-                    CircularProgressIndicator(color = Color(0xFF8B5CF6), modifier = Modifier.align(Alignment.Center))
+                    CircularProgressIndicator(color = YugenPurple, modifier = Modifier.align(Alignment.Center))
                 }
 
                 if (!isInPipMode) {
@@ -475,43 +489,58 @@ private fun AutoPlayOverlay(
             Row(
                 modifier = Modifier
                     .padding(bottom = 120.dp, end = 40.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(Color(0xFF1E1E2E).copy(alpha = 0.95f), Color(0xFF2D2B55).copy(alpha = 0.95f))
-                        )
-                    )
-                    .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = 0.3f), Color.Transparent)), RoundedCornerShape(24.dp))
+                    .clip(YugenShape.dialog)
+                    .background(YugenDialogSurface)
+                    .border(1.dp, YugenOverlayMedium, YugenShape.dialog)
                     .padding(horizontal = 24.dp, vertical = 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 Column(modifier = Modifier.widthIn(max = 220.dp)) {
-                    Text("Up Next in ${countdown}s", color = Color(0xFFA78BFA), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
+                    Text(
+                        text = "Up Next in ${countdown}s",
+                        color = YugenAccentViolet,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 1.sp
+                    )
                     Spacer(modifier = Modifier.height(6.dp))
-                    Text("Episode ${nextEpisode.formattedNumber}: ${nextEpisode.title}", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        text = "Episode ${nextEpisode.formattedNumber}: ${nextEpisode.title}",
+                        color = TextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.1f))
+                            .background(YugenOverlayLight)
+                            .border(1.dp, YugenOverlayMedium, CircleShape)
                             .clickable { onCancel() }
                             .padding(12.dp)
                     ) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Cancel", tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(24.dp))
+                        Icon(
+                            Icons.Rounded.Close,
+                            contentDescription = "Cancel",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(100.dp))
+                            .clip(YugenShape.pill)
                             .background(
-                                Brush.linearGradient(listOf(Color(0xFF8B5CF6), Color(0xFF6D28D9)))
+                                Brush.horizontalGradient(listOf(YugenPurple, YugenPurpleDark))
                             )
                             .clickable { onPlayNext() }
-                            .padding(horizontal = 24.dp, vertical = 14.dp)
+                            .padding(horizontal = 22.dp, vertical = 13.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(24.dp))
+                            Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(22.dp))
                             Text("Play Next", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                         }
                     }
@@ -534,15 +563,15 @@ private fun PhoneSkipIntroOverlay(
         modifier = modifier
     ) {
         if (activeSkipInterval != null) {
-            val isOutro = activeSkipInterval.type.contains("ed", ignoreCase = true)
-            val badgeColor = if (isOutro) Color(0xFF38BDF8) else Color(0xFFF59E0B)
+            val isOutro = activeSkipInterval.isOutro
+            val badgeColor = if (isOutro) YugenTvOutroCyan else YugenTvIntroAmber
             val label = if (isOutro) "Skip Outro" else "Skip Intro"
 
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(100.dp))
-                    .background(Color(0xFF14141E).copy(alpha = 0.90f))
-                    .border(1.5.dp, badgeColor.copy(alpha = 0.75f), RoundedCornerShape(100.dp))
+                    .clip(YugenShape.pill)
+                    .background(YugenDialogSurface.copy(alpha = 0.92f))
+                    .border(1.5.dp, badgeColor.copy(alpha = 0.75f), YugenShape.pill)
                     .clickable { onSkipClick((activeSkipInterval.endTime * 1000).toLong()) }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -564,7 +593,7 @@ private fun PhoneSkipIntroOverlay(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = label,
-                    color = Color.White,
+                    color = TextPrimary,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
                 )

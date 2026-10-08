@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -38,12 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.zenx.yugen.play.domain.Resource
 import com.zenx.yugen.play.ui.components.bounceClick
-
-private val accentPurple = Color(0xFF8B5CF6)
-private val accentCyan = Color(0xFF06B6D4)
-private val sheetContainerBg = Color(0xFF141418)
-private val glassBg = Color.White.copy(alpha = 0.06f)
-private val glassBorder = Color.White.copy(alpha = 0.12f)
+import com.zenx.yugen.play.ui.theme.*
 
 @Composable
 fun DetailBottomSheets(
@@ -83,9 +77,9 @@ fun MappingBottomSheet(viewModel: DetailViewModel, activeProvider: String) {
 
     ModalBottomSheet(
         onDismissRequest = { viewModel.hideMappingSheet() },
-        containerColor = sheetContainerBg,
-        tonalElevation = 8.dp,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = Color.DarkGray) }
+        containerColor = YugenDialogSurface,
+        tonalElevation = 0.dp,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = TextMuted.copy(alpha = 0.4f)) }
     ) {
         Column(
             modifier = Modifier
@@ -99,10 +93,15 @@ fun MappingBottomSheet(viewModel: DetailViewModel, activeProvider: String) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("Fix Title Match", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        "Search & select correct title on ${activeProvider.uppercase()}",
-                        color = Color.LightGray,
+                        text = "Fix Title Match",
+                        color = TextPrimary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Search & select correct title on ${activeProvider.uppercase()}",
+                        color = TextSecondary,
                         fontSize = 12.sp
                     )
                 }
@@ -110,11 +109,16 @@ fun MappingBottomSheet(viewModel: DetailViewModel, activeProvider: String) {
                     modifier = Modifier
                         .size(32.dp)
                         .clip(CircleShape)
-                        .background(glassBg)
+                        .background(YugenOverlayLight)
                         .bounceClick { viewModel.hideMappingSheet() },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.LightGray, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = "Close",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
 
@@ -124,26 +128,42 @@ fun MappingBottomSheet(viewModel: DetailViewModel, activeProvider: String) {
                 value = mappingSearchQuery,
                 onValueChange = viewModel::searchProviderForMapping,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Search title on $activeProvider...", color = Color.White.copy(alpha = 0.45f), fontSize = 14.sp) },
+                placeholder = {
+                    Text(
+                        text = "Search title on $activeProvider...",
+                        color = TextMuted,
+                        fontSize = 14.sp
+                    )
+                },
                 leadingIcon = {
-                    Icon(Icons.Rounded.Search, contentDescription = null, tint = accentPurple, modifier = Modifier.size(20.dp))
+                    Icon(
+                        Icons.Rounded.Search,
+                        contentDescription = null,
+                        tint = YugenPurple,
+                        modifier = Modifier.size(20.dp)
+                    )
                 },
                 trailingIcon = {
                     if (mappingSearchQuery.isNotEmpty()) {
                         IconButton(onClick = { viewModel.searchProviderForMapping("") }) {
-                            Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(18.dp))
+                            Icon(
+                                Icons.Rounded.Close,
+                                contentDescription = "Clear",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 },
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = glassBg,
-                    unfocusedContainerColor = glassBg,
-                    focusedBorderColor = accentPurple,
-                    unfocusedBorderColor = glassBorder,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
+                    focusedContainerColor = YugenOverlayLight,
+                    unfocusedContainerColor = YugenOverlayLight,
+                    focusedBorderColor = YugenPurple,
+                    unfocusedBorderColor = YugenOverlayMedium,
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary
                 ),
-                shape = RoundedCornerShape(14.dp),
+                shape = YugenShape.card,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { viewModel.searchProviderForMapping(mappingSearchQuery) })
@@ -153,13 +173,31 @@ fun MappingBottomSheet(viewModel: DetailViewModel, activeProvider: String) {
 
             when (val res = mappingSearchResults) {
                 is Resource.Loading -> {
-                    Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = accentPurple, modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = YugenPurple,
+                            modifier = Modifier.size(32.dp),
+                            strokeWidth = 3.dp
+                        )
                     }
                 }
                 is Resource.Error -> {
-                    Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                        Text(res.message ?: "Search failed.", color = Color(0xFFEF4444), fontSize = 14.sp)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = res.message ?: "Search failed.",
+                            color = YugenRed,
+                            fontSize = 14.sp
+                        )
                     }
                 }
                 is Resource.Success -> {
@@ -172,8 +210,8 @@ fun MappingBottomSheet(viewModel: DetailViewModel, activeProvider: String) {
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                "No matches found on ${activeProvider.uppercase()}.\nTry a shorter or simpler title keyword.",
-                                color = Color.White.copy(alpha = 0.65f),
+                                text = "No matches found on ${activeProvider.uppercase()}.\nTry a shorter or simpler title keyword.",
+                                color = TextSecondary,
                                 fontSize = 13.sp,
                                 textAlign = TextAlign.Center,
                                 lineHeight = 18.sp
@@ -188,9 +226,9 @@ fun MappingBottomSheet(viewModel: DetailViewModel, activeProvider: String) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(glassBg)
-                                        .border(1.dp, glassBorder, RoundedCornerShape(14.dp))
+                                        .clip(YugenShape.card)
+                                        .background(YugenCardSurface)
+                                        .border(1.dp, YugenOverlayMedium, YugenShape.card)
                                         .bounceClick { viewModel.saveTitleMapping(result.url) }
                                         .padding(10.dp),
                                     verticalAlignment = Alignment.CenterVertically
@@ -201,14 +239,13 @@ fun MappingBottomSheet(viewModel: DetailViewModel, activeProvider: String) {
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
                                             .size(56.dp)
-                                            .clip(RoundedCornerShape(8.dp))
+                                            .clip(YugenShape.sm)
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
-                                        // Added basicMarquee modifier to smoothly scroll long mapping titles
                                         Text(
-                                            result.title,
-                                            color = Color.White,
+                                            text = result.title,
+                                            color = TextPrimary,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp,
                                             maxLines = 1,
@@ -217,18 +254,23 @@ fun MappingBottomSheet(viewModel: DetailViewModel, activeProvider: String) {
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Box(
                                             modifier = Modifier
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(accentPurple.copy(alpha = 0.2f))
+                                                .clip(YugenShape.xs)
+                                                .background(YugenPurple.copy(alpha = 0.2f))
                                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
-                                            Text(activeProvider.uppercase(), color = accentPurple, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            Text(
+                                                text = activeProvider.uppercase(),
+                                                color = YugenPurple,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
                                         }
                                     }
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Icon(
                                         Icons.Rounded.ChevronRight,
                                         contentDescription = null,
-                                        tint = Color.LightGray,
+                                        tint = TextSecondary,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
@@ -251,8 +293,9 @@ fun SourceBottomSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = { viewModel.hideSourceSheet() },
-        containerColor = sheetContainerBg,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = Color.DarkGray) }
+        containerColor = YugenDialogSurface,
+        tonalElevation = 0.dp,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = TextMuted.copy(alpha = 0.4f)) }
     ) {
         Column(
             modifier = Modifier
@@ -267,14 +310,24 @@ fun SourceBottomSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Select Anime Source", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "Select Anime Source",
+                    color = TextPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(accentPurple.copy(alpha = 0.2f))
+                        .clip(YugenShape.chip)
+                        .background(YugenPurple.copy(alpha = 0.15f))
                         .padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
-                    Text("${installedProviders.size} installed", color = accentPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "${installedProviders.size} installed",
+                        color = YugenPurple,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
 
@@ -284,9 +337,13 @@ fun SourceBottomSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (isSelected) accentPurple.copy(alpha = 0.15f) else glassBg)
-                            .border(1.dp, if (isSelected) accentPurple.copy(alpha = 0.5f) else glassBorder, RoundedCornerShape(14.dp))
+                            .clip(YugenShape.card)
+                            .background(if (isSelected) YugenPurple.copy(alpha = 0.15f) else YugenCardSurface)
+                            .border(
+                                1.dp,
+                                if (isSelected) YugenPurple.copy(alpha = 0.6f) else YugenOverlayMedium,
+                                YugenShape.card
+                            )
                             .bounceClick { viewModel.changeProvider(provider) }
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -295,22 +352,32 @@ fun SourceBottomSheet(
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(CircleShape)
-                                .background(if (isSelected) accentPurple.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.3f)),
+                                .background(if (isSelected) YugenPurple.copy(alpha = 0.3f) else YugenOverlayLight),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 Icons.Rounded.Layers,
                                 contentDescription = null,
-                                tint = if (isSelected) accentPurple else Color.White,
+                                tint = if (isSelected) YugenPurple else TextPrimary,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(16.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(provider.uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
+                            Text(
+                                text = provider.uppercase(),
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.5.sp
+                            )
                         }
                         if (isSelected) {
-                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = accentPurple, modifier = Modifier.size(22.dp))
+                            Icon(
+                                Icons.Rounded.CheckCircle,
+                                contentDescription = null,
+                                tint = YugenPurple,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
                     }
                 }
@@ -324,18 +391,19 @@ fun SourceBottomSheet(
 fun AnilistBottomSheet(viewModel: DetailViewModel, anilistStatus: String?, anilistEntryId: Int?) {
     val statuses = remember {
         listOf(
-            Triple("CURRENT", "Watching", Color(0xFF10B981)),
-            Triple("PLANNING", "Plan to Watch", Color(0xFF3B82F6)),
-            Triple("COMPLETED", "Completed", Color(0xFF8B5CF6)),
-            Triple("PAUSED", "Paused", Color(0xFFFBBF24)),
-            Triple("DROPPED", "Dropped", Color(0xFFEF4444))
+            Triple("CURRENT", "Watching", YugenGreen),
+            Triple("PLANNING", "Plan to Watch", YugenTvOutroCyan),
+            Triple("COMPLETED", "Completed", YugenPurple),
+            Triple("PAUSED", "Paused", StarYellow),
+            Triple("DROPPED", "Dropped", YugenRed)
         )
     }
 
     ModalBottomSheet(
         onDismissRequest = { viewModel.hideAnilistSheet() },
-        containerColor = sheetContainerBg,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = Color.DarkGray) }
+        containerColor = YugenDialogSurface,
+        tonalElevation = 0.dp,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = TextMuted.copy(alpha = 0.4f)) }
     ) {
         Column(
             modifier = Modifier
@@ -343,7 +411,13 @@ fun AnilistBottomSheet(viewModel: DetailViewModel, anilistStatus: String?, anili
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 24.dp)
         ) {
-            Text("Update AniList Library", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+            Text(
+                text = "Update AniList Library",
+                color = TextPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(statuses, key = { it.first }) { (key, label, dotColor) ->
@@ -351,9 +425,13 @@ fun AnilistBottomSheet(viewModel: DetailViewModel, anilistStatus: String?, anili
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (isSelected) accentPurple.copy(alpha = 0.15f) else glassBg)
-                            .border(1.dp, if (isSelected) accentPurple.copy(alpha = 0.5f) else glassBorder, RoundedCornerShape(14.dp))
+                            .clip(YugenShape.card)
+                            .background(if (isSelected) YugenPurple.copy(alpha = 0.15f) else YugenCardSurface)
+                            .border(
+                                1.dp,
+                                if (isSelected) YugenPurple.copy(alpha = 0.6f) else YugenOverlayMedium,
+                                YugenShape.card
+                            )
                             .bounceClick { viewModel.updateAnilistStatus(key) }
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -367,10 +445,20 @@ fun AnilistBottomSheet(viewModel: DetailViewModel, anilistStatus: String?, anili
                                     .background(dotColor)
                             )
                             Spacer(modifier = Modifier.width(12.dp))
-                            Text(label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(
+                                text = label,
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
                         }
                         if (isSelected) {
-                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = accentPurple, modifier = Modifier.size(20.dp))
+                            Icon(
+                                Icons.Rounded.CheckCircle,
+                                contentDescription = null,
+                                tint = YugenPurple,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
                 }
@@ -381,16 +469,26 @@ fun AnilistBottomSheet(viewModel: DetailViewModel, anilistStatus: String?, anili
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                                .clip(YugenShape.card)
+                                .border(1.dp, YugenRed.copy(alpha = 0.4f), YugenShape.card)
                                 .bounceClick { viewModel.deleteAnilistEntry() }
                                 .padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(20.dp))
+                            Icon(
+                                Icons.Rounded.DeleteOutline,
+                                contentDescription = null,
+                                tint = YugenRed,
+                                modifier = Modifier.size(20.dp)
+                            )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Remove from Library", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(
+                                text = "Remove from Library",
+                                color = YugenRed,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
                         }
                     }
                 }
@@ -439,9 +537,9 @@ fun BatchDownloadBottomSheet(
         onDismissRequest = { viewModel.hideBatchDownloadSheet() },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         sheetGesturesEnabled = false,
-        containerColor = sheetContainerBg,
-        tonalElevation = 8.dp,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = Color.DarkGray) }
+        containerColor = YugenDialogSurface,
+        tonalElevation = 0.dp,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = TextMuted.copy(alpha = 0.4f)) }
     ) {
         Column(
             modifier = Modifier
@@ -461,22 +559,27 @@ fun BatchDownloadBottomSheet(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(accentPurple.copy(alpha = 0.15f))
-                            .border(1.dp, accentPurple.copy(alpha = 0.3f), CircleShape),
+                            .background(YugenPurple.copy(alpha = 0.15f))
+                            .border(1.dp, YugenPurple.copy(alpha = 0.35f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             Icons.Rounded.DownloadForOffline,
                             contentDescription = null,
-                            tint = accentPurple,
+                            tint = YugenPurple,
                             modifier = Modifier.size(22.dp)
                         )
                     }
                     Column {
-                        Text("Batch Download", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Text(
-                            "${selectedIds.size} of ${allEpisodes.size} episodes selected",
-                            color = Color.LightGray,
+                            text = "Batch Download",
+                            color = TextPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${selectedIds.size} of ${allEpisodes.size} episodes selected",
+                            color = TextSecondary,
                             fontSize = 12.sp
                         )
                     }
@@ -485,11 +588,16 @@ fun BatchDownloadBottomSheet(
                     modifier = Modifier
                         .size(32.dp)
                         .clip(CircleShape)
-                        .background(glassBg)
+                        .background(YugenOverlayLight)
                         .bounceClick { viewModel.hideBatchDownloadSheet() },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.LightGray, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = "Close",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
 
@@ -506,45 +614,64 @@ fun BatchDownloadBottomSheet(
                 // "All" Preset
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(if (isAllSelected) accentPurple.copy(alpha = 0.2f) else glassBg)
-                        .border(1.dp, if (isAllSelected) accentPurple.copy(alpha = 0.5f) else glassBorder, RoundedCornerShape(10.dp))
+                        .clip(YugenShape.sm)
+                        .background(if (isAllSelected) YugenPurple.copy(alpha = 0.2f) else YugenOverlayLight)
+                        .border(
+                            1.dp,
+                            if (isAllSelected) YugenPurple.copy(alpha = 0.6f) else YugenOverlayMedium,
+                            YugenShape.sm
+                        )
                         .bounceClick {
                             selectedIds.clear()
                             selectedIds.addAll(allEpisodes.filter { it.downloadState != DownloadState.COMPLETED }.map { it.id })
                         }
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
-                    Text("All ($nonCompletedCount)", color = if (isAllSelected) accentPurple else Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "All ($nonCompletedCount)",
+                        color = if (isAllSelected) YugenPurple else TextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
 
                 // "Unwatched" Preset
                 val unwatched = allEpisodes.filter { !it.isWatched && it.downloadState != DownloadState.COMPLETED }
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(glassBg)
-                        .border(1.dp, glassBorder, RoundedCornerShape(10.dp))
+                        .clip(YugenShape.sm)
+                        .background(YugenOverlayLight)
+                        .border(1.dp, YugenOverlayMedium, YugenShape.sm)
                         .bounceClick {
                             selectedIds.clear()
                             selectedIds.addAll(unwatched.map { it.id })
                         }
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
-                    Text("Unwatched (${unwatched.size})", color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Unwatched (${unwatched.size})",
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
 
                 // "Clear" Preset
                 if (selectedIds.isNotEmpty()) {
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(glassBg)
-                            .border(1.dp, glassBorder, RoundedCornerShape(10.dp))
+                            .clip(YugenShape.sm)
+                            .background(YugenOverlayLight)
+                            .border(1.dp, YugenOverlayMedium, YugenShape.sm)
                             .bounceClick { selectedIds.clear() }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        Text("Clear", color = Color(0xFFEF4444), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Clear",
+                            color = YugenRed,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -555,24 +682,34 @@ fun BatchDownloadBottomSheet(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(glassBg)
-                    .border(1.dp, glassBorder, RoundedCornerShape(12.dp))
+                    .clip(YugenShape.card)
+                    .background(YugenOverlayLight)
+                    .border(1.dp, YugenOverlayMedium, YugenShape.card)
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
-                    Text("Prefer Dub Servers", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Icon(
+                        Icons.Default.RecordVoiceOver,
+                        contentDescription = null,
+                        tint = YugenTvOutroCyan,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Prefer Dub Servers",
+                        color = TextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
                 Switch(
                     checked = preferDub,
                     onCheckedChange = { preferDub = it },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
-                        checkedTrackColor = Color(0xFF38BDF8),
-                        uncheckedTrackColor = Color.DarkGray
+                        checkedTrackColor = YugenTvOutroCyan,
+                        uncheckedTrackColor = TextMuted.copy(alpha = 0.5f)
                     ),
                     modifier = Modifier.scale(0.85f)
                 )
@@ -589,18 +726,20 @@ fun BatchDownloadBottomSheet(
                 ScrollableTabRow(
                     selectedTabIndex = selectedChunkIndex,
                     containerColor = Color.Transparent,
-                    contentColor = accentPurple,
+                    contentColor = YugenPurple,
                     edgePadding = 0.dp,
                     indicator = { tabPositions ->
                         if (selectedChunkIndex < tabPositions.size) {
                             TabRowDefaults.Indicator(
                                 Modifier.tabIndicatorOffset(tabPositions[selectedChunkIndex]),
-                                color = accentPurple
+                                color = YugenPurple
                             )
                         }
                     },
                     divider = {},
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
                 ) {
                     chunks.forEachIndexed { index, chunk ->
                         val firstEp = chunk.first().number.toInt()
@@ -608,7 +747,14 @@ fun BatchDownloadBottomSheet(
                         Tab(
                             selected = selectedChunkIndex == index,
                             onClick = { selectedChunkIndex = index },
-                            text = { Text("EP $firstEp-$lastEp", color = if (selectedChunkIndex == index) Color.White else Color.LightGray, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                            text = {
+                                Text(
+                                    text = "EP $firstEp-$lastEp",
+                                    color = if (selectedChunkIndex == index) TextPrimary else TextSecondary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         )
                     }
                 }
@@ -631,12 +777,12 @@ fun BatchDownloadBottomSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isSelected && !isDownloaded) accentPurple.copy(alpha = 0.12f) else glassBg)
+                            .clip(YugenShape.card)
+                            .background(if (isSelected && !isDownloaded) YugenPurple.copy(alpha = 0.12f) else YugenCardSurface)
                             .border(
                                 1.dp,
-                                if (isSelected && !isDownloaded) accentPurple.copy(alpha = 0.4f) else glassBorder,
-                                RoundedCornerShape(12.dp)
+                                if (isSelected && !isDownloaded) YugenPurple.copy(alpha = 0.45f) else YugenOverlayMedium,
+                                YugenShape.card
                             )
                             .clickable(enabled = !isDownloaded && !isDownloading) {
                                 if (isSelected) selectedIds.remove(ep.id) else selectedIds.add(ep.id)
@@ -647,10 +793,19 @@ fun BatchDownloadBottomSheet(
                         // Checkbox / Status
                         when {
                             isDownloaded -> {
-                                Icon(Icons.Rounded.CheckCircle, contentDescription = "Downloaded", tint = Color(0xFF10B981), modifier = Modifier.size(20.dp))
+                                Icon(
+                                    Icons.Rounded.CheckCircle,
+                                    contentDescription = "Downloaded",
+                                    tint = YugenGreen,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                             isDownloading -> {
-                                CircularProgressIndicator(color = accentPurple, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                                CircularProgressIndicator(
+                                    color = YugenPurple,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                             else -> {
                                 Checkbox(
@@ -659,8 +814,8 @@ fun BatchDownloadBottomSheet(
                                         if (checked) selectedIds.add(ep.id) else selectedIds.remove(ep.id)
                                     },
                                     colors = CheckboxDefaults.colors(
-                                        checkedColor = accentPurple,
-                                        uncheckedColor = Color.White.copy(alpha = 0.35f),
+                                        checkedColor = YugenPurple,
+                                        uncheckedColor = YugenOverlayStrong,
                                         checkmarkColor = Color.White
                                     ),
                                     modifier = Modifier.size(20.dp)
@@ -675,7 +830,7 @@ fun BatchDownloadBottomSheet(
                             modifier = Modifier
                                 .width(54.dp)
                                 .aspectRatio(16f / 9f)
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(YugenShape.xs)
                         ) {
                             AsyncImage(
                                 model = ep.thumbnailUrl ?: state.bannerUrl.ifBlank { state.posterUrl },
@@ -689,7 +844,6 @@ fun BatchDownloadBottomSheet(
 
                         // Episode Title / Subtitle
                         Column(modifier = Modifier.weight(1f)) {
-                            // Added basicMarquee modifier here as well for long episode titles
                             Text(
                                 text = run {
                                     val raw = ep.title.trim()
@@ -699,7 +853,7 @@ fun BatchDownloadBottomSheet(
                                     else if (hasPrefix) raw
                                     else "EP ${ep.number.toInt()} • $raw"
                                 },
-                                color = if (isDownloaded) Color.White.copy(alpha = 0.5f) else Color.White,
+                                color = if (isDownloaded) TextMuted else TextPrimary,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
@@ -713,25 +867,35 @@ fun BatchDownloadBottomSheet(
                                 // Resolution Badge
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(accentCyan.copy(alpha = 0.15f))
+                                        .clip(YugenShape.xs)
+                                        .background(YugenTvOutroCyan.copy(alpha = 0.15f))
                                         .padding(horizontal = 5.dp, vertical = 1.5.dp)
                                 ) {
-                                    Text("1080p", color = accentCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = "1080p",
+                                        color = YugenTvOutroCyan,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                                 // Size Tag
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(Color.White.copy(alpha = 0.08f))
+                                        .clip(YugenShape.xs)
+                                        .background(YugenOverlayLight)
                                         .padding(horizontal = 5.dp, vertical = 1.5.dp)
                                 ) {
-                                    Text("~220 MB", color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        text = "~220 MB",
+                                        color = TextSecondary,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
                                 }
 
                                 Text(
                                     text = if (isDownloaded) "Downloaded" else if (isDownloading) "Downloading" else ep.duration,
-                                    color = if (isDownloaded) Color(0xFF10B981) else if (isDownloading) accentPurple else Color.White.copy(alpha = 0.55f),
+                                    color = if (isDownloaded) YugenGreen else if (isDownloading) YugenPurple else TextMuted,
                                     fontSize = 11.sp
                                 )
                             }
@@ -750,14 +914,19 @@ fun BatchDownloadBottomSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
-                    .clip(RoundedCornerShape(14.dp)),
+                    .clip(YugenShape.card),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = accentPurple,
-                    disabledContainerColor = Color.DarkGray.copy(alpha = 0.5f)
+                    containerColor = YugenPurple,
+                    disabledContainerColor = YugenCardSurface
                 )
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Rounded.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Rounded.Download,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Text(
                         text = if (selectedEpisodes.isNotEmpty()) "Download ${selectedEpisodes.size} Episodes" else "Select Episodes to Download",
                         color = Color.White,

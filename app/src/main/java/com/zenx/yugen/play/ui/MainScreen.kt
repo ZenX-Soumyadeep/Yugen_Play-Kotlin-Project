@@ -12,9 +12,11 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.zenx.yugen.play.ui.theme.YugenBackground
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -45,14 +47,20 @@ private fun buildPlayerRoute(
     animeUrl: String = "",
     title: String = "",
     poster: String = "",
-    streamUrl: String? = null
+    provider: String = "",
+    streamUrl: String? = null,
+    mediaId: String = "",
+    episodeNumber: Int? = null
 ): String {
     val epId = Uri.encode(episodeId)
     val aUrl = Uri.encode(animeUrl)
     val t = Uri.encode(title)
     val p = Uri.encode(poster)
+    val prv = Uri.encode(provider)
     val s = streamUrl?.takeIf { it.isNotBlank() }?.let { Uri.encode(it) } ?: ""
-    return "player/$epId?animeUrl=$aUrl&title=$t&poster=$p&streamUrl=$s"
+    val mId = Uri.encode(mediaId)
+    val epNumStr = episodeNumber?.toString() ?: ""
+    return "player/$epId?animeUrl=$aUrl&title=$t&poster=$p&provider=$prv&streamUrl=$s&mediaId=$mId&episodeNumber=$epNumStr"
 }
 
 @Composable
@@ -95,7 +103,7 @@ fun MainScreen(
 
     val showBottomBar = bottomNavRoutes.any { currentRoute?.startsWith(it) == true }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF09090B))) {
+    Box(modifier = Modifier.fillMaxSize().background(YugenBackground)) {
 
         NavHost(
             navController = navController,
@@ -256,8 +264,19 @@ fun MainScreen(
                 )
             ) {
                 DetailScreen(
-                    onEpisodeClick = { episodeId, animeUrl, title, poster, streamUrl ->
-                        navController.navigate(buildPlayerRoute(episodeId = episodeId, animeUrl = animeUrl, title = title, poster = poster, streamUrl = streamUrl))
+                    onEpisodeClick = { episodeId, animeUrl, provider, title, poster, streamUrl, mediaId, episodeNumber ->
+                        navController.navigate(
+                            buildPlayerRoute(
+                                episodeId = episodeId,
+                                animeUrl = animeUrl,
+                                provider = provider,
+                                title = title,
+                                poster = poster,
+                                streamUrl = streamUrl,
+                                mediaId = mediaId,
+                                episodeNumber = episodeNumber
+                            )
+                        )
                     },
                     onBackClick = { navController.popBackStack() },
                     onDownloadsClick = {
@@ -270,17 +289,43 @@ fun MainScreen(
             }
 
             composable(
-                route = "player/{episodeId}?animeUrl={animeUrl}&title={title}&poster={poster}&streamUrl={streamUrl}",
+                route = "player/{episodeId}?animeUrl={animeUrl}&title={title}&poster={poster}&provider={provider}&streamUrl={streamUrl}&mediaId={mediaId}&episodeNumber={episodeNumber}",
                 arguments = listOf(
                     navArgument("episodeId") { type = NavType.StringType },
                     navArgument("animeUrl") { type = NavType.StringType; defaultValue = "" },
                     navArgument("title") { type = NavType.StringType; defaultValue = "Unknown Anime" },
                     navArgument("poster") { type = NavType.StringType; defaultValue = "" },
-                    navArgument("streamUrl") { type = NavType.StringType; defaultValue = "" }
+                    navArgument("provider") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("streamUrl") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("mediaId") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("episodeNumber") { type = NavType.StringType; defaultValue = "" }
                 )
             ) {
                 PlayerScreen(onBackClick = { navController.popBackStack() })
             }
+        }
+
+        // Bottom Vignette Scrim behind floating bottom bar
+        AnimatedVisibility(
+            visible = showBottomBar,
+            enter = fadeIn(animationSpec = tween(250)),
+            exit = fadeOut(animationSpec = tween(250)),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(110.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Transparent,
+                                YugenBackground.copy(alpha = 0.85f),
+                                YugenBackground
+                            )
+                        )
+                    )
+            )
         }
 
         AnimatedVisibility(

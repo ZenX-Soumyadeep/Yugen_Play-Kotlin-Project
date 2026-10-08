@@ -24,6 +24,10 @@ annotation class ApiClient
 @Retention(AnnotationRetention.BINARY)
 annotation class ProviderClient
 
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class DownloadClient
+
 private class JunkBytesInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
@@ -96,6 +100,20 @@ object NetworkModule {
             .addInterceptor(JunkBytesInterceptor()) // Strips CDN corruption bytes
             .connectTimeout(30, TimeUnit.SECONDS) // Allow longer for scrapers
             .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    @DownloadClient
+    fun provideDownloadOkHttpClient(): OkHttpClient {
+        return OkHttpClient.Builder()
+            .addInterceptor(JunkBytesInterceptor())
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)

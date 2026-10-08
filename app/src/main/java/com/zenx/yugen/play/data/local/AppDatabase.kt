@@ -9,9 +9,10 @@ import androidx.room.RoomDatabase
         FavoriteEntity::class,
         TitleMappingEntity::class,
         OfflineSyncEntity::class,
-        CachedAnimeDetailsEntity::class
+        CachedAnimeDetailsEntity::class,
+        Mp4DownloadEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -20,6 +21,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun titleMappingDao(): TitleMappingDao
     abstract fun offlineSyncDao(): OfflineSyncDao
     abstract fun animeDetailsDao(): AnimeDetailsDao
+    abstract fun mp4DownloadDao(): Mp4DownloadDao
 
     companion object {
         const val DATABASE_NAME = "yugen_play_db"

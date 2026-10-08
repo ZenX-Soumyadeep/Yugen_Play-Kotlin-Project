@@ -35,11 +35,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import kotlinx.coroutines.delay
 import com.zenx.yugen.play.ui.tv.components.tvButtonFocusable
-
-private val AccentPurple = Color(0xFF8B5CF6)
-private val DialogDarkSurface = Color(0xFF12121A)
-private val DialogBorder = Color.White.copy(alpha = 0.15f)
-private val ItemBg = Color.White.copy(alpha = 0.08f)
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenDialogSurface
+import com.zenx.yugen.play.ui.theme.YugenCardBorder
+import com.zenx.yugen.play.ui.theme.YugenSurfaceVariant
 
 /**
  * TV Fix Title Match Dialog: Search and manually map anime to alternative title on active provider.
@@ -80,8 +79,8 @@ fun TvFixTitleDialog(
                     .width(640.dp)
                     .fillMaxHeight(0.85f)
                     .clip(RoundedCornerShape(20.dp))
-                    .background(DialogDarkSurface)
-                    .border(1.dp, DialogBorder, RoundedCornerShape(20.dp))
+                    .background(YugenDialogSurface)
+                    .border(1.dp, YugenCardBorder, RoundedCornerShape(20.dp))
                     .padding(28.dp)
             ) {
                 // Header
@@ -105,7 +104,7 @@ fun TvFixTitleDialog(
                             .tvButtonFocusable(
                                 onClick = onDismiss,
                                 shape = CircleShape,
-                                focusedBackgroundColor = AccentPurple,
+                                focusedBackgroundColor = YugenPurple,
                                 unfocusedBackgroundColor = Color.White.copy(alpha = 0.1f),
                                 focusedBorderColor = Color.White
                             )
@@ -158,10 +157,10 @@ fun TvFixTitleDialog(
                         shape = RoundedCornerShape(12.dp),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = ItemBg,
-                            unfocusedContainerColor = ItemBg,
-                            focusedBorderColor = AccentPurple,
-                            unfocusedBorderColor = DialogBorder,
+                            focusedContainerColor = YugenSurfaceVariant,
+                            unfocusedContainerColor = YugenSurfaceVariant,
+                            focusedBorderColor = YugenPurple,
+                            unfocusedBorderColor = YugenCardBorder,
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White
                         ),
@@ -175,8 +174,8 @@ fun TvFixTitleDialog(
                             .tvButtonFocusable(
                                 onClick = { onSearch(searchQuery) },
                                 shape = RoundedCornerShape(12.dp),
-                                focusedBackgroundColor = AccentPurple,
-                                unfocusedBackgroundColor = AccentPurple.copy(alpha = 0.85f),
+                                focusedBackgroundColor = YugenPurple,
+                                unfocusedBackgroundColor = YugenPurple.copy(alpha = 0.85f),
                                 focusedBorderColor = Color.White
                             )
                             .padding(horizontal = 20.dp, vertical = 14.dp),
@@ -197,7 +196,7 @@ fun TvFixTitleDialog(
                     when (searchResults) {
                         is Resource.Loading -> {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = AccentPurple, strokeWidth = 3.dp)
+                                CircularProgressIndicator(color = YugenPurple, strokeWidth = 3.dp)
                             }
                         }
                         is Resource.Error -> {
@@ -231,8 +230,8 @@ fun TvFixTitleDialog(
                                                         onDismiss()
                                                     },
                                                     shape = RoundedCornerShape(12.dp),
-                                                    focusedBackgroundColor = AccentPurple,
-                                                    unfocusedBackgroundColor = ItemBg,
+                                                    focusedBackgroundColor = YugenPurple,
+                                                    unfocusedBackgroundColor = YugenSurfaceVariant,
                                                     focusedBorderColor = Color.White
                                                 )
                                                 .padding(10.dp),
@@ -259,7 +258,7 @@ fun TvFixTitleDialog(
                                                 Spacer(modifier = Modifier.height(2.dp))
                                                 Text(
                                                     text = activeProvider.uppercase(),
-                                                    color = AccentPurple,
+                                                    color = YugenPurple,
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
@@ -309,8 +308,8 @@ fun TvSourceDialog(
                 modifier = Modifier
                     .width(440.dp)
                     .clip(RoundedCornerShape(20.dp))
-                    .background(DialogDarkSurface)
-                    .border(1.dp, DialogBorder, RoundedCornerShape(20.dp))
+                    .background(YugenDialogSurface)
+                    .border(1.dp, YugenCardBorder, RoundedCornerShape(20.dp))
                     .padding(28.dp)
             ) {
                 Row(
@@ -325,7 +324,7 @@ fun TvSourceDialog(
                             .tvButtonFocusable(
                                 onClick = onDismiss,
                                 shape = CircleShape,
-                                focusedBackgroundColor = AccentPurple,
+                                focusedBackgroundColor = YugenPurple,
                                 unfocusedBackgroundColor = Color.White.copy(alpha = 0.1f),
                                 focusedBorderColor = Color.White
                             )
@@ -350,8 +349,8 @@ fun TvSourceDialog(
                                         onDismiss()
                                     },
                                     shape = RoundedCornerShape(12.dp),
-                                    focusedBackgroundColor = AccentPurple,
-                                    unfocusedBackgroundColor = if (isSelected) AccentPurple.copy(alpha = 0.25f) else ItemBg,
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenSurfaceVariant,
                                     focusedBorderColor = Color.White
                                 )
                                 .padding(horizontal = 16.dp, vertical = 13.dp),
@@ -365,7 +364,7 @@ fun TvSourceDialog(
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                             )
                             if (isSelected) {
-                                Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
                             }
                         }
                     }
@@ -417,8 +416,8 @@ fun TvAnilistStatusDialog(
                 modifier = Modifier
                     .width(440.dp)
                     .clip(RoundedCornerShape(20.dp))
-                    .background(DialogDarkSurface)
-                    .border(1.dp, DialogBorder, RoundedCornerShape(20.dp))
+                    .background(YugenDialogSurface)
+                    .border(1.dp, YugenCardBorder, RoundedCornerShape(20.dp))
                     .padding(28.dp)
             ) {
                 Row(
@@ -433,7 +432,7 @@ fun TvAnilistStatusDialog(
                             .tvButtonFocusable(
                                 onClick = onDismiss,
                                 shape = CircleShape,
-                                focusedBackgroundColor = AccentPurple,
+                                focusedBackgroundColor = YugenPurple,
                                 unfocusedBackgroundColor = Color.White.copy(alpha = 0.1f),
                                 focusedBorderColor = Color.White
                             )
@@ -458,8 +457,8 @@ fun TvAnilistStatusDialog(
                                         onDismiss()
                                     },
                                     shape = RoundedCornerShape(12.dp),
-                                    focusedBackgroundColor = AccentPurple,
-                                    unfocusedBackgroundColor = if (isSelected) AccentPurple.copy(alpha = 0.25f) else ItemBg,
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenSurfaceVariant,
                                     focusedBorderColor = Color.White
                                 )
                                 .padding(horizontal = 16.dp, vertical = 13.dp),
@@ -482,7 +481,7 @@ fun TvAnilistStatusDialog(
                                 )
                             }
                             if (isSelected) {
-                                Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
                             }
                         }
                     }

@@ -11,5 +11,7 @@ data class WatchHistoryEntity(
     val posterUrl: String,
     val progressMs: Long,
     val durationMs: Long,
-    val lastWatchedAt: Long = System.currentTimeMillis()
+    val lastWatchedAt: Long = System.currentTimeMillis(),
+    val anilistId: Int? = null,
+    val providerName: String? = null
 )

@@ -1,18 +1,18 @@
 package com.zenx.yugen.play.ui.player.components
 
 import java.util.Locale
+import android.view.KeyEvent
 import androidx.appcompat.view.ContextThemeWrapper
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -20,11 +20,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -35,22 +39,17 @@ import androidx.mediarouter.app.MediaRouteButton
 import com.google.android.gms.cast.framework.CastButtonFactory
 import com.zenx.yugen.play.domain.Episode
 import com.zenx.yugen.play.domain.SkipInterval
-import android.view.KeyEvent
-import androidx.compose.foundation.focusable
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.key.onKeyEvent
 import com.zenx.yugen.play.ui.components.bounceClick
-
-private val AccentPurple = Color(0xFFC4C4FF)
-private val AmberSkip = Color(0xFFFFC107).copy(alpha = 0.85f)
-private val IconPurple = Color(0xFF8B5CF6)
-
-private val GlassCardBg = Color.Black.copy(alpha = 0.45f)
-private val GlassBorder = Color.White.copy(alpha = 0.15f)
-private val ChipBg = Color.Black.copy(alpha = 0.35f)
-private val ChipText = Color.White.copy(alpha = 0.85f)
+import com.zenx.yugen.play.ui.theme.TextMuted
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenOverlayLight
+import com.zenx.yugen.play.ui.theme.YugenOverlayMedium
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenShape
+import com.zenx.yugen.play.ui.theme.YugenSurface
+import com.zenx.yugen.play.ui.theme.YugenTvIntroAmber
+import com.zenx.yugen.play.ui.theme.YugenTvOutroCyan
 
 private val RedundantEpRegex = Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?$", RegexOption.IGNORE_CASE)
 private val PrefixEpRegex = Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?\\s*[:\\-•]\\s*", RegexOption.IGNORE_CASE)
@@ -91,8 +90,6 @@ fun PlayerControlsOverlay(
     onRotateClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-
-
     val currentEp = episodes.find { it.id == currentEpisodeId }
     val epNum = currentEp?.formattedNumber ?: "1"
     val rawTitle = (currentEp?.title ?: episodeTitle).trim()
@@ -107,9 +104,39 @@ fun PlayerControlsOverlay(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-
-        Box(modifier = Modifier.fillMaxWidth().height(140.dp).align(Alignment.TopCenter).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent))))
-        Box(modifier = Modifier.fillMaxWidth().height(200.dp).align(Alignment.BottomCenter).background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)))))
+        // Natural 4-stop Vignette Gradients
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(140.dp)
+                .align(Alignment.TopCenter)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = 0.78f),
+                            Color.Black.copy(alpha = 0.45f),
+                            Color.Black.copy(alpha = 0.12f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp)
+                .align(Alignment.BottomCenter)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.15f),
+                            Color.Black.copy(alpha = 0.55f),
+                            Color.Black.copy(alpha = 0.82f)
+                        )
+                    )
+                )
+        )
 
         PlayerTopBar(
             animeTitle = animeTitle,
@@ -127,27 +154,41 @@ fun PlayerControlsOverlay(
         )
 
         if (!isLocked) {
+            // Tactile Center Transport Controls
             Row(
                 modifier = Modifier.align(Alignment.Center),
-                horizontalArrangement = Arrangement.spacedBy(32.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 36.dp else 24.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                GlassyIconButton(icon = Icons.Rounded.SkipPrevious, size = 48.dp, iconSize = 26.dp, onClick = onPreviousClick)
+                GlassyIconButton(
+                    icon = Icons.Rounded.SkipPrevious,
+                    size = if (isLandscape) 50.dp else 44.dp,
+                    iconSize = 26.dp,
+                    shape = CircleShape,
+                    onClick = onPreviousClick
+                )
                 GlassyIconButton(
                     icon = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    size = 64.dp,
+                    size = if (isLandscape) 68.dp else 60.dp,
                     iconSize = 34.dp,
+                    shape = CircleShape,
                     onClick = onPlayPauseToggle
                 )
-                GlassyIconButton(icon = Icons.Rounded.SkipNext, size = 48.dp, iconSize = 26.dp, onClick = onNextClick)
+                GlassyIconButton(
+                    icon = Icons.Rounded.SkipNext,
+                    size = if (isLandscape) 50.dp else 44.dp,
+                    iconSize = 26.dp,
+                    shape = CircleShape,
+                    onClick = onNextClick
+                )
             }
 
             Column(
-                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth(),
                 verticalArrangement = Arrangement.Bottom
             ) {
-
-
                 PlayerBottomBar(
                     positionMs = positionMs,
                     durationMs = durationMs,
@@ -186,12 +227,12 @@ private fun PlayerTopBar(
 ) {
     var routeButtonInstance by remember { mutableStateOf<MediaRouteButton?>(null) }
 
-    val btnSize = if (isLandscape) 42.dp else 36.dp
-    val iconSize = if (isLandscape) 22.dp else 18.dp
-    val castIconSize = if (isLandscape) 26.dp else 20.dp
+    val btnSize = if (isLandscape) 42.dp else 38.dp
+    val iconSize = if (isLandscape) 22.dp else 20.dp
+    val castIconSize = if (isLandscape) 24.dp else 20.dp
     val hPadding = if (isLandscape) 24.dp else 12.dp
-    val vPadding = if (isLandscape) 24.dp else 12.dp
-    val spacing = if (isLandscape) 16.dp else 8.dp
+    val vPadding = if (isLandscape) 20.dp else 10.dp
+    val spacing = if (isLandscape) 14.dp else 8.dp
 
     Box(
         modifier = modifier
@@ -202,7 +243,7 @@ private fun PlayerTopBar(
         if (isLocked) {
             GlassyIconButton(
                 icon = Icons.Rounded.Lock,
-                tint = IconPurple,
+                tint = YugenPurple,
                 size = btnSize,
                 iconSize = iconSize,
                 onClick = onLockToggle,
@@ -213,7 +254,7 @@ private fun PlayerTopBar(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.CenterVertically
         ) {
             GlassyIconButton(
                 icon = Icons.Rounded.ArrowBackIosNew,
@@ -225,13 +266,14 @@ private fun PlayerTopBar(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = episodeString,
-                    color = Color.White,
-                    fontSize = if (isLandscape) 18.sp else 15.sp,
+                    color = TextPrimary,
+                    fontSize = if (isLandscape) 17.sp else 15.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.basicMarquee()
                 )
-                Spacer(modifier = Modifier.height(if (isLandscape) 8.dp else 4.dp))
+                Spacer(modifier = Modifier.height(if (isLandscape) 6.dp else 4.dp))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -244,7 +286,7 @@ private fun PlayerTopBar(
                         val speedLabel = if (currentSpeed == currentSpeed.toLong().toFloat()) "${currentSpeed.toLong()}×" else "${currentSpeed}×"
                         TopBarChip(
                             text = speedLabel,
-                            tint = AccentPurple,
+                            tint = YugenPurple,
                             modifier = Modifier.weight(1f, fill = false)
                         )
                     }
@@ -255,9 +297,9 @@ private fun PlayerTopBar(
                 Box(
                     modifier = Modifier
                         .size(btnSize)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(GlassCardBg)
-                        .border(1.dp, GlassBorder, RoundedCornerShape(14.dp))
+                        .clip(YugenShape.xs)
+                        .background(YugenSurface.copy(alpha = 0.65f))
+                        .border(1.dp, YugenOverlayMedium, YugenShape.xs)
                         .bounceClick {
                             routeButtonInstance?.showDialog()
                         },
@@ -281,7 +323,7 @@ private fun PlayerTopBar(
 
                 GlassyIconButton(
                     icon = Icons.Rounded.ScreenRotation,
-                    tint = if (!isLandscape) IconPurple else Color.White,
+                    tint = if (!isLandscape) YugenPurple else TextPrimary,
                     size = btnSize,
                     iconSize = iconSize,
                     onClick = onRotateClick
@@ -330,9 +372,9 @@ private fun PlayerBottomBar(
     val currentSliderValue = dragValue ?: safePos.toFloat()
 
     val hPadding = if (isLandscape) 24.dp else 12.dp
-    val bPadding = if (isLandscape) 24.dp else 12.dp
-    val spacing = if (isLandscape) 16.dp else 8.dp
-    val toolSpacing = if (isLandscape) 16.dp else 6.dp
+    val bPadding = if (isLandscape) 20.dp else 10.dp
+    val spacing = if (isLandscape) 14.dp else 8.dp
+    val toolSpacing = if (isLandscape) 14.dp else 6.dp
 
     Column(
         modifier = modifier
@@ -342,28 +384,37 @@ private fun PlayerBottomBar(
             .navigationBarsPadding(),
         verticalArrangement = Arrangement.Bottom
     ) {
-
+        // Sleek 6dp Scrubber with Ambient Buffer & Colored Skip Markers
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(12.dp)
+                    .height(6.dp)
                     .padding(horizontal = 10.dp)
             ) {
                 val trackWidth = size.width
                 val trackHeight = size.height
                 val corner = CornerRadius(trackHeight / 2, trackHeight / 2)
 
-                drawRoundRect(color = Color.White.copy(alpha = 0.2f), size = size, cornerRadius = corner)
-                drawRoundRect(color = Color.White.copy(alpha = 0.5f), size = Size(trackWidth * bufferPercent, trackHeight), cornerRadius = corner)
+                // Background track
+                drawRoundRect(color = Color.White.copy(alpha = 0.18f), size = size, cornerRadius = corner)
+                // Buffer track
+                drawRoundRect(
+                    color = Color.White.copy(alpha = 0.35f),
+                    size = Size(trackWidth * bufferPercent, trackHeight),
+                    cornerRadius = corner
+                )
 
+                // Skip interval markers (Intro = Amber, Outro = Cyan)
                 skipIntervals.forEach { skip ->
                     val startX = ((skip.startTime * 1000) / maxDur).coerceIn(0.0, 1.0).toFloat() * trackWidth
                     val endX = ((skip.endTime * 1000) / maxDur).coerceIn(0.0, 1.0).toFloat() * trackWidth
-                    val highlightWidth = endX - startX
+                    val highlightWidth = (endX - startX).coerceAtLeast(2f)
+
+                    val markerColor = if (skip.isOutro) YugenTvOutroCyan else YugenTvIntroAmber
 
                     drawRoundRect(
-                        color = AmberSkip,
+                        color = markerColor,
                         topLeft = Offset(startX, 0f),
                         size = Size(highlightWidth, trackHeight),
                         cornerRadius = corner
@@ -381,7 +432,7 @@ private fun PlayerBottomBar(
                     },
                     valueRange = 0f..maxDur.toFloat(),
                     colors = SliderDefaults.colors(
-                        activeTrackColor = AccentPurple,
+                        activeTrackColor = YugenPurple,
                         inactiveTrackColor = Color.Transparent,
                         thumbColor = Color.White
                     ),
@@ -390,7 +441,7 @@ private fun PlayerBottomBar(
             }
         }
 
-        Spacer(modifier = Modifier.height(if (isLandscape) 16.dp else 10.dp))
+        Spacer(modifier = Modifier.height(if (isLandscape) 14.dp else 8.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -403,8 +454,8 @@ private fun PlayerBottomBar(
                 @Suppress("DEPRECATION")
                 GlassyIconButton(
                     icon = Icons.Rounded.PlaylistPlay,
-                    size = if (isLandscape) 42.dp else 36.dp,
-                    iconSize = if (isLandscape) 22.dp else 18.dp,
+                    size = if (isLandscape) 42.dp else 38.dp,
+                    iconSize = if (isLandscape) 22.dp else 20.dp,
                     onClick = onEpisodeSheetClick
                 )
             }
@@ -412,9 +463,9 @@ private fun PlayerBottomBar(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(GlassCardBg)
-                        .border(1.dp, GlassBorder, RoundedCornerShape(14.dp))
+                        .clip(YugenShape.xs)
+                        .background(YugenSurface.copy(alpha = 0.65f))
+                        .border(1.dp, YugenOverlayMedium, YugenShape.xs)
                         .padding(
                             horizontal = if (isLandscape) 8.dp else 4.dp,
                             vertical = if (isLandscape) 6.dp else 4.dp
@@ -437,11 +488,12 @@ private fun PlayerBottomBar(
 
 @Composable
 fun GlassyIconButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     modifier: Modifier = Modifier,
-    tint: Color = Color.White,
+    tint: Color = TextPrimary,
     size: Dp = 42.dp,
     iconSize: Dp = 22.dp,
+    shape: Shape = YugenShape.xs,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -449,12 +501,12 @@ fun GlassyIconButton(
     Box(
         modifier = modifier
             .size(size)
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (isFocused) IconPurple.copy(alpha = 0.35f) else GlassCardBg)
+            .clip(shape)
+            .background(if (isFocused) YugenPurple.copy(alpha = 0.35f) else YugenSurface.copy(alpha = 0.65f))
             .border(
-                width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) IconPurple else GlassBorder,
-                shape = RoundedCornerShape(14.dp)
+                width = if (isFocused) 1.5.dp else 1.dp,
+                color = if (isFocused) YugenPurple else YugenOverlayMedium,
+                shape = shape
             )
             .onFocusChanged { isFocused = it.isFocused }
             .focusable()
@@ -474,24 +526,29 @@ fun GlassyIconButton(
             .bounceClick(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Icon(imageVector = icon, contentDescription = null, tint = if (isFocused) Color.White else tint, modifier = Modifier.size(iconSize))
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (isFocused) Color.White else tint,
+            modifier = Modifier.size(iconSize)
+        )
     }
 }
 
 @Composable
-private fun TopBarChip(text: String, tint: Color = ChipText, modifier: Modifier = Modifier) {
+private fun TopBarChip(text: String, tint: Color = TextSecondary, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(ChipBg)
-            .border(1.dp, if (tint == ChipText) GlassBorder else tint.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+            .clip(YugenShape.xs)
+            .background(YugenOverlayLight)
+            .border(1.dp, YugenOverlayMedium, YugenShape.xs)
             .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
         Text(
             text = text,
             color = tint,
             fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -502,26 +559,26 @@ private fun TopBarChip(text: String, tint: Color = ChipText, modifier: Modifier 
 private fun GlassyLabel(text: String, isCompact: Boolean = false) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(GlassCardBg)
-            .border(1.dp, GlassBorder, RoundedCornerShape(14.dp))
+            .clip(YugenShape.xs)
+            .background(YugenSurface.copy(alpha = 0.65f))
+            .border(1.dp, YugenOverlayMedium, YugenShape.xs)
             .padding(
-                horizontal = if (isCompact) 8.dp else 14.dp,
-                vertical = if (isCompact) 6.dp else 10.dp
+                horizontal = if (isCompact) 10.dp else 14.dp,
+                vertical = if (isCompact) 6.dp else 8.dp
             )
     ) {
         Text(
             text = text,
-            color = Color.White,
+            color = TextPrimary,
             fontSize = if (isCompact) 11.sp else 13.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.SemiBold
         )
     }
 }
 
 @Composable
 private fun ToolbarIcon(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     isCompact: Boolean = false,
     onClick: () -> Unit
 ) {
@@ -530,10 +587,10 @@ private fun ToolbarIcon(
     Box(
         modifier = Modifier
             .clip(CircleShape)
-            .background(if (isFocused) IconPurple.copy(alpha = 0.35f) else Color.Transparent)
+            .background(if (isFocused) YugenPurple.copy(alpha = 0.35f) else Color.Transparent)
             .border(
                 width = if (isFocused) 1.5.dp else 0.dp,
-                color = if (isFocused) IconPurple else Color.Transparent,
+                color = if (isFocused) YugenPurple else Color.Transparent,
                 shape = CircleShape
             )
             .onFocusChanged { isFocused = it.isFocused }
@@ -553,14 +610,14 @@ private fun ToolbarIcon(
             }
             .bounceClick(onClick = onClick)
             .padding(
-                horizontal = if (isCompact) 2.dp else 4.dp,
-                vertical = if (isCompact) 2.dp else 4.dp
+                horizontal = if (isCompact) 3.dp else 5.dp,
+                vertical = if (isCompact) 3.dp else 5.dp
             )
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = if (isFocused) Color.White else Color.White.copy(alpha = 0.85f),
+            tint = if (isFocused) Color.White else TextPrimary.copy(alpha = 0.9f),
             modifier = Modifier.size(if (isCompact) 20.dp else 24.dp)
         )
     }

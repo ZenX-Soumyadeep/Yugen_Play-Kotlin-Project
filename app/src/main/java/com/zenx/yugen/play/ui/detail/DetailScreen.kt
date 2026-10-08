@@ -7,11 +7,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,10 +29,11 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.components.premiumShimmerEffect
+import com.zenx.yugen.play.ui.theme.*
 
 @Composable
 fun DetailScreen(
-    onEpisodeClick: (episodeId: String, animeUrl: String, title: String, poster: String, streamUrl: String?) -> Unit,
+    onEpisodeClick: (episodeId: String, animeUrl: String, provider: String, title: String, poster: String, streamUrl: String?, mediaId: String, episodeNumber: Int) -> Unit,
     onBackClick: () -> Unit,
     onDownloadsClick: () -> Unit,
     onGenreClick: (String) -> Unit = {},
@@ -49,25 +47,23 @@ fun DetailScreen(
 
     val context = LocalContext.current
 
-    val baseBackground = Color(0xFF09090B)
-    val glassBg = Color.White.copy(alpha = 0.06f)
-    val glassBorder = Color.White.copy(alpha = 0.12f)
-    val accentPurple = Color(0xFF8B5CF6)
-
-    Box(modifier = Modifier.fillMaxSize().background(baseBackground)) {
-
-        if (uiState is DetailsUiState.Success) {
-            val state = uiState as DetailsUiState.Success
-            AsyncImage(
-                model = ImageRequest.Builder(context).data(state.posterUrl).crossfade(300).build(),
-                contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
-            )
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)))
-        }
-
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(YugenBackground)
+    ) {
         when (val state = uiState) {
             is DetailsUiState.Loading -> DetailSkeleton()
-            is DetailsUiState.Error -> Text(state.message, color = Color.Red, modifier = Modifier.align(Alignment.Center).padding(24.dp))
+            is DetailsUiState.Error -> {
+                Text(
+                    text = state.message,
+                    color = YugenRed,
+                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(24.dp)
+                )
+            }
             is DetailsUiState.Success -> {
                 var selectedChunkIndex by rememberSaveable { mutableIntStateOf(0) }
 
@@ -77,19 +73,45 @@ fun DetailScreen(
                     }
                 }
 
-                LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 120.dp)) {
-
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 120.dp)
+                ) {
                     item {
-                        Box(modifier = Modifier.fillMaxWidth().height(350.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(380.dp)
+                        ) {
                             AsyncImage(
-                                model = ImageRequest.Builder(context).data(state.bannerUrl.ifEmpty { state.posterUrl }).crossfade(300).build(),
-                                contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
+                                model = ImageRequest.Builder(context)
+                                    .data(state.bannerUrl.ifEmpty { state.posterUrl })
+                                    .crossfade(300)
+                                    .build(),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
                             )
-                            Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(0.0f to Color.Black.copy(alpha = 0.2f), 0.6f to Color.Transparent, 1.0f to baseBackground)))
+                            // Multi-stop cinematic gradient scrim: top vignette for top bar contrast, bottom blend into YugenBackground
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            0.0f to Color.Black.copy(alpha = 0.7f),
+                                            0.25f to Color.Transparent,
+                                            0.55f to Color.Transparent,
+                                            0.82f to YugenBackground.copy(alpha = 0.85f),
+                                            1.0f to YugenBackground
+                                        )
+                                    )
+                            )
                         }
                     }
 
-                    item { AnimeInfoHeader(state, onGenreClick) }
+                    item {
+                        AnimeInfoHeader(state, onGenreClick)
+                    }
 
                     item {
                         Row(
@@ -103,29 +125,44 @@ fun DetailScreen(
                             // Source Provider Selector Pill
                             Row(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(glassBg)
-                                    .border(1.dp, glassBorder, RoundedCornerShape(12.dp))
+                                    .clip(YugenShape.card)
+                                    .background(YugenCardSurface)
+                                    .border(1.dp, YugenOverlayMedium, YugenShape.card)
                                     .bounceClick { viewModel.showSourceSheet() }
                                     .padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Rounded.Layers, contentDescription = null, tint = accentPurple, modifier = Modifier.size(15.dp))
+                                Icon(
+                                    Icons.Rounded.Layers,
+                                    contentDescription = null,
+                                    tint = YugenPurple,
+                                    modifier = Modifier.size(15.dp)
+                                )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(state.activeProvider.uppercase(), color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                                Text(
+                                    text = state.activeProvider.uppercase(),
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(16.dp))
+                                Icon(
+                                    Icons.Rounded.KeyboardArrowDown,
+                                    contentDescription = null,
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
 
                             // Title Match Status Pill
-                            val mapBtnColor = if (state.isMapped) Color(0xFFFBBF24) else Color.White
-                            val mapBgColor = if (state.isMapped) Color(0xFFFBBF24).copy(alpha = 0.15f) else glassBg
-                            val mapBorderColor = if (state.isMapped) Color(0xFFFBBF24).copy(alpha = 0.45f) else glassBorder
+                            val mapBtnColor = if (state.isMapped) StarYellow else TextSecondary
+                            val mapBgColor = if (state.isMapped) StarYellow.copy(alpha = 0.12f) else YugenCardSurface
+                            val mapBorderColor = if (state.isMapped) StarYellow.copy(alpha = 0.45f) else YugenOverlayMedium
                             Row(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .clip(YugenShape.card)
                                     .background(mapBgColor)
-                                    .border(1.dp, mapBorderColor, RoundedCornerShape(12.dp))
+                                    .border(1.dp, mapBorderColor, YugenShape.card)
                                     .bounceClick {
                                         if (state.isMapped) viewModel.clearTitleMapping() else viewModel.showMappingSheet()
                                     }
@@ -140,7 +177,7 @@ fun DetailScreen(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    if (state.isMapped) "Remove Map" else "Fix Title Match",
+                                    text = if (state.isMapped) "Remove Map" else "Fix Title Match",
                                     color = mapBtnColor,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
@@ -150,41 +187,80 @@ fun DetailScreen(
                     }
 
                     if (state.nextAiringAt != null && state.nextAiringEpisode != null) {
-                        item { NextAiringTimer(state.nextAiringAt, state.nextAiringEpisode) }
+                        item {
+                            NextAiringTimer(state.nextAiringAt, state.nextAiringEpisode)
+                        }
                     }
 
                     item {
-                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text("Episodes", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .padding(bottom = 8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Episodes",
+                                    color = TextPrimary,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     if (episodeChunks.isNotEmpty()) {
                                         Row(
                                             modifier = Modifier
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(glassBg)
-                                                .border(1.dp, glassBorder, RoundedCornerShape(10.dp))
+                                                .clip(YugenShape.sm)
+                                                .background(YugenOverlayLight)
+                                                .border(1.dp, YugenOverlayMedium, YugenShape.sm)
                                                 .bounceClick { viewModel.showBatchDownloadSheet() }
                                                 .padding(horizontal = 12.dp, vertical = 6.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            Icon(Icons.Rounded.DownloadForOffline, contentDescription = "Batch Download", tint = accentPurple, modifier = Modifier.size(15.dp))
-                                            Text("Batch", color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            Icon(
+                                                Icons.Rounded.DownloadForOffline,
+                                                contentDescription = "Batch Download",
+                                                tint = YugenPurple,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                            Text(
+                                                text = "Batch",
+                                                color = TextSecondary,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
                                         }
                                     }
                                     Row(
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(glassBg)
-                                            .border(1.dp, glassBorder, RoundedCornerShape(10.dp))
+                                            .clip(YugenShape.sm)
+                                            .background(YugenOverlayLight)
+                                            .border(1.dp, YugenOverlayMedium, YugenShape.sm)
                                             .bounceClick { onDownloadsClick() }
                                             .padding(horizontal = 12.dp, vertical = 6.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Text("Downloads", color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                        Icon(Icons.Rounded.Download, contentDescription = "Download Page", tint = accentPurple, modifier = Modifier.size(15.dp))
+                                        Text(
+                                            text = "Downloads",
+                                            color = TextSecondary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Icon(
+                                            Icons.Rounded.Download,
+                                            contentDescription = "Download Page",
+                                            tint = YugenPurple,
+                                            modifier = Modifier.size(15.dp)
+                                        )
                                     }
                                 }
                             }
@@ -202,19 +278,19 @@ fun DetailScreen(
                                         val isSelected = selectedChunkIndex == index
                                         Box(
                                             modifier = Modifier
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(if (isSelected) accentPurple.copy(alpha = 0.22f) else glassBg)
+                                                .clip(YugenShape.chip)
+                                                .background(if (isSelected) YugenPurple.copy(alpha = 0.2f) else YugenOverlayLight)
                                                 .border(
                                                     1.dp,
-                                                    if (isSelected) accentPurple.copy(alpha = 0.5f) else glassBorder,
-                                                    RoundedCornerShape(10.dp)
+                                                    if (isSelected) YugenPurple.copy(alpha = 0.6f) else YugenOverlayMedium,
+                                                    YugenShape.chip
                                                 )
                                                 .bounceClick { selectedChunkIndex = index }
                                                 .padding(horizontal = 14.dp, vertical = 7.dp)
                                         ) {
                                             Text(
-                                                "$start - $end",
-                                                color = if (isSelected) accentPurple else Color.LightGray,
+                                                text = "$start - $end",
+                                                color = if (isSelected) YugenPurple else TextSecondary,
                                                 fontSize = 12.sp,
                                                 fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
                                             )
@@ -235,22 +311,43 @@ fun DetailScreen(
                                     .padding(32.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(36.dp))
+                                Icon(
+                                    Icons.Rounded.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = YugenRed,
+                                    modifier = Modifier.size(36.dp)
+                                )
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text(state.episodeError, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                Text(
+                                    text = state.episodeError,
+                                    color = TextPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(accentPurple.copy(alpha = 0.2f))
-                                        .border(1.dp, accentPurple.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                                        .clip(YugenShape.card)
+                                        .background(YugenPurple.copy(alpha = 0.15f))
+                                        .border(1.dp, YugenPurple.copy(alpha = 0.4f), YugenShape.card)
                                         .bounceClick { viewModel.retryEpisodes() }
                                         .padding(horizontal = 16.dp, vertical = 8.dp)
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Rounded.Refresh, contentDescription = null, tint = accentPurple, modifier = Modifier.size(16.dp))
+                                        Icon(
+                                            Icons.Rounded.Refresh,
+                                            contentDescription = null,
+                                            tint = YugenPurple,
+                                            modifier = Modifier.size(16.dp)
+                                        )
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Retry", color = accentPurple, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text(
+                                            text = "Retry",
+                                            color = YugenPurple,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
+                                        )
                                     }
                                 }
                             }
@@ -268,8 +365,11 @@ fun DetailScreen(
                                 isResumeTarget = resumeEpisode?.id == ep.id,
                                 defaultPoster = state.bannerUrl.ifBlank { state.posterUrl },
                                 onPlayClicked = {
-                                    if (ep.downloadState == DownloadState.COMPLETED) onEpisodeClick(ep.id, viewModel.animeUrl, viewModel.animeTitle, state.posterUrl, null)
-                                    else viewModel.triggerEpisodeAction(ep, isDownload = false)
+                                    if (ep.downloadState == DownloadState.COMPLETED) {
+                                        onEpisodeClick(ep.id, state.animeUrl, state.activeProvider, viewModel.animeTitle, state.posterUrl, null, state.id, ep.number.toIntOrNull() ?: 1)
+                                    } else {
+                                        viewModel.triggerEpisodeAction(ep, isDownload = false)
+                                    }
                                 },
                                 onDownloadClicked = {
                                     when (ep.downloadState) {
@@ -300,7 +400,7 @@ fun DetailScreen(
                     .align(Alignment.TopCenter)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent)
+                            listOf(Color.Black.copy(alpha = 0.65f), Color.Transparent)
                         )
                     )
                     .statusBarsPadding()
@@ -313,27 +413,31 @@ fun DetailScreen(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(44.dp)
                             .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.5f))
-                            .border(1.dp, glassBorder, CircleShape)
+                            .background(YugenSurface.copy(alpha = 0.75f))
+                            .border(1.dp, YugenOverlayMedium, CircleShape)
                             .bounceClick(onClick = onBackClick),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = "Back",
-                            tint = Color.White,
+                            tint = TextPrimary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
 
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(44.dp)
                             .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.5f))
-                            .border(1.dp, if (isBookmarked) accentPurple.copy(alpha = 0.5f) else glassBorder, CircleShape)
+                            .background(YugenSurface.copy(alpha = 0.75f))
+                            .border(
+                                1.dp,
+                                if (isBookmarked) YugenPurple.copy(alpha = 0.6f) else YugenOverlayMedium,
+                                CircleShape
+                            )
                             .bounceClick {
                                 if (state.isUserLoggedIn) viewModel.showAnilistSheet() else viewModel.toggleFavorite()
                             },
@@ -343,7 +447,7 @@ fun DetailScreen(
                             Icon(
                                 if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
                                 contentDescription = "Bookmark",
-                                tint = if (bookmarked) accentPurple else Color.White,
+                                tint = if (bookmarked) YugenPurple else TextPrimary,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -355,14 +459,16 @@ fun DetailScreen(
         // Restored: Dynamic Action Island for BOTH Streaming and Downloads
         AnimatedVisibility(
             visible = islandState !is IslandState.Hidden,
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding(),
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
         ) {
             DynamicActionIsland(
                 state = islandState,
                 isDownloadMode = viewModel.isDownloadMode,
-                dominantColor = accentPurple,
+                dominantColor = YugenPurple,
                 onActionClick = { ep ->
                     viewModel.triggerEpisodeAction(ep, isDownload = false)
                 },
@@ -375,7 +481,16 @@ fun DetailScreen(
                         } else {
                             val state = uiState as? DetailsUiState.Success
                             if (state != null) {
-                                onEpisodeClick(currentState.episode.id, viewModel.animeUrl, viewModel.animeTitle, state.posterUrl, selectedStream.url)
+                                onEpisodeClick(
+                                    currentState.episode.id,
+                                    state.animeUrl,
+                                    state.activeProvider,
+                                    viewModel.animeTitle,
+                                    state.posterUrl,
+                                    selectedStream.url,
+                                    state.id,
+                                    currentState.episode.number.toIntOrNull() ?: 1
+                                )
                                 viewModel.dismissIsland()
                             }
                         }
@@ -393,20 +508,61 @@ fun DetailScreen(
 @Composable
 fun DetailSkeleton() {
     Column(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxWidth().height(350.dp).premiumShimmerEffect())
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(380.dp)
+                .premiumShimmerEffect()
+        )
         Column(modifier = Modifier.padding(16.dp)) {
-            Box(modifier = Modifier.width(220.dp).height(28.dp).clip(RoundedCornerShape(8.dp)).premiumShimmerEffect())
+            Box(
+                modifier = Modifier
+                    .width(220.dp)
+                    .height(28.dp)
+                    .clip(YugenShape.sm)
+                    .premiumShimmerEffect()
+            )
             Spacer(modifier = Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(modifier = Modifier.width(60.dp).height(24.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
-                Box(modifier = Modifier.width(80.dp).height(24.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
+                Box(
+                    modifier = Modifier
+                        .width(60.dp)
+                        .height(24.dp)
+                        .clip(YugenShape.chip)
+                        .premiumShimmerEffect()
+                )
+                Box(
+                    modifier = Modifier
+                        .width(80.dp)
+                        .height(24.dp)
+                        .clip(YugenShape.chip)
+                        .premiumShimmerEffect()
+                )
             }
             Spacer(modifier = Modifier.height(24.dp))
-            Box(modifier = Modifier.fillMaxWidth().height(14.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(14.dp)
+                    .clip(YugenShape.xs)
+                    .premiumShimmerEffect()
+            )
             Spacer(modifier = Modifier.height(8.dp))
-            Box(modifier = Modifier.fillMaxWidth(0.85f).height(14.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.85f)
+                    .height(14.dp)
+                    .clip(YugenShape.xs)
+                    .premiumShimmerEffect()
+            )
             Spacer(modifier = Modifier.height(8.dp))
-            Box(modifier = Modifier.fillMaxWidth(0.6f).height(14.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.6f)
+                    .height(14.dp)
+                    .clip(YugenShape.xs)
+                    .premiumShimmerEffect()
+            )
         }
     }
 }
@@ -414,15 +570,39 @@ fun DetailSkeleton() {
 @Composable
 fun EpisodeSkeletonRow() {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(YugenShape.card)
+            .background(YugenCardSurface)
+            .border(1.dp, YugenOverlayMedium, YugenShape.card)
+            .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(modifier = Modifier.width(130.dp).aspectRatio(16 / 9f).clip(RoundedCornerShape(12.dp)).premiumShimmerEffect())
-        Spacer(modifier = Modifier.width(12.dp))
+        Box(
+            modifier = Modifier
+                .width(120.dp)
+                .aspectRatio(16f / 9f)
+                .clip(YugenShape.sm)
+                .premiumShimmerEffect()
+        )
+        Spacer(modifier = Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Box(modifier = Modifier.fillMaxWidth(0.8f).height(16.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.8f)
+                    .height(16.dp)
+                    .clip(YugenShape.xs)
+                    .premiumShimmerEffect()
+            )
             Spacer(modifier = Modifier.height(8.dp))
-            Box(modifier = Modifier.fillMaxWidth(0.5f).height(12.dp).clip(RoundedCornerShape(4.dp)).premiumShimmerEffect())
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.5f)
+                    .height(12.dp)
+                    .clip(YugenShape.xs)
+                    .premiumShimmerEffect()
+            )
         }
     }
 }

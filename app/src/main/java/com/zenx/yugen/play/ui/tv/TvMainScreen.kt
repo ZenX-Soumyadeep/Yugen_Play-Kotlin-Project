@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.zenx.yugen.play.ui.theme.YugenBackground
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -45,14 +46,20 @@ private fun buildTvPlayerRoute(
     animeUrl: String = "",
     title: String = "",
     poster: String = "",
-    streamUrl: String? = null
+    provider: String = "",
+    streamUrl: String? = null,
+    mediaId: String = "",
+    episodeNumber: Int? = null
 ): String {
     val epId = Uri.encode(episodeId)
     val aUrl = Uri.encode(animeUrl)
     val t = Uri.encode(title)
     val p = Uri.encode(poster)
+    val prv = Uri.encode(provider)
     val s = streamUrl?.takeIf { it.isNotBlank() }?.let { Uri.encode(it) } ?: ""
-    return "player/$epId?animeUrl=$aUrl&title=$t&poster=$p&streamUrl=$s"
+    val mId = Uri.encode(mediaId)
+    val epNumStr = episodeNumber?.toString() ?: ""
+    return "player/$epId?animeUrl=$aUrl&title=$t&poster=$p&provider=$prv&streamUrl=$s&mediaId=$mId&episodeNumber=$epNumStr"
 }
 
 @Composable
@@ -110,7 +117,7 @@ fun TvMainScreen(
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
+            .background(YugenBackground)
     ) {
         // Left Docked Collapsing Navigation Rail
         AnimatedVisibility(
@@ -262,14 +269,17 @@ fun TvMainScreen(
                     )
                 ) {
                     TvDetailScreen(
-                        onEpisodeClick = { episodeId, animeUrl, title, poster, streamUrl ->
+                        onEpisodeClick = { episodeId, animeUrl, provider, title, poster, streamUrl, mediaId, episodeNumber ->
                             navController.navigate(
                                 buildTvPlayerRoute(
                                     episodeId = episodeId,
                                     animeUrl = animeUrl,
                                     title = title,
                                     poster = poster,
-                                    streamUrl = streamUrl
+                                    provider = provider,
+                                    streamUrl = streamUrl,
+                                    mediaId = mediaId,
+                                    episodeNumber = episodeNumber
                                 )
                             )
                         },
@@ -279,13 +289,16 @@ fun TvMainScreen(
 
                 // --- PLAYER ---
                 composable(
-                    route = "player/{episodeId}?animeUrl={animeUrl}&title={title}&poster={poster}&streamUrl={streamUrl}",
+                    route = "player/{episodeId}?animeUrl={animeUrl}&title={title}&poster={poster}&provider={provider}&streamUrl={streamUrl}&mediaId={mediaId}&episodeNumber={episodeNumber}",
                     arguments = listOf(
                         navArgument("episodeId") { type = NavType.StringType },
                         navArgument("animeUrl") { type = NavType.StringType; defaultValue = "" },
                         navArgument("title") { type = NavType.StringType; defaultValue = "Unknown Anime" },
                         navArgument("poster") { type = NavType.StringType; defaultValue = "" },
-                        navArgument("streamUrl") { type = NavType.StringType; defaultValue = "" }
+                        navArgument("provider") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("streamUrl") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("mediaId") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("episodeNumber") { type = NavType.StringType; defaultValue = "" }
                     )
                 ) {
                     TvPlayerScreen(onBackClick = { navController.popBackStack() })

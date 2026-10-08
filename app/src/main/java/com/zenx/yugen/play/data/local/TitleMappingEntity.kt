@@ -13,7 +13,9 @@ import androidx.room.Query
 data class TitleMappingEntity(
     val anilistId: Int,
     val providerName: String,
-    val mappedUrl: String
+    val mappedUrl: String,
+    val createdAt: Long = System.currentTimeMillis(),
+    val confidence: Float = 1.0f
 )
 
 @Dao
@@ -26,4 +28,7 @@ interface TitleMappingDao {
 
     @Query("DELETE FROM title_mappings WHERE anilistId = :anilistId AND providerName = :providerName")
     suspend fun deleteMapping(anilistId: Int, providerName: String)
+
+    @Query("DELETE FROM title_mappings WHERE createdAt > 0 AND (:currentTime - createdAt) > :maxAgeMs")
+    suspend fun evictStaleMappings(currentTime: Long, maxAgeMs: Long)
 }

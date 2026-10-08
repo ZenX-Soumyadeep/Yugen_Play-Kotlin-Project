@@ -11,10 +11,14 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.*
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.FilterAlt
+import androidx.compose.material.icons.rounded.FilterAltOff
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -41,6 +45,19 @@ import coil.request.ImageRequest
 import com.zenx.yugen.play.domain.AiringAnimeItem
 import com.zenx.yugen.play.ui.calendar.CalendarUiState
 import com.zenx.yugen.play.ui.calendar.CalendarViewModel
+import com.zenx.yugen.play.ui.theme.StarYellow
+import com.zenx.yugen.play.ui.theme.TextMuted
+import com.zenx.yugen.play.ui.theme.TextPrimary
+import com.zenx.yugen.play.ui.theme.TextSecondary
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenBackground
+import com.zenx.yugen.play.ui.theme.YugenCardBorder
+import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenOverlayLight
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenShape
+import com.zenx.yugen.play.ui.tv.TvSpacing
 import com.zenx.yugen.play.ui.tv.components.tvButtonFocusable
 import com.zenx.yugen.play.ui.tv.components.tvCardFocusable
 import kotlinx.coroutines.delay
@@ -68,7 +85,7 @@ fun TvCalendarScreen(
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // Day tabs: All Week + Yesterday (-1) to +6 days (matching phone screen)
+    // Day tabs: All Week + Yesterday (-1) to +6 days
     val dayTabs = remember {
         val dayFormat = SimpleDateFormat("EEE", Locale.getDefault())
         val monthDayFormat = SimpleDateFormat("MMM d", Locale.getDefault())
@@ -121,8 +138,8 @@ fun TvCalendarScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
-            .padding(horizontal = 36.dp, vertical = 24.dp)
+            .background(YugenBackground)
+            .padding(horizontal = TvSpacing.overscanH, vertical = TvSpacing.overscanV)
     ) {
         // --- 1. TOP HEADER ---
         Row(
@@ -135,29 +152,39 @@ fun TvCalendarScreen(
                 modifier = Modifier
                     .tvButtonFocusable(
                         onClick = onBackClick,
-                        shape = RoundedCornerShape(10.dp),
-                        focusedBackgroundColor = Color(0xFF8B5CF6),
-                        unfocusedBackgroundColor = Color.White.copy(alpha = 0.08f),
-                        focusedBorderColor = Color.White
+                        shape = YugenShape.md,
+                        focusedBackgroundColor = YugenPurple,
+                        unfocusedBackgroundColor = YugenOverlayLight,
+                        focusedBorderColor = YugenAccentViolet
                     )
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(18.dp))
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "Back",
+                    tint = TextPrimary,
+                    modifier = Modifier.size(18.dp)
+                )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Back", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = "Back",
+                    color = TextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Airing Schedule",
-                    color = Color.White,
-                    fontSize = 24.sp,
+                    color = TextPrimary,
+                    fontSize = 26.sp,
                     fontWeight = FontWeight.Black
                 )
                 Text(
                     text = "Airing anime & broadcast times",
-                    color = Color.White.copy(alpha = 0.6f),
+                    color = TextSecondary,
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -168,24 +195,27 @@ fun TvCalendarScreen(
                 modifier = Modifier
                     .tvButtonFocusable(
                         onClick = { hideChineseDonghua = !hideChineseDonghua },
-                        shape = RoundedCornerShape(100.dp),
-                        focusedBackgroundColor = Color(0xFF8B5CF6),
-                        unfocusedBackgroundColor = if (hideChineseDonghua) Color(0xFF8B5CF6).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
-                        focusedBorderColor = Color(0xFFA78BFA),
-                        unfocusedBorderColor = if (hideChineseDonghua) Color(0xFF8B5CF6).copy(alpha = 0.5f) else Color.Transparent
+                        shape = YugenShape.pill,
+                        focusedBackgroundColor = YugenPurple,
+                        unfocusedBackgroundColor = if (hideChineseDonghua) YugenPurple.copy(alpha = 0.22f) else YugenOverlayLight,
+                        focusedBorderColor = YugenAccentViolet,
+                        unfocusedBorderColor = if (hideChineseDonghua) YugenPurple.copy(alpha = 0.5f) else Color.Transparent
                     )
                     .padding(horizontal = 14.dp, vertical = 7.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Icon(
-                        if (hideChineseDonghua) Icons.Rounded.FilterAlt else Icons.Rounded.FilterAltOff,
+                        imageVector = if (hideChineseDonghua) Icons.Rounded.FilterAlt else Icons.Rounded.FilterAltOff,
                         contentDescription = null,
-                        tint = if (hideChineseDonghua) Color(0xFFA78BFA) else Color.White.copy(alpha = 0.7f),
+                        tint = if (hideChineseDonghua) YugenAccentViolet else TextSecondary,
                         modifier = Modifier.size(15.dp)
                     )
                     Text(
                         text = if (hideChineseDonghua) "Japanese Anime" else "All (Incl. Donghua)",
-                        color = if (hideChineseDonghua) Color.White else Color.White.copy(alpha = 0.7f),
+                        color = if (hideChineseDonghua) TextPrimary else TextSecondary,
                         fontSize = 12.sp,
                         fontWeight = if (hideChineseDonghua) FontWeight.Bold else FontWeight.Medium
                     )
@@ -195,7 +225,7 @@ fun TvCalendarScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // --- 2. DAY SELECTOR CARDS DIRECTLY UNDER TITLE ---
+        // --- 2. DAY SELECTOR CARDS ---
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(vertical = 4.dp),
@@ -211,14 +241,14 @@ fun TvCalendarScreen(
 
                 Box(
                     modifier = tabModifier
-                        .width(82.dp)
+                        .width(84.dp)
                         .tvButtonFocusable(
                             onClick = { selectedTabId = tab.id },
-                            shape = RoundedCornerShape(12.dp),
-                            focusedBackgroundColor = Color(0xFF8B5CF6),
-                            unfocusedBackgroundColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.28f) else Color.White.copy(alpha = 0.08f),
-                            focusedBorderColor = Color.White,
-                            unfocusedBorderColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.6f) else Color.Transparent
+                            shape = YugenShape.md,
+                            focusedBackgroundColor = YugenPurple,
+                            unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.22f) else YugenOverlayLight,
+                            focusedBorderColor = YugenAccentViolet,
+                            unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.5f) else Color.Transparent
                         )
                         .padding(vertical = 8.dp, horizontal = 6.dp),
                     contentAlignment = Alignment.Center
@@ -226,7 +256,7 @@ fun TvCalendarScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             text = tab.dayName,
-                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.85f),
+                            color = if (isSelected) TextPrimary else TextSecondary,
                             fontSize = 12.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                             maxLines = 1,
@@ -235,7 +265,7 @@ fun TvCalendarScreen(
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = tab.dateLabel,
-                            color = if (isSelected) Color.White.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.55f),
+                            color = if (isSelected) TextPrimary.copy(alpha = 0.9f) else TextMuted,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1
@@ -244,10 +274,10 @@ fun TvCalendarScreen(
                             Spacer(modifier = Modifier.height(4.dp))
                             Box(
                                 modifier = Modifier
-                                    .width(14.dp)
+                                    .width(16.dp)
                                     .height(2.5.dp)
-                                    .clip(RoundedCornerShape(100.dp))
-                                    .background(if (isSelected) Color.White else Color(0xFF8B5CF6))
+                                    .clip(YugenShape.pill)
+                                    .background(if (isSelected) TextPrimary else YugenPurple)
                             )
                         }
                     }
@@ -261,16 +291,70 @@ fun TvCalendarScreen(
         when (val state = uiState) {
             is CalendarUiState.Loading -> {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color(0xFF8B5CF6), strokeWidth = 3.dp)
+                    CircularProgressIndicator(color = YugenPurple, strokeWidth = 3.dp)
                 }
             }
             is CalendarUiState.Error -> {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "Schedule error: ${state.message}",
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 15.sp
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(YugenRed.copy(alpha = 0.15f))
+                                .border(1.dp, YugenRed.copy(alpha = 0.35f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.ErrorOutline,
+                                contentDescription = null,
+                                tint = YugenRed,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        Text(
+                            text = "Schedule Error",
+                            color = TextPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = state.message,
+                            color = TextSecondary,
+                            fontSize = 13.5.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier
+                                .tvButtonFocusable(
+                                    onClick = { viewModel.refresh() },
+                                    shape = YugenShape.md,
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = YugenOverlayLight,
+                                    focusedBorderColor = YugenAccentViolet
+                                )
+                                .padding(horizontal = 18.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                tint = TextPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Retry",
+                                color = TextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
             is CalendarUiState.Success -> {
@@ -290,9 +374,16 @@ fun TvCalendarScreen(
                     }
                 }
 
+                val isBookmarked: (AiringAnimeItem) -> Boolean = remember(state.bookmarkedMediaIds, state.bookmarkedTitles) {
+                    { item ->
+                        state.bookmarkedMediaIds.contains(item.id) ||
+                            state.bookmarkedTitles.contains(viewModel.normalizeTitleForComparison(item.title))
+                    }
+                }
+
                 if (currentTab.offset != null) {
                     // Single Day view: filter items falling in target day
-                    val dayAnime = remember(rawFiltered, currentTab.offset) {
+                    val dayAnime = remember(rawFiltered, currentTab.offset, isBookmarked) {
                         val targetCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, currentTab.offset) }
                         targetCal.set(Calendar.HOUR_OF_DAY, 0)
                         targetCal.set(Calendar.MINUTE, 0)
@@ -303,10 +394,8 @@ fun TvCalendarScreen(
                         rawFiltered
                             .filter { it.airingAt in startUnix..endUnix }
                             .sortedWith(
-                                compareByDescending<AiringAnimeItem> {
-                                    state.bookmarkedMediaIds.contains(it.id) ||
-                                            state.bookmarkedTitles.contains(viewModel.normalizeTitleForComparison(it.title))
-                                }.thenBy { it.airingAt }
+                                compareByDescending<AiringAnimeItem> { isBookmarked(it) }
+                                    .thenBy { it.airingAt }
                             )
                     }
 
@@ -314,38 +403,48 @@ fun TvCalendarScreen(
                         Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Icon(
-                                    Icons.Rounded.Schedule,
-                                    contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.25f),
-                                    modifier = Modifier.size(48.dp)
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .clip(CircleShape)
+                                        .background(YugenCardSurface)
+                                        .border(1.dp, YugenCardBorder, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Schedule,
+                                        contentDescription = null,
+                                        tint = YugenPurple.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
                                 Text(
                                     text = "No broadcasts scheduled for ${currentTab.dayName}",
-                                    color = Color.White,
-                                    fontSize = 16.sp,
+                                    color = TextPrimary,
+                                    fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
                                     text = "Select another day to view upcoming broadcast releases.",
-                                    color = Color.White.copy(alpha = 0.6f),
-                                    fontSize = 13.sp
+                                    color = TextSecondary,
+                                    fontSize = 13.5.sp
                                 )
                             }
                         }
                     } else {
                         LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 132.dp),
+                            columns = GridCells.Adaptive(minSize = 136.dp),
                             modifier = Modifier.weight(1f).fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(TvSpacing.itemGap),
+                            verticalArrangement = Arrangement.spacedBy(TvSpacing.itemGap),
                             contentPadding = PaddingValues(bottom = 32.dp)
                         ) {
                             items(dayAnime, key = { "${it.id}_${it.episode}_${it.airingAt}" }) { item ->
                                 TvScheduleCard(
                                     item = item,
+                                    isBookmarked = isBookmarked(item),
                                     timeFormat = timeFormat,
                                     onClick = { onAnimeClick(item.id, item.title, item.posterUrl) }
                                 )
@@ -364,13 +463,11 @@ fun TvCalendarScreen(
                         "SAT" to "Saturday",
                         "SUN" to "Sunday"
                     )
-                    val groupedByDay = remember(rawFiltered) {
+                    val groupedByDay = remember(rawFiltered, isBookmarked) {
                         val cal = Calendar.getInstance()
                         val sorted = rawFiltered.sortedWith(
-                            compareByDescending<AiringAnimeItem> {
-                                state.bookmarkedMediaIds.contains(it.id) ||
-                                        state.bookmarkedTitles.contains(viewModel.normalizeTitleForComparison(it.title))
-                            }.thenBy { it.airingAt }
+                            compareByDescending<AiringAnimeItem> { isBookmarked(it) }
+                                .thenBy { it.airingAt }
                         )
                         dayOrder.mapNotNull { dayKey ->
                             val items = sorted.filter { item ->
@@ -393,11 +490,37 @@ fun TvCalendarScreen(
 
                     if (groupedByDay.isEmpty()) {
                         Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "No releases found for this week",
-                                color = Color.White.copy(alpha = 0.7f),
-                                fontSize = 15.sp
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .clip(CircleShape)
+                                        .background(YugenCardSurface)
+                                        .border(1.dp, YugenCardBorder, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Schedule,
+                                        contentDescription = null,
+                                        tint = YugenPurple.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                                Text(
+                                    text = "No releases found for this week",
+                                    color = TextPrimary,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Check back later for updated broadcasting schedules.",
+                                    color = TextSecondary,
+                                    fontSize = 13.5.sp
+                                )
+                            }
                         }
                     } else {
                         LazyColumn(
@@ -413,15 +536,15 @@ fun TvCalendarScreen(
                                     ) {
                                         Text(
                                             text = dayTitle,
-                                            color = Color.White,
-                                            fontSize = 17.sp,
+                                            color = TextPrimary,
+                                            fontSize = 18.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
                                             text = "• ${items.size} ${if (items.size == 1) "Show" else "Shows"}",
-                                            color = Color.White.copy(alpha = 0.45f),
-                                            fontSize = 12.sp,
+                                            color = TextMuted,
+                                            fontSize = 12.5.sp,
                                             fontWeight = FontWeight.Medium
                                         )
                                     }
@@ -433,6 +556,7 @@ fun TvCalendarScreen(
                                         items(items, key = { "${it.id}_${it.episode}_${it.airingAt}" }) { item ->
                                             TvScheduleCard(
                                                 item = item,
+                                                isBookmarked = isBookmarked(item),
                                                 timeFormat = timeFormat,
                                                 onClick = { onAnimeClick(item.id, item.title, item.posterUrl) }
                                             )
@@ -451,6 +575,7 @@ fun TvCalendarScreen(
 @Composable
 private fun TvScheduleCard(
     item: AiringAnimeItem,
+    isBookmarked: Boolean,
     timeFormat: SimpleDateFormat,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -459,25 +584,24 @@ private fun TvScheduleCard(
     val timeStr = remember(item.airingAt) {
         timeFormat.format(Date(item.airingAt * 1000L))
     }
-    val shape = RoundedCornerShape(12.dp)
 
     Column(
         modifier = modifier
-            .width(132.dp)
+            .width(136.dp)
             .padding(vertical = 4.dp)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(188.dp)
+                .height(192.dp)
                 .tvCardFocusable(
                     onClick = onClick,
-                    shape = shape,
+                    shape = YugenShape.card,
                     focusedScale = 1.08f,
-                    focusedBorderColor = Color(0xFF8B5CF6),
+                    focusedBorderColor = YugenPurple,
                     focusedBorderWidth = 3.dp
                 )
-                .background(Color(0xFF16161D), shape)
+                .background(YugenCardSurface, YugenShape.card)
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -493,57 +617,81 @@ private fun TvScheduleCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(70.dp)
+                    .height(75.dp)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.92f))
                         )
                     )
             )
 
-            // Top Arrival Time Badge (Amber / Gold pill with Clock)
+            // Top Arrival Time Badge (Amber pill with Clock)
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(6.dp)
-                    .clip(RoundedCornerShape(5.dp))
+                    .clip(YugenShape.xs)
                     .background(Color.Black.copy(alpha = 0.75f))
-                    .border(1.dp, Color(0xFFFBBF24).copy(alpha = 0.5f), RoundedCornerShape(5.dp))
+                    .border(1.dp, StarYellow.copy(alpha = 0.5f), YugenShape.xs)
                     .padding(horizontal = 5.dp, vertical = 2.5.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        Icons.Rounded.Schedule,
+                        imageVector = Icons.Rounded.Schedule,
                         contentDescription = null,
-                        tint = Color(0xFFFBBF24),
+                        tint = StarYellow,
                         modifier = Modifier.size(10.dp)
                     )
                     Spacer(modifier = Modifier.width(3.dp))
                     Text(
                         text = timeStr,
-                        color = Color.White,
+                        color = TextPrimary,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            // Top Right Episode Badge
-            Box(
+            // Top Right Badges: Bookmark Indicator + Episode Badge
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(Color(0xFF8B5CF6))
-                    .padding(horizontal = 5.dp, vertical = 2.5.dp)
+                    .padding(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "EP ${item.episode}",
-                    color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Black
-                )
+                if (isBookmarked) {
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clip(YugenShape.xs)
+                            .background(Color.Black.copy(alpha = 0.75f))
+                            .border(1.dp, YugenAccentViolet.copy(alpha = 0.6f), YugenShape.xs),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Bookmark,
+                            contentDescription = "Saved",
+                            tint = YugenAccentViolet,
+                            modifier = Modifier.size(11.dp)
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(YugenShape.xs)
+                        .background(YugenPurple)
+                        .padding(horizontal = 5.dp, vertical = 2.5.dp)
+                ) {
+                    Text(
+                        text = "EP ${item.episode}",
+                        color = TextPrimary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
             }
 
             // Format & Year tag
@@ -554,7 +702,7 @@ private fun TvScheduleCard(
 
             Text(
                 text = formatTag,
-                color = Color.White.copy(alpha = 0.8f),
+                color = TextSecondary,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier
@@ -568,7 +716,7 @@ private fun TvScheduleCard(
         // Title outside poster
         Text(
             text = item.title,
-            color = Color.White,
+            color = TextPrimary,
             fontSize = 12.5.sp,
             fontWeight = FontWeight.SemiBold,
             maxLines = 2,

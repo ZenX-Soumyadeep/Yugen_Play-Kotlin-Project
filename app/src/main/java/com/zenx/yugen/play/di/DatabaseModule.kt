@@ -9,6 +9,7 @@ import com.zenx.yugen.play.BuildConfig
 import com.zenx.yugen.play.data.local.AnimeDetailsDao
 import com.zenx.yugen.play.data.local.AppDatabase
 import com.zenx.yugen.play.data.local.FavoriteDao
+import com.zenx.yugen.play.data.local.Mp4DownloadDao
 import com.zenx.yugen.play.data.local.OfflineSyncDao
 import com.zenx.yugen.play.data.local.TitleMappingDao
 import com.zenx.yugen.play.data.local.WatchHistoryDao
@@ -80,6 +81,33 @@ object DatabaseModule {
         }
     }
 
+    private val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `watch_history` ADD COLUMN `anilistId` INTEGER DEFAULT NULL")
+            db.execSQL("ALTER TABLE `watch_history` ADD COLUMN `providerName` TEXT DEFAULT NULL")
+            db.execSQL("ALTER TABLE `title_mappings` ADD COLUMN `createdAt` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `title_mappings` ADD COLUMN `confidence` REAL NOT NULL DEFAULT 1.0")
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `mp4_downloads` (
+                    `id` TEXT NOT NULL,
+                    `episodeId` TEXT NOT NULL,
+                    `animeTitle` TEXT NOT NULL,
+                    `episodeNumber` REAL NOT NULL,
+                    `posterUrl` TEXT NOT NULL,
+                    `videoUrl` TEXT NOT NULL,
+                    `localFilePath` TEXT NOT NULL,
+                    `bytesDownloaded` INTEGER NOT NULL DEFAULT 0,
+                    `totalBytes` INTEGER NOT NULL DEFAULT 0,
+                    `state` TEXT NOT NULL DEFAULT 'QUEUED',
+                    `createdAt` INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent()
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -88,8 +116,7 @@ object DatabaseModule {
             AppDatabase::class.java,
             AppDatabase.DATABASE_NAME
         )
-        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_1_3, MIGRATION_3_4, MIGRATION_4_5)
-        .fallbackToDestructiveMigration(dropAllTables = true)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_1_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
         .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
         .build()
     }
@@ -111,7 +138,12 @@ object DatabaseModule {
     fun provideOfflineSyncDao(database: AppDatabase): OfflineSyncDao = database.offlineSyncDao()
 
     @Provides
+    @Singleton
     fun provideAnimeDetailsDao(database: AppDatabase): AnimeDetailsDao = database.animeDetailsDao()
+
+    @Provides
+    @Singleton
+    fun provideMp4DownloadDao(database: AppDatabase): Mp4DownloadDao = database.mp4DownloadDao()
 
     @Provides
     @Singleton

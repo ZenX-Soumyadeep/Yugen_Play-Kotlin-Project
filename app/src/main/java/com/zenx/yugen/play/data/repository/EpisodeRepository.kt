@@ -37,12 +37,15 @@ class EpisodeRepository @Inject constructor(
             val primaryProvider = providerRegistry.getProvider(providerName)
                 ?: providerRegistry.getDefaultProvider()
 
+            val mappedUrl = if (anilistId != null) titleMappingRepository.getMappedUrl(anilistId, primaryProvider.name) else null
+            val effectiveTargetUrl = mappedUrl ?: targetUrl?.takeIf { it.startsWith("http") || it.startsWith("/") }
+
             // 1. Check in-memory list cache first
             val cacheKey = if (anilistId != null) "${primaryProvider.name}:$anilistId" else "${primaryProvider.name}:$title"
             
             val cachedEpisodes = synchronized(cacheLock) {
                 val cachedUrl = sessionUrlCache.get(cacheKey)
-                val isManualOverride = targetUrl != null && targetUrl != cachedUrl
+                val isManualOverride = effectiveTargetUrl != null && effectiveTargetUrl != cachedUrl
                 
                 if (isManualOverride) {
                     android.util.Log.d("EpisodeRepository", "Manual URL override detected. Invalidating caches for '$title'.")
@@ -61,7 +64,7 @@ class EpisodeRepository @Inject constructor(
 
             android.util.Log.d("EpisodeRepository", "Attempting primary provider '${primaryProvider.name}' for '$title'...")
             try {
-                val primaryResult = fetchEpisodesFromProvider(primaryProvider, anilistId, targetUrl, title)
+                val primaryResult = fetchEpisodesFromProvider(primaryProvider, anilistId, effectiveTargetUrl, title)
                 if (primaryResult.isNotEmpty()) {
                     synchronized(cacheLock) { episodeListCache.put(cacheKey, primaryResult) } // Cache the result
                     return@withContext Resource.Success(primaryResult)
@@ -125,6 +128,10 @@ class EpisodeRepository @Inject constructor(
         // Provider Search & Fuzzy Matching
         if (resolvedUrl == null) {
             resolvedUrl = resolveUrlFromTitle(provider, title, cacheKey)
+        }
+
+        if (resolvedUrl != null) {
+            synchronized(cacheLock) { sessionUrlCache.put(cacheKey, resolvedUrl) }
         }
 
         if (resolvedUrl.isNullOrBlank()) return emptyList()
@@ -225,137 +232,22 @@ class EpisodeRepository @Inject constructor(
         }
     }
 
+    fun invalidateCache(providerName: String, anilistId: Int? = null, title: String? = null) {
+        synchronized(cacheLock) {
+            if (anilistId != null) {
+                val key = "$providerName:$anilistId"
+                sessionUrlCache.remove(key)
+                episodeListCache.remove(key)
+            }
+            if (!title.isNullOrBlank()) {
+                val key = "$providerName:$title"
+                sessionUrlCache.remove(key)
+                episodeListCache.remove(key)
+            }
+        }
+    }
+
     private fun findBestMatch(targetTitle: String, results: List<SearchResult>): SearchResult? {
-        if (results.isEmpty()) return null
-
-        val targetSeason = extractSeason(targetTitle)
-        val targetPart = extractPart(targetTitle)
-        val targetYear = extractYear(targetTitle)
-        val cleanTarget = cleanBaseTitle(targetTitle)
-
-        var bestResult: SearchResult? = null
-        var highestScore = 0.0
-
-        for (result in results) {
-            val candidateSeason = extractSeason(result.title)
-            val candidatePart = extractPart(result.title)
-            val candidateYear = extractYear(result.title)
-            val cleanCandidate = cleanBaseTitle(result.title)
-
-            // Season and part conflicts immediately disqualify candidate
-            val seasonConflict = targetSeason != null && candidateSeason != null && targetSeason != candidateSeason
-            val partConflict = targetPart != null && candidatePart != null && targetPart != candidatePart
-            val yearConflict = targetYear != null && candidateYear != null && targetYear != candidateYear
-            if (seasonConflict || partConflict || yearConflict) continue
-
-            if (cleanTarget == cleanCandidate) {
-                if (targetYear != null && candidateYear == targetYear) {
-                    return result
-                }
-                if (bestResult == null) {
-                    bestResult = result
-                    highestScore = 1.0
-                }
-            }
-
-            val yearBonus = if (targetYear != null && candidateYear == targetYear) 0.2 else 0.0
-            val score = minOf(calculateSimilarity(cleanTarget, cleanCandidate) + yearBonus, 1.0)
-            if (score > highestScore) {
-                highestScore = score
-                bestResult = result
-            }
-        }
-
-        val requiredThreshold = when {
-            cleanTarget.length <= 6 -> 0.85
-            cleanTarget.length <= 15 -> 0.72
-            else -> 0.62
-        }
-
-        return if (highestScore >= requiredThreshold) bestResult else null
-    }
-
-    private fun extractYear(title: String): Int? {
-        val match = Regex("""\b(19\d{2}|20\d{2})\b""").find(title)
-        return match?.groupValues?.get(1)?.toIntOrNull()
-    }
-
-    private fun extractSeason(title: String): Int? {
-        val lower = title.lowercase()
-        val numMatch = Regex("""\b(?:season\s*(\d+)|(\d+)(?:st|nd|rd|th)\s*season|s(\d+))\b""").find(lower)
-        if (numMatch != null) {
-            return numMatch.groupValues[1].toIntOrNull()
-                ?: numMatch.groupValues[2].toIntOrNull()
-                ?: numMatch.groupValues[3].toIntOrNull()
-        }
-
-        val romanMatch = Regex("""\b(iv|iii|ii)\b""").find(lower)
-        if (romanMatch != null) {
-            return when (romanMatch.groupValues[1]) {
-                "iv" -> 4
-                "iii" -> 3
-                "ii" -> 2
-                else -> null
-            }
-        }
-        return null
-    }
-
-    private fun extractPart(title: String): Int? {
-        val lower = title.lowercase()
-        val numMatch = Regex("""\b(?:part|cour)[-.\s]*(\d+)\b""").find(lower)
-        if (numMatch != null) {
-            return numMatch.groupValues[1].toIntOrNull()
-        }
-        val romanPartMatch = Regex("""\b(?:part|cour)[-.\s]*(iv|iii|ii|i)\b""").find(lower)
-        if (romanPartMatch != null) {
-            return when (romanPartMatch.groupValues[1]) {
-                "iv" -> 4
-                "iii" -> 3
-                "ii" -> 2
-                "i" -> 1
-                else -> null
-            }
-        }
-        return null
-    }
-
-    private fun cleanBaseTitle(title: String): String {
-        return title.lowercase()
-            .replace(Regex("""\b(tv|ova|ona|movie|special|special edition)\b"""), "")
-            .replace(Regex("""\b(dub|sub|dubbed|subbed|dual audio)\b"""), "")
-            .replace(Regex("""\b(?:season|s)\s*\d+\b"""), "")
-            .replace(Regex("""\b\d+(?:st|nd|rd|th)\s*season\b"""), "")
-            .replace(Regex("""\b(?:part|cour)[-.\s]*(?:\d+|iv|iii|ii|i)\b"""), "")
-            .replace(Regex("""\bfinal season\b"""), "")
-            .replace(Regex("""\b(19\d{2}|20\d{2})\b"""), "")
-            .replace("×", "x")
-            .replace(Regex("""[^a-z0-9 ]"""), " ")
-            .replace(Regex("""\s+"""), " ")
-            .trim()
-    }
-
-    private fun calculateSimilarity(s1: String, s2: String): Double {
-        val maxLen = maxOf(s1.length, s2.length)
-        if (maxLen == 0) return 1.0
-        val dist = levenshtein(s1, s2)
-        return 1.0 - (dist.toDouble() / maxLen)
-    }
-
-    private fun levenshtein(lhs: CharSequence, rhs: CharSequence): Int {
-        var cost = IntArray(rhs.length + 1) { it }
-        for (i in 1..lhs.length) {
-            val newCost = IntArray(rhs.length + 1)
-            newCost[0] = i
-            for (j in 1..rhs.length) {
-                val match = if (lhs[i - 1] == rhs[j - 1]) 0 else 1
-                val costReplace = cost[j - 1] + match
-                val costInsert  = cost[j] + 1
-                val costDelete  = newCost[j - 1] + 1
-                newCost[j] = minOf(costInsert, costDelete, costReplace)
-            }
-            cost = newCost
-        }
-        return cost[rhs.length]
+        return com.zenx.yugen.play.util.TitleMatcher.findBestMatch(targetTitle, results)
     }
 }

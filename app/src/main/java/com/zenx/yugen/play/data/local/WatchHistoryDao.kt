@@ -17,6 +17,9 @@ interface WatchHistoryDao {
     @Query("SELECT * FROM watch_history WHERE animeTitle = :animeTitle")
     suspend fun getHistoryForAnime(animeTitle: String): List<WatchHistoryEntity>
 
+    @Query("SELECT * FROM watch_history WHERE anilistId = :anilistId")
+    suspend fun getHistoryForAnilistId(anilistId: Int): List<WatchHistoryEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveProgress(entity: WatchHistoryEntity)
 

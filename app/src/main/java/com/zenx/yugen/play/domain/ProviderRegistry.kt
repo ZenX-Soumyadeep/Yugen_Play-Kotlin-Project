@@ -4,6 +4,8 @@ open class ProviderRegistry(private val providerSupplier: () -> List<AnimeProvid
 
     constructor(providers: List<AnimeProvider>) : this({ providers })
 
+    private val providers by lazy { providerSupplier() }
+
     private val fallbackProvider = object : AnimeProvider {
         override val name: String = "None"
         override val baseUrl: String = ""
@@ -13,14 +15,14 @@ open class ProviderRegistry(private val providerSupplier: () -> List<AnimeProvid
     }
 
     open fun getDefaultProvider(): AnimeProvider {
-        return providerSupplier().firstOrNull() ?: fallbackProvider
+        return providers.firstOrNull() ?: fallbackProvider
     }
 
     open fun getProvider(name: String): AnimeProvider? {
-        return providerSupplier().firstOrNull { it.name.equals(name, ignoreCase = true) }
+        return providers.firstOrNull { it.name.equals(name, ignoreCase = true) }
     }
 
-    open fun getAllProviders(): List<AnimeProvider> = providerSupplier().ifEmpty { listOf(fallbackProvider) }
+    open fun getAllProviders(): List<AnimeProvider> = providers.ifEmpty { listOf(fallbackProvider) }
 
-    fun hasExtensions(): Boolean = providerSupplier().isNotEmpty()
+    fun hasExtensions(): Boolean = providers.isNotEmpty()
 }

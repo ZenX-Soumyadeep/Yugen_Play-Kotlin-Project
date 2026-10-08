@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,16 +35,27 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.zenx.yugen.play.ui.components.premiumShimmerEffect
 import com.zenx.yugen.play.ui.detail.DetailViewModel
 import com.zenx.yugen.play.ui.detail.DetailsUiState
 import com.zenx.yugen.play.ui.detail.EpisodeUiModel
+import com.zenx.yugen.play.ui.tv.components.TvEpisodeCard
 import com.zenx.yugen.play.ui.tv.components.tvButtonFocusable
 import com.zenx.yugen.play.ui.tv.components.tvCardFocusable
+import com.zenx.yugen.play.ui.tv.TvSpacing
+import com.zenx.yugen.play.ui.tv.TvType
+import com.zenx.yugen.play.ui.theme.StarYellow
+import com.zenx.yugen.play.ui.theme.YugenAccentViolet
+import com.zenx.yugen.play.ui.theme.YugenBillboardBg
+import com.zenx.yugen.play.ui.theme.YugenCardSurface
+import com.zenx.yugen.play.ui.theme.YugenPurple
+import com.zenx.yugen.play.ui.theme.YugenRed
+import com.zenx.yugen.play.ui.theme.YugenSurfaceVariant
 import kotlinx.coroutines.delay
 
 @Composable
 fun TvDetailScreen(
-    onEpisodeClick: (episodeId: String, animeUrl: String, title: String, poster: String, streamUrl: String?) -> Unit,
+    onEpisodeClick: (episodeId: String, animeUrl: String, provider: String, title: String, poster: String, streamUrl: String?, mediaId: String, episodeNumber: Int) -> Unit,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
     onExtensionsClick: () -> Unit = {},
@@ -66,6 +78,11 @@ fun TvDetailScreen(
 
     val playFocusRequester = remember { FocusRequester() }
     val backFocusRequester = remember { FocusRequester() }
+    val providerFocusRequester = remember { FocusRequester() }
+    val favFocusRequester = remember { FocusRequester() }
+    val fixTitleFocusRequester = remember { FocusRequester() }
+    val chunkRowFocusRequester = remember { FocusRequester() }
+    val firstEpisodeFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(uiState) {
         if (uiState is DetailsUiState.Success) {
@@ -79,36 +96,68 @@ fun TvDetailScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
+            .background(YugenBillboardBg)
     ) {
         when (val state = uiState) {
             is DetailsUiState.Loading -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color(0xFF8B5CF6), strokeWidth = 3.dp)
-                }
+                TvDetailSkeleton()
             }
             is DetailsUiState.Error -> {
+                val errorFocusRequester = remember { FocusRequester() }
+                LaunchedEffect(Unit) {
+                    delay(100)
+                    try {
+                        errorFocusRequester.requestFocus()
+                    } catch (_: Exception) {}
+                }
+
                 Column(
                     modifier = Modifier
                         .align(Alignment.Center)
                         .padding(32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Text(
-                        text = "Failed to load details: ${state.message}",
-                        color = Color.White.copy(alpha = 0.8f),
-                        fontSize = 16.sp
+                    Icon(
+                        imageVector = Icons.Rounded.WarningAmber,
+                        contentDescription = null,
+                        tint = YugenAccentViolet,
+                        modifier = Modifier.size(40.dp)
                     )
+                    Text(
+                        text = "Unable to load details",
+                        color = Color.White,
+                        style = TvType.detailSectionHeader
+                    )
+                    Text(
+                        text = state.message,
+                        color = Color.White.copy(alpha = 0.65f),
+                        style = TvType.detailBodySmall,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.widthIn(max = 480.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
                     Row(
                         modifier = Modifier
-                            .tvButtonFocusable(onClick = onBackClick)
-                            .padding(horizontal = 20.dp, vertical = 10.dp),
+                            .focusRequester(errorFocusRequester)
+                            .tvButtonFocusable(
+                                onClick = onBackClick,
+                                shape = RoundedCornerShape(12.dp),
+                                focusedBackgroundColor = YugenPurple,
+                                unfocusedBackgroundColor = Color.White.copy(alpha = 0.12f),
+                                focusedBorderColor = Color.White
+                            )
+                            .padding(horizontal = 22.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null, tint = Color.White)
+                        Icon(
+                            Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Go Back", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("Go Back", color = Color.White, style = TvType.detailButtonLabel)
                     }
                 }
             }
@@ -130,21 +179,17 @@ fun TvDetailScreen(
                         .fillMaxSize()
                         .background(
                             Brush.verticalGradient(
-                                0.0f to Color(0xFF09090C).copy(alpha = 0.80f),
-                                0.35f to Color(0xFF09090C).copy(alpha = 0.72f),
-                                0.70f to Color(0xFF09090C).copy(alpha = 0.92f),
-                                1.0f to Color(0xFF09090C)
+                                0.0f to YugenBillboardBg.copy(alpha = 0.80f),
+                                0.35f to YugenBillboardBg.copy(alpha = 0.72f),
+                                0.70f to YugenBillboardBg.copy(alpha = 0.92f),
+                                1.0f to YugenBillboardBg
                             )
                         )
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
                         .background(
                             Brush.horizontalGradient(
-                                0.0f to Color(0xFF09090C).copy(alpha = 0.95f),
-                                0.55f to Color(0xFF09090C).copy(alpha = 0.75f),
-                                1.0f to Color(0xFF09090C).copy(alpha = 0.88f)
+                                0.0f to YugenBillboardBg.copy(alpha = 0.95f),
+                                0.55f to YugenBillboardBg.copy(alpha = 0.75f),
+                                1.0f to YugenBillboardBg.copy(alpha = 0.88f)
                             )
                         )
                 )
@@ -155,7 +200,12 @@ fun TvDetailScreen(
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 36.dp, end = 36.dp, top = 82.dp, bottom = 64.dp),
+                    contentPadding = PaddingValues(
+                        start = TvSpacing.heroContentPaddingH,
+                        end = TvSpacing.heroContentPaddingH,
+                        top = TvSpacing.heroContentPaddingTop,
+                        bottom = 64.dp
+                    ),
                     verticalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
                     // --- MAIN HERO ROW (Poster + Info + Actions) ---
@@ -170,7 +220,7 @@ fun TvDetailScreen(
                                     .width(175.dp)
                                     .height(255.dp)
                                     .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFF16161D))
+                                    .background(YugenCardSurface)
                                     .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
                             ) {
                                 AsyncImage(
@@ -195,11 +245,9 @@ fun TvDetailScreen(
                                 Text(
                                     text = state.title,
                                     color = Color.White,
-                                    fontSize = 28.sp,
-                                    fontWeight = FontWeight.Black,
+                                    style = TvType.detailTitle,
                                     maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    lineHeight = 34.sp
+                                    overflow = TextOverflow.Ellipsis
                                 )
 
                                 // Badges Row: Score, Format, Year, Episodes, Mapped
@@ -218,7 +266,7 @@ fun TvDetailScreen(
                                             Icon(
                                                 Icons.Rounded.Star,
                                                 contentDescription = null,
-                                                tint = Color(0xFFFBBF24),
+                                                tint = StarYellow,
                                                 modifier = Modifier.size(13.dp)
                                             )
                                             Spacer(modifier = Modifier.width(3.dp))
@@ -262,11 +310,11 @@ fun TvDetailScreen(
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(6.dp))
-                                                .background(Color(0xFF8B5CF6).copy(alpha = 0.25f))
-                                                .border(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                                                .background(YugenPurple.copy(alpha = 0.25f))
+                                                .border(1.dp, YugenPurple.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
                                                 .padding(horizontal = 7.dp, vertical = 2.dp)
                                         ) {
-                                            Text("CUSTOM MAPPED", color = Color(0xFFA78BFA), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            Text("CUSTOM MAPPED", color = YugenAccentViolet, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
 
@@ -327,8 +375,7 @@ fun TvDetailScreen(
                                     Text(
                                         text = state.synopsis.replace(Regex("<[^>]*>"), ""),
                                         color = Color.White.copy(alpha = 0.72f),
-                                        fontSize = 13.sp,
-                                        lineHeight = 18.sp,
+                                        style = TvType.detailBodySmall,
                                         maxLines = 3,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -344,6 +391,8 @@ fun TvDetailScreen(
                                     else -> "Play Episode 1"
                                 }
 
+                                val nextDown = if (episodeChunks.size > 1) chunkRowFocusRequester else firstEpisodeFocusRequester
+
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -355,16 +404,18 @@ fun TvDetailScreen(
                                             .focusRequester(playFocusRequester)
                                             .focusProperties {
                                                 up = backFocusRequester
+                                                down = nextDown
+                                                right = favFocusRequester
                                             }
                                             .tvButtonFocusable(
                                                 onClick = {
                                                     targetEp?.let { ep ->
-                                                        onEpisodeClick(ep.id, viewModel.animeUrl, viewModel.animeTitle, state.posterUrl, null)
+                                                        onEpisodeClick(ep.id, state.animeUrl, state.activeProvider, viewModel.animeTitle, state.posterUrl, null, state.id, ep.number.toIntOrNull() ?: 1)
                                                     }
                                                 },
                                                 shape = RoundedCornerShape(12.dp),
-                                                focusedBackgroundColor = Color(0xFF8B5CF6),
-                                                unfocusedBackgroundColor = Color(0xFF8B5CF6).copy(alpha = 0.9f),
+                                                focusedBackgroundColor = YugenPurple,
+                                                unfocusedBackgroundColor = YugenPurple.copy(alpha = 0.9f),
                                                 focusedBorderColor = Color.White
                                             )
                                             .height(44.dp)
@@ -381,8 +432,7 @@ fun TvDetailScreen(
                                         Text(
                                             text = playLabel,
                                             color = Color.White,
-                                            fontSize = 13.5.sp,
-                                            fontWeight = FontWeight.Bold
+                                            style = TvType.detailButtonLabel
                                         )
                                     }
 
@@ -403,6 +453,13 @@ fun TvDetailScreen(
 
                                     Row(
                                         modifier = Modifier
+                                            .focusRequester(favFocusRequester)
+                                            .focusProperties {
+                                                up = backFocusRequester
+                                                down = nextDown
+                                                left = playFocusRequester
+                                                right = fixTitleFocusRequester
+                                            }
                                             .tvButtonFocusable(
                                                 onClick = {
                                                     if (state.isUserLoggedIn) {
@@ -413,9 +470,9 @@ fun TvDetailScreen(
                                                 },
                                                 shape = RoundedCornerShape(12.dp),
                                                 focusedBackgroundColor = Color.White.copy(alpha = 0.25f),
-                                                unfocusedBackgroundColor = if (isBookmarked) Color(0xFF8B5CF6).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.12f),
-                                                focusedBorderColor = Color(0xFFA78BFA),
-                                                unfocusedBorderColor = if (isBookmarked) Color(0xFF8B5CF6).copy(alpha = 0.4f) else Color.Transparent
+                                                unfocusedBackgroundColor = if (isBookmarked) YugenPurple.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.12f),
+                                                focusedBorderColor = YugenAccentViolet,
+                                                unfocusedBorderColor = if (isBookmarked) YugenPurple.copy(alpha = 0.4f) else Color.Transparent
                                             )
                                             .height(44.dp)
                                             .padding(horizontal = 16.dp),
@@ -429,7 +486,7 @@ fun TvDetailScreen(
                                             },
                                             contentDescription = null,
                                             tint = if (state.isUserLoggedIn) {
-                                                if (state.anilistStatus != null) Color(0xFFA78BFA) else Color.White
+                                                if (state.anilistStatus != null) YugenAccentViolet else Color.White
                                             } else {
                                                 if (state.isFavorite) Color(0xFFF43F5E) else Color.White
                                             },
@@ -439,8 +496,7 @@ fun TvDetailScreen(
                                         Text(
                                             text = favLabel,
                                             color = Color.White,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.SemiBold
+                                            style = TvType.detailButtonLabel
                                         )
                                     }
 
@@ -448,6 +504,12 @@ fun TvDetailScreen(
                                     val isMapped = state.isMapped
                                     Row(
                                         modifier = Modifier
+                                            .focusRequester(fixTitleFocusRequester)
+                                            .focusProperties {
+                                                up = providerFocusRequester
+                                                down = nextDown
+                                                left = favFocusRequester
+                                            }
                                             .tvButtonFocusable(
                                                 onClick = {
                                                     if (isMapped) {
@@ -459,9 +521,9 @@ fun TvDetailScreen(
                                                     }
                                                 },
                                                 shape = RoundedCornerShape(12.dp),
-                                                focusedBackgroundColor = if (isMapped) Color(0xFFEF4444).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.25f),
-                                                unfocusedBackgroundColor = if (isMapped) Color(0xFFEF4444).copy(alpha = 0.18f) else Color.White.copy(alpha = 0.12f),
-                                                focusedBorderColor = if (isMapped) Color(0xFFEF4444) else Color(0xFFA78BFA)
+                                                focusedBackgroundColor = if (isMapped) YugenRed.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.25f),
+                                                unfocusedBackgroundColor = if (isMapped) YugenRed.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.12f),
+                                                focusedBorderColor = if (isMapped) YugenRed else YugenAccentViolet
                                             )
                                             .height(44.dp)
                                             .padding(horizontal = 16.dp),
@@ -470,15 +532,14 @@ fun TvDetailScreen(
                                         Icon(
                                             if (isMapped) Icons.Rounded.Close else Icons.Rounded.AutoFixHigh,
                                             contentDescription = null,
-                                            tint = if (isMapped) Color(0xFFEF4444) else Color(0xFFA78BFA),
+                                            tint = if (isMapped) YugenRed else YugenAccentViolet,
                                             modifier = Modifier.size(17.dp)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = if (isMapped) "Remove Map" else "Fix Title",
                                             color = Color.White,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.SemiBold
+                                            style = TvType.detailButtonLabel
                                         )
                                     }
                                 }
@@ -497,13 +558,12 @@ fun TvDetailScreen(
                                 Text(
                                     text = "Episodes (${allEpisodes.size})",
                                     color = Color.White,
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Bold
+                                    style = TvType.detailSectionHeader
                                 )
 
                                 if (state.isEpisodesLoading) {
                                     CircularProgressIndicator(
-                                        color = Color(0xFF8B5CF6),
+                                        color = YugenPurple,
                                         modifier = Modifier.size(18.dp),
                                         strokeWidth = 2.dp
                                     )
@@ -522,16 +582,31 @@ fun TvDetailScreen(
                                         val startNum = (index * 25) + 1
                                         val endNum = ((index + 1) * 25).coerceAtMost(allEpisodes.size.takeIf { it > 0 } ?: ((index + 1) * 25))
 
+                                        val chunkModifier = if (index == 0) {
+                                            Modifier
+                                                .focusRequester(chunkRowFocusRequester)
+                                                .focusProperties {
+                                                    up = playFocusRequester
+                                                    down = firstEpisodeFocusRequester
+                                                }
+                                        } else {
+                                            Modifier.focusProperties {
+                                                up = playFocusRequester
+                                                down = firstEpisodeFocusRequester
+                                            }
+                                        }
+
                                         Box(
                                             modifier = Modifier
                                                 .widthIn(min = 76.dp)
+                                                .then(chunkModifier)
                                                 .tvButtonFocusable(
                                                     onClick = { selectedChunkIndex = index },
                                                     shape = RoundedCornerShape(10.dp),
-                                                    focusedBackgroundColor = Color(0xFF8B5CF6),
-                                                    unfocusedBackgroundColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
-                                                    focusedBorderColor = Color(0xFFA78BFA),
-                                                    unfocusedBorderColor = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.5f) else Color.Transparent
+                                                    focusedBackgroundColor = YugenPurple,
+                                                    unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
+                                                    focusedBorderColor = YugenAccentViolet,
+                                                    unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.5f) else Color.Transparent
                                                 )
                                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                                             contentAlignment = Alignment.Center
@@ -558,21 +633,49 @@ fun TvDetailScreen(
                                 contentPadding = PaddingValues(vertical = 6.dp)
                             ) {
                                 items(currentChunk, key = { it.id }) { ep ->
+                                    val isFirst = currentChunk.firstOrNull()?.id == ep.id
+                                    val cardFocusModifier = if (isFirst) {
+                                        Modifier
+                                            .focusRequester(firstEpisodeFocusRequester)
+                                            .focusProperties {
+                                                up = if (episodeChunks.size > 1) chunkRowFocusRequester else playFocusRequester
+                                            }
+                                    } else {
+                                        Modifier.focusProperties {
+                                            up = if (episodeChunks.size > 1) chunkRowFocusRequester else playFocusRequester
+                                        }
+                                    }
+
                                     TvEpisodeCard(
                                         episode = ep,
                                         fallbackImageUrl = state.bannerUrl.ifEmpty { state.posterUrl },
                                         onClick = {
-                                            onEpisodeClick(ep.id, viewModel.animeUrl, viewModel.animeTitle, state.posterUrl, null)
-                                        }
+                                            onEpisodeClick(ep.id, state.animeUrl, state.activeProvider, viewModel.animeTitle, state.posterUrl, null, state.id, ep.number.toIntOrNull() ?: 1)
+                                        },
+                                        cardModifier = cardFocusModifier
                                     )
                                 }
                             }
                         } else if (!state.isEpisodesLoading) {
-                            Text(
-                                text = state.episodeError ?: "No episodes available for this anime.",
-                                color = Color.White.copy(alpha = 0.6f),
-                                fontSize = 13.sp
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Info,
+                                    contentDescription = null,
+                                    tint = Color.White.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = state.episodeError ?: "No episodes available for this title.",
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    style = TvType.detailBodySmall
+                                )
+                            }
                         }
                     }
                 }
@@ -584,12 +687,12 @@ fun TvDetailScreen(
                         .align(Alignment.TopCenter)
                         .background(
                             Brush.verticalGradient(
-                                0.0f to Color(0xFF09090C).copy(alpha = 0.98f),
-                                0.7f to Color(0xFF09090C).copy(alpha = 0.85f),
+                                0.0f to YugenBillboardBg.copy(alpha = 0.98f),
+                                0.7f to YugenBillboardBg.copy(alpha = 0.85f),
                                 1.0f to Color.Transparent
                             )
                         )
-                        .padding(horizontal = 36.dp, vertical = 14.dp),
+                        .padding(horizontal = TvSpacing.heroContentPaddingH, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -599,12 +702,12 @@ fun TvDetailScreen(
                                 .focusRequester(backFocusRequester)
                                 .focusProperties {
                                     down = playFocusRequester
-                                    right = playFocusRequester
+                                    right = providerFocusRequester
                                 }
                                 .tvButtonFocusable(
                                     onClick = onBackClick,
                                     shape = RoundedCornerShape(10.dp),
-                                    focusedBackgroundColor = Color(0xFF8B5CF6),
+                                    focusedBackgroundColor = YugenPurple,
                                     unfocusedBackgroundColor = Color.White.copy(alpha = 0.12f),
                                     focusedBorderColor = Color.White
                                 )
@@ -618,7 +721,7 @@ fun TvDetailScreen(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Back", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Back", color = Color.White, style = TvType.detailButtonLabel)
                         }
 
                         Spacer(modifier = Modifier.width(16.dp))
@@ -626,8 +729,7 @@ fun TvDetailScreen(
                         Text(
                             text = state.title,
                             color = Color.White,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
+                            style = TvType.detailTopBarTitle,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.widthIn(max = 500.dp)
@@ -649,10 +751,15 @@ fun TvDetailScreen(
                     // Top Right Quick Provider badge (Clickable to switch source)
                     Row(
                         modifier = Modifier
+                            .focusRequester(providerFocusRequester)
+                            .focusProperties {
+                                left = backFocusRequester
+                                down = fixTitleFocusRequester
+                            }
                             .tvButtonFocusable(
                                 onClick = { showSourceDialog = true },
                                 shape = RoundedCornerShape(8.dp),
-                                focusedBackgroundColor = Color(0xFF8B5CF6),
+                                focusedBackgroundColor = YugenPurple,
                                 unfocusedBackgroundColor = Color.White.copy(alpha = 0.12f),
                                 focusedBorderColor = Color.White
                             )
@@ -662,7 +769,7 @@ fun TvDetailScreen(
                         Icon(
                             imageVector = Icons.Rounded.Layers,
                             contentDescription = "Switch Source",
-                            tint = Color(0xFFA78BFA),
+                            tint = YugenAccentViolet,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -731,162 +838,178 @@ fun TvDetailScreen(
 }
 
 @Composable
-private fun TvEpisodeCard(
-    episode: EpisodeUiModel,
-    fallbackImageUrl: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val shape = RoundedCornerShape(12.dp)
-
+private fun TvDetailSkeleton(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
-            .width(185.dp)
-            .padding(vertical = 4.dp)
+            .fillMaxSize()
+            .padding(
+                start = TvSpacing.heroContentPaddingH,
+                end = TvSpacing.heroContentPaddingH,
+                top = TvSpacing.heroContentPaddingTop,
+                bottom = 64.dp
+            ),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(104.dp)
-                .tvCardFocusable(
-                    onClick = onClick,
-                    shape = shape,
-                    focusedScale = 1.08f,
-                    focusedBorderColor = Color(0xFF8B5CF6),
-                    focusedBorderWidth = 2.5.dp
-                )
-                .background(Color(0xFF181822), shape)
+        // Main Hero Row Skeleton
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(28.dp)
         ) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(episode.thumbnailUrl?.takeIf { it.isNotBlank() } ?: fallbackImageUrl)
-                    .crossfade(250)
-                    .build(),
-                contentDescription = episode.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+            // Poster Card Skeleton
+            Box(
+                modifier = Modifier
+                    .width(175.dp)
+                    .height(255.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(YugenCardSurface)
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+                    .premiumShimmerEffect()
             )
 
-            // Dark gradient overlay
-            Box(
+            // Info details skeleton
+            Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f))
-                        )
-                    )
-            )
-
-            // Episode number pill (Top Left)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(6.dp)
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(Color.Black.copy(alpha = 0.75f))
-                    .border(0.8.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(5.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.5.dp)
+                    .weight(1f)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text(
-                    text = "EP ${episode.number}",
-                    color = Color.White,
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            // Top Right Pill: Duration
-            if (episode.duration.isNotBlank()) {
+                // Title skeleton
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(Color.Black.copy(alpha = 0.75f))
-                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                        .width(360.dp)
+                        .height(34.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(YugenSurfaceVariant)
+                        .premiumShimmerEffect()
+                )
+
+                // Badges Row skeleton
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = episode.duration,
-                        color = Color.White.copy(alpha = 0.85f),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium
+                    Box(
+                        modifier = Modifier
+                            .width(54.dp)
+                            .height(24.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(YugenSurfaceVariant)
+                            .premiumShimmerEffect()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(60.dp)
+                            .height(20.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(YugenSurfaceVariant)
+                            .premiumShimmerEffect()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(50.dp)
+                            .height(20.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(YugenSurfaceVariant)
+                            .premiumShimmerEffect()
                     )
                 }
-            }
 
-            // Center Play Icon
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(17.dp))
-                    .background(Color.Black.copy(alpha = 0.65f))
-                    .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(17.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Rounded.PlayArrow,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            // Watched badge (Bottom Left)
-            if (episode.isWatched) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFF8B5CF6).copy(alpha = 0.9f))
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Rounded.Check,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(10.dp)
-                        )
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text(
-                            text = "WATCHED",
-                            color = Color.White,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                // Synopsis skeleton (2 lines)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.85f)
+                            .height(14.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(YugenSurfaceVariant)
+                            .premiumShimmerEffect()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.6f)
+                            .height(14.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(YugenSurfaceVariant)
+                            .premiumShimmerEffect()
+                    )
                 }
-            }
 
-            // Progress Bar if in progress
-            if (episode.watchProgress > 0f && !episode.isWatched) {
-                LinearProgressIndicator(
-                    progress = { episode.watchProgress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.5.dp)
-                        .align(Alignment.BottomCenter),
-                    color = Color(0xFF8B5CF6),
-                    trackColor = Color.White.copy(alpha = 0.25f)
-                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Action Buttons Skeleton
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .width(140.dp)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(YugenSurfaceVariant)
+                            .premiumShimmerEffect()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(110.dp)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(YugenSurfaceVariant)
+                            .premiumShimmerEffect()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(100.dp)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(YugenSurfaceVariant)
+                            .premiumShimmerEffect()
+                    )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        // Episodes Header Skeleton
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(140.dp)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(YugenSurfaceVariant)
+                    .premiumShimmerEffect()
+            )
+        }
 
-        // Episode Title
-        Text(
-            text = episode.title.ifEmpty { "Episode ${episode.number}" },
-            color = Color.White,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp)
-        )
+        // Episodes Row Skeleton
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            repeat(6) {
+                Column(
+                    modifier = Modifier.width(TvSpacing.episodeCardWidth),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(TvSpacing.episodeCardHeight)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(YugenSurfaceVariant)
+                            .premiumShimmerEffect()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.7f)
+                            .height(14.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(YugenSurfaceVariant)
+                            .premiumShimmerEffect()
+                    )
+                }
+            }
+        }
     }
 }
