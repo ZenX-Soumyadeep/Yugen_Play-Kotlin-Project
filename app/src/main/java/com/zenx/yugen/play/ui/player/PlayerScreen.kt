@@ -444,7 +444,7 @@ fun PlayerScreen(
 
                     PhoneSkipIntroOverlay(
                         activeSkipInterval = playbackProgress.activeSkipInterval,
-                        onSkipClick = { targetMs -> viewModel.seekTo(targetMs) },
+                        onSkipClick = { interval -> viewModel.skipInterval(interval) },
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(
@@ -562,13 +562,13 @@ private fun AutoPlayOverlay(
 @Composable
 private fun PhoneSkipIntroOverlay(
     activeSkipInterval: SkipInterval?,
-    onSkipClick: (Long) -> Unit,
+    onSkipClick: (SkipInterval) -> Unit,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
         visible = activeSkipInterval != null,
-        enter = fadeIn(tween(250)) + slideInHorizontally(initialOffsetX = { it / 2 }, animationSpec = tween(250)),
-        exit = fadeOut(tween(250)) + slideOutHorizontally(targetOffsetX = { it / 2 }, animationSpec = tween(250)),
+        enter = fadeIn(tween(150)) + slideInHorizontally(initialOffsetX = { it / 2 }, animationSpec = tween(150)),
+        exit = fadeOut(tween(150)) + slideOutHorizontally(targetOffsetX = { it / 2 }, animationSpec = tween(150)),
         modifier = modifier
     ) {
         if (activeSkipInterval != null) {
@@ -581,7 +581,7 @@ private fun PhoneSkipIntroOverlay(
                     .clip(YugenShape.pill)
                     .background(YugenGlassSurface)
                     .border(1.5.dp, badgeColor.copy(alpha = 0.75f), YugenShape.pill)
-                    .clickable { onSkipClick((activeSkipInterval.endTime * 1000).toLong()) }
+                    .clickable { onSkipClick(activeSkipInterval) }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {

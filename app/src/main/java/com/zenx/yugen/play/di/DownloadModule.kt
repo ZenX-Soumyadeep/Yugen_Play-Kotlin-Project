@@ -12,9 +12,13 @@ import androidx.media3.database.DatabaseProvider
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.Cache
+import androidx.media3.datasource.cache.CacheDataSink
+import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.offline.DefaultDownloadIndex
+import androidx.media3.exoplayer.offline.DefaultDownloaderFactory
 import androidx.media3.exoplayer.offline.DownloadManager
 import com.zenx.yugen.play.service.DownloadTracker
 import com.zenx.yugen.play.util.CdnHostRewriter
@@ -23,15 +27,12 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import okhttp3.ConnectionPool
-import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import java.io.File
 import java.net.CookieHandler
 import java.net.CookieManager
 import java.net.CookiePolicy
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
 @OptIn(UnstableApi::class)
@@ -39,10 +40,24 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object DownloadModule {
 
+    private val REGEX_REF = Regex("""y_ref=([^&]+)""")
+    private val REGEX_ORI = Regex("""y_ori=([^&]+)""")
+    private val REGEX_CLEAN_REF = Regex("""&?y_ref=[^&]*""")
+    private val REGEX_CLEAN_ORI = Regex("""&?y_ori=[^&]*""")
+
     @Provides
     @Singleton
     fun provideDatabaseProvider(@ApplicationContext context: Context): DatabaseProvider {
-        return StandaloneDatabaseProvider(context)
+        val provider = StandaloneDatabaseProvider(context)
+        try {
+            val db = provider.writableDatabase
+            db.enableWriteAheadLogging()
+            db.execSQL("PRAGMA journal_mode = WAL;")
+            db.execSQL("PRAGMA synchronous = NORMAL;")
+            db.execSQL("PRAGMA temp_store = MEMORY;")
+            db.execSQL("PRAGMA cache_size = -8000;")
+        } catch (_: Exception) {}
+        return provider
     }
 
     @Provides
@@ -68,11 +83,6 @@ object DownloadModule {
         val downloadDirectory = File(context.filesDir, "offline_anime")
         val cache = SimpleCache(downloadDirectory, NoOpCacheEvictor(), databaseProvider)
 
-        // Ensure database write-ahead log mode is configured cleanly
-        try {
-            databaseProvider.writableDatabase.execSQL("PRAGMA synchronous = NORMAL;")
-        } catch (_: Exception) {}
-
         // Flush and checkpoint WAL journal when app transitions to background
         (context.applicationContext as? Application)?.registerActivityLifecycleCallbacks(
             object : Application.ActivityLifecycleCallbacks {
@@ -86,7 +96,7 @@ object DownloadModule {
                     runningActivities = (runningActivities - 1).coerceAtLeast(0)
                     if (runningActivities == 0) {
                         try {
-                            databaseProvider.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL);")
+                            databaseProvider.writableDatabase.execSQL("PRAGMA wal_checkpoint(PASSIVE);")
                         } catch (_: Exception) {}
                     }
                 }
@@ -122,7 +132,7 @@ object DownloadModule {
         databaseProvider: DatabaseProvider,
         @DownloadCache cache: Cache,
         downloadTracker: DownloadTracker,
-        globalOkHttpClient: OkHttpClient
+        @DownloadClient downloadOkHttpClient: OkHttpClient
     ): DownloadManager {
 
         if (CookieHandler.getDefault() == null) {
@@ -130,18 +140,6 @@ object DownloadModule {
             cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL)
             CookieHandler.setDefault(cookieManager)
         }
-
-        // Dedicated download client without thread-blocking sleeps in the interceptor
-        val downloadOkHttpClient = globalOkHttpClient.newBuilder()
-            .dispatcher(Dispatcher().apply {
-                maxRequests = 16
-                maxRequestsPerHost = 4
-            })
-            .connectionPool(ConnectionPool(10, 2, TimeUnit.MINUTES))
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .build()
 
         val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
@@ -158,20 +156,30 @@ object DownloadModule {
                 putAll(dataSpec.httpRequestHeaders)
             }
 
-            val refMatch = Regex("""y_ref=([^&]+)""").find(uriStr)
-            val oriMatch = Regex("""y_ori=([^&]+)""").find(uriStr)
+            val hasRef = uriStr.contains("y_ref=")
+            val hasOri = uriStr.contains("y_ori=")
 
             val referer = when {
-                refMatch != null -> Uri.decode(refMatch.groupValues[1])
+                hasRef -> {
+                    val refMatch = REGEX_REF.find(uriStr)
+                    refMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) } ?: "https://megaplay.buzz/"
+                }
                 host.contains("vidtube", ignoreCase = true) || host.contains("vtbe", ignoreCase = true) -> "https://vidtube.site/"
                 host.contains("megaplay", ignoreCase = true) -> "https://megaplay.buzz/"
                 else -> "https://megaplay.buzz/"
             }
-            val origin = if (oriMatch != null) Uri.decode(oriMatch.groupValues[1]) else referer
+            val origin = if (hasOri) {
+                val oriMatch = REGEX_ORI.find(uriStr)
+                oriMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) } ?: referer
+            } else referer
 
-            var cleanUriStr = uriStr.replace(Regex("""&?y_ref=[^&]*"""), "")
-            cleanUriStr = cleanUriStr.replace(Regex("""&?y_ori=[^&]*"""), "")
-            cleanUriStr = cleanUriStr.replace("?&", "?").removeSuffix("?")
+            val cleanUriStr = if (hasRef || hasOri) {
+                var s = uriStr.replace(REGEX_CLEAN_REF, "")
+                s = s.replace(REGEX_CLEAN_ORI, "")
+                s.replace("?&", "?").removeSuffix("?")
+            } else {
+                uriStr
+            }
 
             dynamicHeaders["Referer"] = referer
             dynamicHeaders["Origin"] = origin
@@ -184,14 +192,28 @@ object DownloadModule {
                 .build()
         }
 
-        val downloadExecutor = Executors.newFixedThreadPool(4)
+        // 32 concurrent threads to maximize segment throughput on Gigabit and 5G connections
+        val downloadExecutor = Executors.newFixedThreadPool(32)
+
+        // 512 KB buffer size drastically reduces disk write syscalls and flash write thrashing
+        val cacheWriteDataSinkFactory = CacheDataSink.Factory()
+            .setCache(cache)
+            .setBufferSize(512 * 1024)
+            .setFragmentSize(CacheDataSink.DEFAULT_FRAGMENT_SIZE)
+
+        val cacheDataSourceFactory = CacheDataSource.Factory()
+            .setCache(cache)
+            .setUpstreamDataSourceFactory(resolvingDataSourceFactory)
+            .setCacheWriteDataSinkFactory(cacheWriteDataSinkFactory)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+        val downloaderFactory = DefaultDownloaderFactory(cacheDataSourceFactory, downloadExecutor)
+        val downloadIndex = DefaultDownloadIndex(databaseProvider)
 
         val manager = DownloadManager(
             context,
-            databaseProvider,
-            cache,
-            resolvingDataSourceFactory,
-            downloadExecutor
+            downloadIndex,
+            downloaderFactory
         ).apply {
             maxParallelDownloads = 1
         }

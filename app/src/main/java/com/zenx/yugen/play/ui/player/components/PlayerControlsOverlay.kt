@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -389,158 +390,182 @@ private fun PlayerBottomBar(
             .navigationBarsPadding(),
         verticalArrangement = Arrangement.Bottom
     ) {
-        // Sleek rounded and stylish scrubber with gradient progress, buffer, skip markers, and floating seek badge
+        // Row with Left Starting Time Card, Center Fat Progress Scrubber Bar, and Right Ending Time Card
         val isDragging = dragValue != null
-        val scrubberTrackHeight = if (isDragging) 8.dp else 6.dp
+        val scrubberTrackHeight = if (isDragging) 14.dp else 12.dp
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Canvas(
+            GlassyLabel(
+                text = formatDuration(safePos),
+                isCompact = !isLandscape
+            )
+
+            Spacer(modifier = Modifier.width(if (isLandscape) 10.dp else 6.dp))
+
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(scrubberTrackHeight)
-                    .padding(horizontal = 8.dp)
+                    .weight(1f)
+                    .padding(horizontal = 2.dp),
+                contentAlignment = Alignment.Center
             ) {
-                val trackWidth = size.width
-                val trackHeight = size.height
-                val corner = CornerRadius(trackHeight / 2, trackHeight / 2)
-
-                // 1. Background rounded track
-                drawRoundRect(
-                    color = Color.White.copy(alpha = 0.20f),
-                    size = size,
-                    cornerRadius = corner
-                )
-
-                // 2. Buffer track
-                if (bufferPercent > 0f) {
-                    drawRoundRect(
-                        color = Color.White.copy(alpha = 0.38f),
-                        size = Size((trackWidth * bufferPercent).coerceAtMost(trackWidth), trackHeight),
-                        cornerRadius = corner
-                    )
-                }
-
-                // 3. Skip interval markers (Intro = Amber, Outro = Cyan)
-                skipIntervals.forEach { skip ->
-                    val startX = ((skip.startTime * 1000) / maxDur).coerceIn(0.0, 1.0).toFloat() * trackWidth
-                    val endX = ((skip.endTime * 1000) / maxDur).coerceIn(0.0, 1.0).toFloat() * trackWidth
-                    val highlightWidth = (endX - startX).coerceAtLeast(3f)
-                    val markerColor = if (skip.isOutro) YugenTvOutroCyan else YugenTvIntroAmber
-
-                    drawRoundRect(
-                        color = markerColor.copy(alpha = 0.85f),
-                        topLeft = Offset(startX, 0f),
-                        size = Size(highlightWidth, trackHeight),
-                        cornerRadius = corner
-                    )
-                }
-
-                // 4. Active Played Progress (Smooth rounded gradient track)
-                val activeRatio = if (maxDur > 0) (currentSliderValue / maxDur).coerceIn(0f, 1f) else 0f
-                if (activeRatio > 0f) {
-                    val playedWidth = trackWidth * activeRatio
-                    drawRoundRect(
-                        brush = Brush.horizontalGradient(
-                            listOf(YugenPurpleDark, YugenPurple, YugenAccentViolet),
-                            startX = 0f,
-                            endX = playedWidth
-                        ),
-                        size = Size(playedWidth, trackHeight),
-                        cornerRadius = corner
-                    )
-                }
-            }
-
-            // Floating time tooltip when dragging
-            if (isDragging) {
-                Box(
-                    modifier = Modifier
-                        .offset(y = (-32).dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.Black.copy(alpha = 0.85f))
-                        .border(1.dp, YugenPurple.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "${formatDuration(currentSliderValue.toLong())} / ${formatDuration(maxDur)}",
-                        color = Color.White,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-                Slider(
-                    value = currentSliderValue,
-                    onValueChange = { dragValue = it },
-                    onValueChangeFinished = {
-                        dragValue?.let { onSeek(it.toLong()) }
-                        dragValue = null
-                    },
-                    valueRange = 0f..maxDur.toFloat(),
-                    colors = SliderDefaults.colors(
-                        activeTrackColor = Color.Transparent,
-                        inactiveTrackColor = Color.Transparent,
-                        thumbColor = Color.White
-                    ),
+                Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .height(scrubberTrackHeight)
                         .padding(horizontal = 8.dp)
-                )
+                ) {
+                    val trackWidth = size.width
+                    val trackHeight = size.height
+                    val corner = CornerRadius(trackHeight / 2, trackHeight / 2)
+
+                    // 1. Background rounded curved fat track (Material 3 translucent base)
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.22f),
+                        size = size,
+                        cornerRadius = corner
+                    )
+
+                    // 2. Buffer track (rounded curve)
+                    if (bufferPercent > 0f) {
+                        drawRoundRect(
+                            color = Color.White.copy(alpha = 0.42f),
+                            size = Size((trackWidth * bufferPercent).coerceAtMost(trackWidth), trackHeight),
+                            cornerRadius = corner
+                        )
+                    }
+
+                    // 3. Skip interval markers (Intro = Amber, Outro = Cyan)
+                    skipIntervals.forEach { skip ->
+                        val startX = ((skip.startTime * 1000) / maxDur).coerceIn(0.0, 1.0).toFloat() * trackWidth
+                        val endX = ((skip.endTime * 1000) / maxDur).coerceIn(0.0, 1.0).toFloat() * trackWidth
+                        val highlightWidth = (endX - startX).coerceAtLeast(4f)
+                        val markerColor = if (skip.isOutro) YugenTvOutroCyan else YugenTvIntroAmber
+
+                        drawRoundRect(
+                            color = markerColor.copy(alpha = 0.90f),
+                            topLeft = Offset(startX, 0f),
+                            size = Size(highlightWidth, trackHeight),
+                            cornerRadius = corner
+                        )
+                    }
+
+                    // 4. Active Played Progress (Bold curved fat gradient track)
+                    val activeRatio = if (maxDur > 0) (currentSliderValue / maxDur).coerceIn(0f, 1f) else 0f
+                    if (activeRatio > 0f) {
+                        val playedWidth = trackWidth * activeRatio
+                        drawRoundRect(
+                            brush = Brush.horizontalGradient(
+                                listOf(YugenPurpleDark, YugenPurple, YugenAccentViolet),
+                                startX = 0f,
+                                endX = playedWidth
+                            ),
+                            size = Size(playedWidth, trackHeight),
+                            cornerRadius = corner
+                        )
+                    }
+                }
+
+                // Floating time tooltip when dragging
+                if (isDragging) {
+                    Box(
+                        modifier = Modifier
+                            .offset(y = (-34).dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black.copy(alpha = 0.88f))
+                            .border(1.dp, YugenPurple.copy(alpha = 0.75f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "${formatDuration(currentSliderValue.toLong())} / ${formatDuration(maxDur)}",
+                            color = Color.White,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+                    Slider(
+                        value = currentSliderValue,
+                        onValueChange = { dragValue = it },
+                        onValueChangeFinished = {
+                            dragValue?.let { onSeek(it.toLong()) }
+                            dragValue = null
+                        },
+                        valueRange = 0f..maxDur.toFloat(),
+                        thumb = {
+                            val thumbWidth = if (isDragging) 8.dp else 6.dp
+                            val thumbHeight = if (isDragging) 28.dp else 24.dp
+                            Box(
+                                modifier = Modifier
+                                    .width(thumbWidth)
+                                    .height(thumbHeight)
+                                    .shadow(3.dp, RoundedCornerShape(percent = 50))
+                                    .clip(RoundedCornerShape(percent = 50))
+                                    .background(Color.White)
+                                    .border(1.dp, Color.Black.copy(alpha = 0.20f), RoundedCornerShape(percent = 50))
+                            )
+                        },
+                        colors = SliderDefaults.colors(
+                            activeTrackColor = Color.Transparent,
+                            inactiveTrackColor = Color.Transparent
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp)
+                    )
+                }
             }
+
+            Spacer(modifier = Modifier.width(if (isLandscape) 10.dp else 6.dp))
+
+            GlassyLabel(
+                text = formatDuration(maxDur),
+                isCompact = !isLandscape
+            )
         }
 
         Spacer(modifier = Modifier.height(if (isLandscape) 14.dp else 8.dp))
 
+        // Bottom row: Playlist/Episodes on left, Control actions toolbar on right
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                GlassyLabel(text = formatDuration(safePos), isCompact = !isLandscape)
-                Spacer(modifier = Modifier.width(spacing))
-                @Suppress("DEPRECATION")
-                GlassyIconButton(
-                    icon = Icons.Rounded.PlaylistPlay,
-                    size = if (isLandscape) 42.dp else 38.dp,
-                    iconSize = if (isLandscape) 22.dp else 20.dp,
-                    onClick = onEpisodeSheetClick
-                )
-            }
+            @Suppress("DEPRECATION")
+            GlassyIconButton(
+                icon = Icons.Rounded.PlaylistPlay,
+                size = if (isLandscape) 42.dp else 38.dp,
+                iconSize = if (isLandscape) 22.dp else 20.dp,
+                onClick = onEpisodeSheetClick
+            )
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Row(
-                    modifier = Modifier
-                        .clip(YugenShape.pill)
-                        .background(YugenGlassSurface)
-                        .border(
-                            1.dp,
-                            Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.24f), Color.White.copy(alpha = 0.06f))),
-                            YugenShape.pill
-                        )
-                        .padding(
-                            horizontal = if (isLandscape) 10.dp else 6.dp,
-                            vertical = if (isLandscape) 6.dp else 4.dp
-                        ),
-                    horizontalArrangement = Arrangement.spacedBy(toolSpacing),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ToolbarIcon(icon = Icons.Rounded.Subtitles, isCompact = !isLandscape, onClick = onSubtitlesClick)
-                    ToolbarIcon(icon = Icons.Rounded.CloudQueue, isCompact = !isLandscape, onClick = onServerClick)
-                    ToolbarIcon(icon = Icons.Rounded.HighQuality, isCompact = !isLandscape, onClick = onQualityClick)
-                    ToolbarIcon(icon = Icons.Rounded.Speed, isCompact = !isLandscape, onClick = onSpeedClick)
-                    ToolbarIcon(icon = Icons.Rounded.AspectRatio, isCompact = !isLandscape, onClick = onFitClick)
-                }
-                Spacer(modifier = Modifier.width(spacing))
-                GlassyLabel(text = formatDuration(maxDur), isCompact = !isLandscape)
+            Row(
+                modifier = Modifier
+                    .clip(YugenShape.pill)
+                    .background(YugenGlassSurface)
+                    .border(
+                        1.dp,
+                        Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.24f), Color.White.copy(alpha = 0.06f))),
+                        YugenShape.pill
+                    )
+                    .padding(
+                        horizontal = if (isLandscape) 10.dp else 6.dp,
+                        vertical = if (isLandscape) 6.dp else 4.dp
+                    ),
+                horizontalArrangement = Arrangement.spacedBy(toolSpacing),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ToolbarIcon(icon = Icons.Rounded.Subtitles, isCompact = !isLandscape, onClick = onSubtitlesClick)
+                ToolbarIcon(icon = Icons.Rounded.CloudQueue, isCompact = !isLandscape, onClick = onServerClick)
+                ToolbarIcon(icon = Icons.Rounded.HighQuality, isCompact = !isLandscape, onClick = onQualityClick)
+                ToolbarIcon(icon = Icons.Rounded.Speed, isCompact = !isLandscape, onClick = onSpeedClick)
+                ToolbarIcon(icon = Icons.Rounded.AspectRatio, isCompact = !isLandscape, onClick = onFitClick)
             }
         }
     }

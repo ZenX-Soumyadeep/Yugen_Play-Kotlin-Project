@@ -14,8 +14,8 @@ android {
         applicationId = "com.zenx.yugen.play"
         minSdk = 29
         targetSdk = 37
-        versionCode = 6
-        versionName = "1.3.6"
+        versionCode = 7
+        versionName = "1.3.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

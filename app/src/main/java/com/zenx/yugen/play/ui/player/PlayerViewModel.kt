@@ -799,7 +799,7 @@ class PlayerViewModel @Inject constructor(
 
             val isOffline = stream.quality == "Offline (Local)"
             val activeCache = if (isOffline) downloadCache else playbackCache
-            val cacheSinkFactory = if (isOffline) null else CacheDataSink.Factory().setCache(playbackCache)
+            val cacheSinkFactory = if (isOffline) null else CacheDataSink.Factory().setCache(playbackCache).setBufferSize(256 * 1024)
 
             val cacheDataSourceFactory = CacheDataSource.Factory()
                 .setCache(activeCache)
@@ -1018,24 +1018,34 @@ class PlayerViewModel @Inject constructor(
                 return@launch
             }
 
-            val resolvedEpisodes = episodesDeferred.await()
-            allEpisodes = resolvedEpisodes
-
-            var targetEpId = episodeId
-            val currentEpInt = currentEpisodeNumberInt.get()
-            if (resolvedEpisodes.isNotEmpty()) {
-                val foundById = resolvedEpisodes.find { it.id == targetEpId }
-                if (foundById != null) {
-                    currentEpisodeNumberInt.set(foundById.numberInt)
-                } else {
-                    val matchedEp = resolvedEpisodes.find { it.numberInt == currentEpInt }
-                        ?: resolvedEpisodes.firstOrNull()
-                    if (matchedEp != null) {
-                        targetEpId = matchedEp.id
-                        currentEpisodeNumberInt.set(matchedEp.numberInt)
+            val streamsDeferred = async(Dispatchers.IO) {
+                if (parsedEpisode.isCloudSync) {
+                    val resolved = episodesDeferred.await()
+                    val matchedEp = resolved.find { it.numberInt == currentEpisodeNumberInt.get() } ?: resolved.firstOrNull()
+                    val concreteId = matchedEp?.id ?: episodeId
+                    val cachedStreams = streamDataCache.get(concreteId)
+                    val res = if (cachedStreams != null) {
+                        Resource.Success(cachedStreams)
+                    } else if (!targetStreamUrl.isNullOrBlank()) {
+                        Resource.Success(listOf(VideoStream(quality = "Default", url = targetStreamUrl)))
+                    } else {
+                        getVideoStreamsUseCase(concreteId)
                     }
+                    concreteId to res
+                } else {
+                    val cachedStreams = streamDataCache.get(episodeId)
+                    val res = if (cachedStreams != null) {
+                        Resource.Success(cachedStreams)
+                    } else if (!targetStreamUrl.isNullOrBlank()) {
+                        Resource.Success(listOf(VideoStream(quality = "Default", url = targetStreamUrl)))
+                    } else {
+                        getVideoStreamsUseCase(episodeId)
+                    }
+                    episodeId to res
                 }
             }
+
+            val (targetEpId, streamResult) = streamsDeferred.await()
             currentEpisodeId = targetEpId
 
             val download = withContext(Dispatchers.IO) { downloadManager.downloadIndex.getDownload(targetEpId) }
@@ -1050,18 +1060,27 @@ class PlayerViewModel @Inject constructor(
 
             if (isMp4Downloaded && mp4Record != null) {
                 playOfflineMp4(mp4Record, targetEpId)
+                viewModelScope.launch(Dispatchers.Main) {
+                    try {
+                        val resolved = episodesDeferred.await()
+                        if (resolved.isNotEmpty()) {
+                            allEpisodes = resolved
+                            updateReadyState { it.copy(episodes = resolved) }
+                        }
+                    } catch (_: Exception) {}
+                }
             } else if (isDownloaded && meta != null && download != null) {
                 playOfflineEpisode(download, meta, targetEpId)
-            } else {
-                val cachedStreams = streamDataCache.get(targetEpId)
-                val streamResult = if (cachedStreams != null) {
-                    Resource.Success(cachedStreams)
-                } else if (!targetStreamUrl.isNullOrBlank()) {
-                    Resource.Success(listOf(VideoStream(quality = "Default", url = targetStreamUrl)))
-                } else {
-                    getVideoStreamsUseCase(targetEpId)
+                viewModelScope.launch(Dispatchers.Main) {
+                    try {
+                        val resolved = episodesDeferred.await()
+                        if (resolved.isNotEmpty()) {
+                            allEpisodes = resolved
+                            updateReadyState { it.copy(episodes = resolved) }
+                        }
+                    } catch (_: Exception) {}
                 }
-
+            } else {
                 when (streamResult) {
                     is Resource.Success -> {
                         val streams = streamResult.data ?: emptyList()
@@ -1091,10 +1110,15 @@ class PlayerViewModel @Inject constructor(
                                         episodeNumber = epNum
                                     )
                                     if (fallback.isNotEmpty() && currentEpisodeNumberInt.get() == epNum) {
-                                        skipIntervals = fallback
-                                        val ready = _uiState.value as? PlayerUiState.Ready
-                                        if (ready != null && ready.currentEpisodeId == targetEpId) {
-                                            _uiState.value = ready.copy(skipIntervals = fallback)
+                                        withContext(Dispatchers.Main) {
+                                            skipIntervals = fallback
+                                            val curSec = getActivePlayer().currentPosition.coerceAtLeast(0L) / 1000.0
+                                            val activeSkip = fallback.find { curSec >= (it.startTime - 2.5).coerceAtLeast(0.0) && curSec < (it.endTime - 0.2) }
+                                            _playbackProgress.update { it.copy(activeSkipInterval = activeSkip) }
+                                            val ready = _uiState.value as? PlayerUiState.Ready
+                                            if (ready != null && ready.currentEpisodeId == targetEpId) {
+                                                _uiState.value = ready.copy(skipIntervals = fallback)
+                                            }
                                         }
                                     }
                                 }
@@ -1149,6 +1173,40 @@ class PlayerViewModel @Inject constructor(
                                 autoPlayNext = savedAutoPlayNext
                             )
                             if (liveIsPlaying) startProgressTracker()
+
+                            // Asynchronously update episode list and titles when episodesDeferred resolves
+                            viewModelScope.launch(Dispatchers.Main) {
+                                try {
+                                    val resolved = episodesDeferred.await()
+                                    if (resolved.isNotEmpty()) {
+                                        allEpisodes = resolved
+                                        val matched = resolved.find { it.id == targetEpId }
+                                        if (matched != null) {
+                                            currentEpisodeNumberInt.set(matched.numberInt)
+                                        }
+                                        val updatedTitle = matched?.title ?: "Episode ${currentEpisodeNumberInt.get()}"
+                                        updateReadyState { it.copy(episodes = resolved, episodeTitle = updatedTitle) }
+
+                                        if (skipIntervals.isEmpty() && anilistMediaId != null) {
+                                            val epNum = currentEpisodeNumberInt.get()
+                                            val fallback = withContext(Dispatchers.IO) {
+                                                aniSkipRepository.getSkipIntervals(
+                                                    malId = null,
+                                                    anilistId = anilistMediaId,
+                                                    episodeNumber = epNum
+                                                )
+                                            }
+                                            if (fallback.isNotEmpty() && currentEpisodeNumberInt.get() == epNum) {
+                                                skipIntervals = fallback
+                                                val curSec = getActivePlayer().currentPosition.coerceAtLeast(0L) / 1000.0
+                                                val activeSkip = fallback.find { curSec >= (it.startTime - 2.5).coerceAtLeast(0.0) && curSec < (it.endTime - 0.2) }
+                                                _playbackProgress.update { it.copy(activeSkipInterval = activeSkip) }
+                                                updateReadyState { it.copy(skipIntervals = fallback) }
+                                            }
+                                        }
+                                    }
+                                } catch (_: Exception) {}
+                            }
                         } else {
                             _uiState.value = PlayerUiState.Error("No playable streams available.")
                         }
@@ -1223,7 +1281,7 @@ class PlayerViewModel @Inject constructor(
                     triggerOutroCountdown()
                 }
 
-                val currentSkip = skipIntervals.find { currentSec in it.startTime..it.endTime }
+                val currentSkip = skipIntervals.find { currentSec >= (it.startTime - 2.5).coerceAtLeast(0.0) && currentSec < (it.endTime - 0.2) }
 
                 val updatedProgress = PlayerPlaybackProgress(
                     currentPosition = pos,
@@ -1235,8 +1293,8 @@ class PlayerViewModel @Inject constructor(
                     _playbackProgress.value = updatedProgress
                 }
 
-                if (++saveCounter >= 20) { saveCurrentProgress(); saveCounter = 0 }
-                delay(500L.milliseconds)
+                if (++saveCounter >= 25) { saveCurrentProgress(); saveCounter = 0 }
+                delay(200L.milliseconds)
             }
         }
     }
@@ -1290,10 +1348,30 @@ class PlayerViewModel @Inject constructor(
     fun skipCurrentInterval() {
         val interval = _playbackProgress.value.activeSkipInterval
         if (interval != null) {
-            seekTo((interval.endTime * 1000).toLong())
+            skipInterval(interval)
         } else {
             showTransientWarning("No active skip interval")
         }
+    }
+
+    fun skipInterval(interval: SkipInterval) {
+        cancelAutoPlayCountdown()
+        // Immediately dismiss the active skip overlay from the UI
+        _playbackProgress.update { it.copy(activeSkipInterval = null) }
+
+        if (interval.isOutro) {
+            val dur = getActivePlayer().duration
+            val targetMs = ((interval.endTime + 0.5) * 1000).toLong()
+            if (dur > 0 && targetMs >= dur - 5000L) {
+                playNextEpisode()
+                return
+            }
+        }
+
+        // Seek strictly past the interval (+ 0.5s) so playback lands cleanly beyond the intro/outro window
+        val targetMs = ((interval.endTime + 0.5) * 1000).toLong().coerceAtLeast(0L)
+        getActivePlayer().seekTo(targetMs)
+        _playbackProgress.update { it.copy(currentPosition = targetMs, activeSkipInterval = null) }
     }
 
     fun selectQuality(height: Int) {
@@ -1449,7 +1527,9 @@ class PlayerViewModel @Inject constructor(
     fun seekTo(positionMs: Long) {
         cancelAutoPlayCountdown()
         getActivePlayer().seekTo(positionMs)
-        _playbackProgress.update { it.copy(currentPosition = positionMs) }
+        val currentSec = positionMs / 1000.0
+        val currentSkip = skipIntervals.find { currentSec >= (it.startTime - 2.5).coerceAtLeast(0.0) && currentSec < (it.endTime - 0.2) }
+        _playbackProgress.update { it.copy(currentPosition = positionMs, activeSkipInterval = currentSkip) }
     }
 
     fun seekRelative(offsetMs: Long) {

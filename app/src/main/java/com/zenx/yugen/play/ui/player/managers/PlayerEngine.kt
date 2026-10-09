@@ -34,13 +34,13 @@ class PlayerEngine @Inject constructor(
 
         val robustLoadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ if (isTv) 90_000 else 60_000,
-                /* maxBufferMs = */ 180_000,
-                /* bufferForPlaybackMs = */ if (isTv) 5_000 else 2_500,
-                /* bufferForPlaybackAfterRebufferMs = */ if (isTv) 15_000 else 5_000
+                /* minBufferMs = */ if (isTv) 45_000 else 30_000,
+                /* maxBufferMs = */ if (isTv) 120_000 else 90_000,
+                /* bufferForPlaybackMs = */ if (isTv) 1_200 else 800,
+                /* bufferForPlaybackAfterRebufferMs = */ if (isTv) 2_500 else 1_500
             )
             .setTargetBufferBytes(if (isTv) C.LENGTH_UNSET else DefaultLoadControl.DEFAULT_TARGET_BUFFER_BYTES)
-            .setBackBuffer(/* backBufferDurationMs = */ 60_000, /* retainBackBufferFromKeyframe = */ true)
+            .setBackBuffer(/* backBufferDurationMs = */ 30_000, /* retainBackBufferFromKeyframe = */ true)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -57,7 +57,7 @@ class PlayerEngine @Inject constructor(
         exoPlayer = ExoPlayer.Builder(context, renderersFactory)
             .setAudioAttributes(audioAttributes, true)
             .setLoadControl(robustLoadControl)
-            .setSeekParameters(SeekParameters.CLOSEST_SYNC)
+            .setSeekParameters(SeekParameters.DEFAULT)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setHandleAudioBecomingNoisy(true)
             .build().apply {

@@ -112,13 +112,14 @@ class Mp4DownloadWorker @AssistedInject constructor(
             var downloadedBytes = 0L
 
             body.byteStream().use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    val buffer = ByteArray(8192 * 4)
+                java.io.BufferedOutputStream(FileOutputStream(tempFile), 512 * 1024).use { output ->
+                    val buffer = ByteArray(512 * 1024)
                     var read: Int
                     var lastUpdate = System.currentTimeMillis()
 
                     while (input.read(buffer).also { read = it } != -1) {
                         if (isStopped) {
+                            output.flush()
                             tempFile.delete()
                             mp4DownloadDao.updateProgress(downloadId, downloadedBytes, totalBytes, "PAUSED")
                             return@withContext Result.success()

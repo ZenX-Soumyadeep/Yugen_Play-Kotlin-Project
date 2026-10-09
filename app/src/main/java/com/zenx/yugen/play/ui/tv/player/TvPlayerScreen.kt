@@ -283,18 +283,6 @@ fun TvPlayerScreen(
                                     quickSeekTargetPosition = null
                                     quickSeekDeltaSec = 0
                                 }
-                                val curSec = playbackProgress.currentPosition / 1000.0
-                                val curIntro = readyState?.skipIntervals?.find { it.isIntro && curSec in it.startTime..it.endTime }
-                                val curOutro = readyState?.skipIntervals?.find { it.isOutro && curSec in it.startTime..it.endTime }
-                                if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
-                                    if (curIntro != null) {
-                                        viewModel.seekTo((curIntro.endTime * 1000).toLong())
-                                        return@onKeyEvent true
-                                    } else if (curOutro != null) {
-                                        viewModel.playNextEpisode()
-                                        return@onKeyEvent true
-                                    }
-                                }
                                 showControls = true
                                 coroutineScope.launch {
                                     delay(60)
@@ -533,53 +521,7 @@ fun TvPlayerScreen(
                         .padding(bottom = if (showControls) 130.dp else 48.dp, end = 48.dp)
                 )
 
-                val floatingCurSec = playbackProgress.currentPosition / 1000.0
-                val activeFloatingIntro = state.skipIntervals.find { it.isIntro && floatingCurSec in it.startTime..it.endTime }
-                val activeFloatingOutro = state.skipIntervals.find { it.isOutro && floatingCurSec in it.startTime..it.endTime }
 
-                AnimatedVisibility(
-                    visible = !showControls && (activeFloatingIntro != null || activeFloatingOutro != null) && !isAnyPanelVisible && state.autoPlayCountdown == null,
-                    enter = fadeIn(tween(250)) + slideInHorizontally(initialOffsetX = { it / 2 }, animationSpec = tween(250)),
-                    exit = fadeOut(tween(250)) + slideOutHorizontally(targetOffsetX = { it / 2 }, animationSpec = tween(250)),
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(bottom = 48.dp, end = 48.dp)
-                ) {
-                    val isOutro = activeFloatingOutro != null
-                    val badgeColor = if (isOutro) YugenTvOutroCyan else YugenTvIntroAmber
-                    val label = if (isOutro) "Skip Outro • Press Center" else "Skip Intro • Press Center"
-
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(100.dp))
-                            .background(YugenDialogSurface.copy(alpha = 0.94f))
-                            .border(1.5.dp, badgeColor.copy(alpha = 0.85f), RoundedCornerShape(100.dp))
-                            .padding(horizontal = 18.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(badgeColor),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.FastForward,
-                                contentDescription = null,
-                                tint = Color.Black,
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
-                        Text(
-                            text = label,
-                            color = Color.White,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
 
                 if (!showControls && quickSeekTargetPosition != null) {
                     TvQuickSeekOverlay(
@@ -928,8 +870,8 @@ private fun TvPlayerOverlay(
                 .align(Alignment.BottomCenter)
         ) {
             val currentSec = playbackProgress.currentPosition / 1000.0
-            val activeIntro = state.skipIntervals.find { it.isIntro && currentSec in it.startTime..it.endTime }
-            val activeOutro = state.skipIntervals.find { it.isOutro && currentSec in it.startTime..it.endTime }
+            val activeIntro = state.skipIntervals.find { it.isIntro && currentSec >= (it.startTime - 2.5).coerceAtLeast(0.0) && currentSec < (it.endTime - 0.2) }
+            val activeOutro = state.skipIntervals.find { it.isOutro && currentSec >= (it.startTime - 2.5).coerceAtLeast(0.0) && currentSec < (it.endTime - 0.2) }
             val isNearEnd = playbackProgress.duration > 0 && playbackProgress.duration - playbackProgress.currentPosition <= 90000L
 
             val isOutroOrNext = activeOutro != null || isNearEnd
@@ -937,16 +879,18 @@ private fun TvPlayerOverlay(
 
             val buttonLabel = when {
                 isIntroActive -> "Skip Intro"
-                isOutroOrNext -> "Next Episode"
+                activeOutro != null -> "Skip Outro"
+                isNearEnd -> "Next Episode"
                 else -> "+85s"
             }
             val buttonIcon = when {
-                isOutroOrNext -> Icons.Rounded.SkipNext
+                isNearEnd && activeOutro == null -> Icons.Rounded.SkipNext
                 else -> Icons.Rounded.FastForward
             }
             val accentTextColor = when {
                 isIntroActive -> YugenTvIntroAmber
-                isOutroOrNext -> YugenTvOutroCyan
+                activeOutro != null -> YugenTvOutroCyan
+                isNearEnd -> YugenTvOutroCyan
                 else -> Color.White
             }
 
@@ -964,7 +908,15 @@ private fun TvPlayerOverlay(
                             onClick = { 
                                 when {
                                     activeIntro != null -> onSkipIntroClick((activeIntro.endTime * 1000).toLong())
-                                    isOutroOrNext -> onNextClick()
+                                    activeOutro != null -> {
+                                        val targetMs = (activeOutro.endTime * 1000).toLong()
+                                        if (playbackProgress.duration > 0 && targetMs >= playbackProgress.duration - 5000L) {
+                                            onNextClick()
+                                        } else {
+                                            onSkipIntroClick(targetMs)
+                                        }
+                                    }
+                                    isNearEnd -> onNextClick()
                                     else -> onSeekRelative(85000L)
                                 }
                             },

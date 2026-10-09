@@ -5,6 +5,8 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.Interceptor
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
@@ -31,11 +33,12 @@ annotation class DownloadClient
 private class JunkBytesInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
+        val url = request.url.toString()
+        if (!url.contains("ibyteimg.com", ignoreCase = true) && !url.contains("tiktokcdn.com", ignoreCase = true)) {
+            return chain.proceed(request)
+        }
+
         val response = chain.proceed(request)
-
-        val junkUrlRegex = Regex("ibyteimg\\.com|tiktokcdn\\.com", RegexOption.IGNORE_CASE)
-        if (!junkUrlRegex.containsMatchIn(request.url.toString())) return response
-
         val body = response.body ?: return response
         val originalLength = body.contentLength()
         val stripBytes = 252L
@@ -96,6 +99,11 @@ object NetworkModule {
         }
 
         return OkHttpClient.Builder()
+            .dispatcher(Dispatcher().apply {
+                maxRequests = 64
+                maxRequestsPerHost = 16
+            })
+            .connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))
             .addInterceptor(loggingInterceptor)
             .addInterceptor(JunkBytesInterceptor()) // Strips CDN corruption bytes
             .connectTimeout(30, TimeUnit.SECONDS) // Allow longer for scrapers
@@ -111,10 +119,17 @@ object NetworkModule {
     @DownloadClient
     fun provideDownloadOkHttpClient(): OkHttpClient {
         return OkHttpClient.Builder()
+            .dispatcher(Dispatcher().apply {
+                maxRequests = 128
+                maxRequestsPerHost = 32
+            })
+            .connectionPool(ConnectionPool(64, 5, TimeUnit.MINUTES))
+            .protocols(listOf(okhttp3.Protocol.HTTP_1_1)) // Prevents HTTP/2 single-socket bandwidth throttling on video CDNs
             .addInterceptor(JunkBytesInterceptor())
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .followRedirects(true)
             .followSslRedirects(true)
             .build()

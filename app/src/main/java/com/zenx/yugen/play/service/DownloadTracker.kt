@@ -102,8 +102,8 @@ class DownloadTracker @Inject constructor(
             currentMap[download.request.id] = download
             if (download.state != Download.STATE_DOWNLOADING) {
                 speedMap[download.request.id] = 0L
+                byteSamples.remove(download.request.id)
             }
-            byteSamples[download.request.id] = Pair(System.currentTimeMillis(), download.bytesDownloaded)
             _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
         }
         checkProgressLoop()
@@ -144,13 +144,13 @@ class DownloadTracker @Inject constructor(
                                     if (previousSample != null) {
                                         val timeDelta = now - previousSample.first
                                         val bytesDelta = dl.bytesDownloaded - previousSample.second
-                                        if (timeDelta >= 300 && bytesDelta >= 0) {
+                                        if (timeDelta >= 250 && bytesDelta >= 0) {
                                             val instantSpeed = (bytesDelta * 1000L) / timeDelta
                                             val prevSpeed = speedMap[id] ?: 0L
 
-                                            // Smooth network jitter with exponential moving average (EMA)
+                                            // Smooth network jitter with EMA, responsive to high-speed throughput
                                             val smoothedSpeed = if (prevSpeed > 0L) {
-                                                (0.4f * instantSpeed + 0.6f * prevSpeed).toLong()
+                                                (0.65f * instantSpeed + 0.35f * prevSpeed).toLong()
                                             } else {
                                                 instantSpeed
                                             }
@@ -163,7 +163,7 @@ class DownloadTracker @Inject constructor(
                                     }
                                 } else {
                                     speedMap[id] = 0L
-                                    byteSamples[id] = Pair(now, dl.bytesDownloaded)
+                                    byteSamples.remove(id)
                                 }
                             }
                         }
@@ -180,7 +180,7 @@ class DownloadTracker @Inject constructor(
                         _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
                         break
                     }
-                    delay(350L.milliseconds)
+                    delay(250L.milliseconds)
                 }
             }
         }
