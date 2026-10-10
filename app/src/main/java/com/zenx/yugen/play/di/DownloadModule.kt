@@ -20,6 +20,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.DefaultDownloadIndex
 import androidx.media3.exoplayer.offline.DefaultDownloaderFactory
 import androidx.media3.exoplayer.offline.DownloadManager
+import com.zenx.yugen.play.data.local.PlayerPreferences
 import com.zenx.yugen.play.service.DownloadTracker
 import com.zenx.yugen.play.util.CdnHostRewriter
 import dagger.Module
@@ -27,6 +28,9 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import java.io.File
 import java.net.CookieHandler
@@ -125,6 +129,14 @@ object DownloadModule {
         return DownloadTracker(context, playerPreferences)
     }
 
+    private val hostHeaderRegistry = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
+
+    fun registerDownloadHeaders(host: String, referer: String, origin: String) {
+        if (host.isNotBlank() && referer.isNotBlank()) {
+            hostHeaderRegistry[host] = Pair(referer, origin.ifBlank { referer })
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDownloadManager(
@@ -132,7 +144,8 @@ object DownloadModule {
         databaseProvider: DatabaseProvider,
         @DownloadCache cache: Cache,
         downloadTracker: DownloadTracker,
-        @DownloadClient downloadOkHttpClient: OkHttpClient
+        @DownloadClient downloadOkHttpClient: OkHttpClient,
+        playerPreferences: PlayerPreferences
     ): DownloadManager {
 
         if (CookieHandler.getDefault() == null) {
@@ -159,19 +172,43 @@ object DownloadModule {
             val hasRef = uriStr.contains("y_ref=")
             val hasOri = uriStr.contains("y_ori=")
 
+            if (hasRef) {
+                val refMatch = REGEX_REF.find(uriStr)
+                val decodedRef = refMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) }
+                if (!decodedRef.isNullOrBlank()) {
+                    val decodedOri = if (hasOri) {
+                        val oriMatch = REGEX_ORI.find(uriStr)
+                        oriMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) } ?: decodedRef
+                    } else decodedRef
+                    hostHeaderRegistry[host] = Pair(decodedRef, decodedOri)
+                }
+            }
+
+            val cachedHeaders = hostHeaderRegistry[host]
+                ?: hostHeaderRegistry.entries.firstOrNull { host.contains(it.key, ignoreCase = true) || it.key.contains(host, ignoreCase = true) }?.value
+                ?: hostHeaderRegistry.values.firstOrNull()
+
             val referer = when {
                 hasRef -> {
                     val refMatch = REGEX_REF.find(uriStr)
-                    refMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) } ?: "https://megaplay.buzz/"
+                    refMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) } ?: cachedHeaders?.first ?: "https://megaplay.buzz/"
                 }
+                cachedHeaders != null -> cachedHeaders.first
                 host.contains("vidtube", ignoreCase = true) || host.contains("vtbe", ignoreCase = true) -> "https://vidtube.site/"
                 host.contains("megaplay", ignoreCase = true) -> "https://megaplay.buzz/"
+                host.contains("megacloud", ignoreCase = true) -> "https://megacloud.tv/"
+                host.contains("vidcloud", ignoreCase = true) -> "https://vidcloud.co/"
                 else -> "https://megaplay.buzz/"
             }
-            val origin = if (hasOri) {
-                val oriMatch = REGEX_ORI.find(uriStr)
-                oriMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) } ?: referer
-            } else referer
+
+            val origin = when {
+                hasOri -> {
+                    val oriMatch = REGEX_ORI.find(uriStr)
+                    oriMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) } ?: referer
+                }
+                cachedHeaders != null -> cachedHeaders.second
+                else -> referer
+            }
 
             val cleanUriStr = if (hasRef || hasOri) {
                 var s = uriStr.replace(REGEX_CLEAN_REF, "")
@@ -192,8 +229,9 @@ object DownloadModule {
                 .build()
         }
 
-        // 32 concurrent threads to maximize segment throughput on Gigabit and 5G connections
-        val downloadExecutor = Executors.newFixedThreadPool(32)
+        // Optimal 8 concurrent segment download threads to maximize high-speed throughput
+        // while preventing CDN per-IP burst throttling, TCP socket stalls, and SQLite cache lock contention
+        val downloadExecutor = Executors.newFixedThreadPool(8)
 
         // 512 KB buffer size drastically reduces disk write syscalls and flash write thrashing
         val cacheWriteDataSinkFactory = CacheDataSink.Factory()
@@ -210,12 +248,19 @@ object DownloadModule {
         val downloaderFactory = DefaultDownloaderFactory(cacheDataSourceFactory, downloadExecutor)
         val downloadIndex = DefaultDownloadIndex(databaseProvider)
 
+        val initialParallel = runCatching {
+            runBlocking(Dispatchers.IO) {
+                playerPreferences.maxParallelDownloads.first()
+            }
+        }.getOrDefault(1).coerceIn(1, 5)
+
         val manager = DownloadManager(
             context,
             downloadIndex,
             downloaderFactory
         ).apply {
-            maxParallelDownloads = 1
+            maxParallelDownloads = initialParallel
+            minRetryCount = 5
         }
 
         downloadTracker.initialize(manager)

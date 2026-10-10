@@ -62,9 +62,9 @@ class DownloadTracker @Inject constructor(
         manager.addListener(this)
         loadInitialDownloads(manager)
 
-        scope.launch {
+        scope.launch(Dispatchers.Main) {
             playerPreferences.maxParallelDownloads.collect { maxCount ->
-                manager.maxParallelDownloads = maxCount
+                manager.maxParallelDownloads = maxCount.coerceIn(1, 5)
             }
         }
     }

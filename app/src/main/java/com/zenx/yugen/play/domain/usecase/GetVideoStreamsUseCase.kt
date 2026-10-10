@@ -98,7 +98,8 @@ class GetVideoStreamsUseCase @Inject constructor(
 
     private fun isDub(stream: VideoStream): Boolean {
         return stream.url.contains("/dub", ignoreCase = true) ||
-                stream.quality.contains("dub", ignoreCase = true)
+                stream.quality.contains("dub", ignoreCase = true) ||
+                (stream.serverName?.contains("dub", ignoreCase = true) == true)
     }
 
     private fun getQualityScore(stream: VideoStream): Int {

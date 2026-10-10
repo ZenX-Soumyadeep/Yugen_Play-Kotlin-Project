@@ -203,59 +203,77 @@ object ReleaseNotesParser {
     fun fallbackReleaseNotes(version: String): ReleaseNotes {
         return ReleaseNotes(
             version = version,
-            overview = "A major UI/UX redesign and design system overhaul across all 19 Phone and Android TV screens, introducing unified dark cinematic theme tokens, enhanced playback controls, timeline schedule navigation, and refined D-pad TV ergonomics.",
+            overview = "A major update introducing the redesigned unified Download experience, high-performance download engine with CDN anti-throttling, an overhauled video player scrubber, dynamic storage calculations, and embedded provider selection.",
             sections = listOf(
                 ReleaseSection(
-                    title = "🎨 Complete UI/UX & Design System Overhaul",
-                    category = ReleaseCategory.UI_UX,
-                    items = listOf(
-                        ReleaseItem(
-                            title = "Unified Dark Cinematic Theme Tokens",
-                            bullets = listOf(
-                                "Eliminated hundreds of raw color definitions in favor of unified design tokens (YugenBackground, YugenCardSurface, YugenPurple, YugenAccentViolet, YugenTvOutroCyan).",
-                                "Harmonized typography, rounded surfaces, glassmorphism borders, and elevation tokens across every screen."
-                            ),
-                            category = ReleaseCategory.UI_UX,
-                            tag = "Design System"
-                        ),
-                        ReleaseItem(
-                            title = "Full Suite of Redesigned Screens (19 Modules)",
-                            bullets = listOf(
-                                "Redesigned Phone suite: Home, Detail, Player HUD & Side Panels, Search with Genre Filters, Library, Schedule Timeline, Downloads, Settings, and Profile.",
-                                "Redesigned Android TV suite: Cinematic Billboard Home, TV Detail, TV Leanback Player, TV Search, TV Library, TV Calendar, TV Settings, and TV Profile."
-                            ),
-                            category = ReleaseCategory.UI_UX,
-                            tag = "UI & UX"
-                        )
-                    )
-                ),
-                ReleaseSection(
-                    title = "📺 Android TV 10-Foot Ergonomics",
-                    category = ReleaseCategory.TV,
-                    items = listOf(
-                        ReleaseItem(
-                            title = "D-Pad Focus Traversal & Safety Delays",
-                            bullets = listOf(
-                                "Standardized TV overscan margins (48dp H, 32dp V) and seamless Navigation Rail expansion.",
-                                "Added focus trap delays on deletion and confirmation dialogs to prevent accidental remote trigger upon releasing long-press."
-                            ),
-                            category = ReleaseCategory.TV,
-                            tag = "Android TV"
-                        )
-                    )
-                ),
-                ReleaseSection(
-                    title = "⚡ Schedule, Search & Performance Enhancements",
+                    title = "📥 Unified Download Experience & Storage Footprint",
                     category = ReleaseCategory.HIGHLIGHTS,
                     items = listOf(
                         ReleaseItem(
-                            title = "Schedule Timeline & Donghua Filter",
+                            title = "Redesigned Download Bottom Sheet",
                             bullets = listOf(
-                                "Added quick filter toggle between Japanese Anime and Chinese Donghua releases on both Phone and Android TV.",
-                                "Visual bookmark indicators prioritize user's AniList and local favorites in broadcast schedules."
+                                "Single-tap manual and batch downloads unified into an elegant, responsive bottom sheet.",
+                                "Quick toggles for Audio (Sub/Dub), Resolution (Best, 1080p, 720p, 480p, 360p), embedded provider selection popup, and episode range dialog."
                             ),
                             category = ReleaseCategory.HIGHLIGHTS,
-                            tag = "Features"
+                            tag = "Downloads"
+                        ),
+                        ReleaseItem(
+                            title = "Real Device Storage Footprint",
+                            bullets = listOf(
+                                "Live calculation of total download size and remaining device space with visual storage usage gauge.",
+                                "Instantly responsive episode selection with dynamic highlight CTA button."
+                            ),
+                            category = ReleaseCategory.UI_UX,
+                            tag = "Storage"
+                        )
+                    )
+                ),
+                ReleaseSection(
+                    title = "⚡ Download Engine & CDN Anti-Throttling",
+                    category = ReleaseCategory.OFFLINE,
+                    items = listOf(
+                        ReleaseItem(
+                            title = "Smooth Uninterrupted Downloads",
+                            bullets = listOf(
+                                "Optimized segment thread concurrency to prevent CDN burst rate-limiting pauses and disk cache contention.",
+                                "Downloads now sustain full available bandwidth without periodic stalls."
+                            ),
+                            category = ReleaseCategory.OFFLINE,
+                            tag = "Engine"
+                        ),
+                        ReleaseItem(
+                            title = "Seamless Batch Download Stability",
+                            bullets = listOf(
+                                "Preserved Referer and Origin headers across child media playlists and segments, fixing instant batch failures.",
+                                "Efficient subtitle track caching to prevent scraper IP blocks and request timeouts."
+                            ),
+                            category = ReleaseCategory.FIXES_SECURITY,
+                            tag = "Fixes"
+                        )
+                    )
+                ),
+                ReleaseSection(
+                    title = "🎬 Player Scrubber & UI Polish",
+                    category = ReleaseCategory.UI_UX,
+                    items = listOf(
+                        ReleaseItem(
+                            title = "Overhauled Video Player Scrubber",
+                            bullets = listOf(
+                                "Thicker, modern progress track with dynamic buffer indicators and floating side time labels.",
+                                "Smoother seek gestures and improved player controls overlay responsiveness."
+                            ),
+                            category = ReleaseCategory.UI_UX,
+                            tag = "Player"
+                        ),
+                        ReleaseItem(
+                            title = "TV & Phone Detail Screen Polish",
+                            bullets = listOf(
+                                "Refined Dynamic Action Island behavior for streaming and download actions.",
+                                "Fixed Android TV backdrop aspect ratios and provider switching reliability."
+                            ),
+                            category = ReleaseCategory.TV,
+                            tag = "UI & UX"
                         )
                     )
                 )

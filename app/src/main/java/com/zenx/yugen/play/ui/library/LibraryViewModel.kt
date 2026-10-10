@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -60,6 +61,11 @@ class LibraryViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val watchHistory: StateFlow<List<WatchHistoryEntity>> = watchHistoryDao.getAllHistory()
+        .map { list ->
+            list.filter { item ->
+                item.progressMs > 0L && (item.durationMs <= 0L || (item.progressMs.toFloat() / item.durationMs.toFloat()) < 0.85f)
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _anilistData = MutableStateFlow<Map<String, List<AnilistListEntry>>>(emptyMap())

@@ -23,6 +23,7 @@ import com.zenx.yugen.play.data.local.Mp4DownloadDao
 import com.zenx.yugen.play.data.local.PlayerPreferences
 import com.zenx.yugen.play.domain.AudioTrackType
 import com.zenx.yugen.play.domain.audioTrackType
+import com.zenx.yugen.play.domain.cleanServerName
 import com.zenx.yugen.play.data.local.WatchHistoryDao
 import com.zenx.yugen.play.data.local.WatchHistoryEntity
 import com.zenx.yugen.play.data.remote.AnilistService
@@ -43,9 +44,11 @@ import com.zenx.yugen.play.domain.usecase.GetEpisodesUseCase
 import com.zenx.yugen.play.domain.usecase.GetVideoStreamsUseCase
 import com.zenx.yugen.play.service.DownloadTracker
 import com.zenx.yugen.play.service.VideoDownloadService
+import com.zenx.yugen.play.di.ApplicationScope
 import com.zenx.yugen.play.util.StringUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -139,6 +142,7 @@ class DetailViewModel @Inject constructor(
     private val episodeMetadataService: EpisodeMetadataService,
     private val streamDataCache: StreamDataCache,
     private val mp4DownloadDao: Mp4DownloadDao,
+    @ApplicationScope private val externalScope: CoroutineScope,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -176,6 +180,8 @@ class DetailViewModel @Inject constructor(
     val isAnilistSheetVisible = _isAnilistSheetVisible.asStateFlow()
     private val _isBatchDownloadSheetVisible = MutableStateFlow(false)
     val isBatchDownloadSheetVisible = _isBatchDownloadSheetVisible.asStateFlow()
+    private val _preselectedBatchEpisodeId = MutableStateFlow<String?>(null)
+    val preselectedBatchEpisodeId = _preselectedBatchEpisodeId.asStateFlow()
     val defaultPreferDub = playerPreferences.preferDub
 
     private val _activeProvider = MutableStateFlow(providerRegistry.getDefaultProvider().name)
@@ -232,7 +238,7 @@ class DetailViewModel @Inject constructor(
     fun dismissIsland() {
         val targetEp = _resumeEpisode.value ?: _episodes.value.firstOrNull()?.firstOrNull()
         if (targetEp != null) {
-            val isCont = _resumeEpisode.value != null && !_resumeEpisode.value!!.isWatched
+            val isCont = targetEp.watchProgress > 0f && !targetEp.isWatched
             val current = _islandState.value
             if (current is IslandState.Idle && current.episode.id == targetEp.id && current.isContinue == isCont) return
             _islandState.value = IslandState.Idle(targetEp, isContinue = isCont)
@@ -247,7 +253,7 @@ class DetailViewModel @Inject constructor(
 
         val targetEp = resumeEp ?: allChunks.firstOrNull()?.firstOrNull()
         if (targetEp != null) {
-            val isCont = resumeEp != null && !resumeEp.isWatched
+            val isCont = targetEp.watchProgress > 0f && !targetEp.isWatched
             if (current is IslandState.Idle && current.episode.id == targetEp.id && current.isContinue == isCont) {
                 return
             }
@@ -546,7 +552,12 @@ class DetailViewModel @Inject constructor(
 
                         if (lastUiIndex != -1) {
                             val lastUi = updatedEps[lastUiIndex]
-                            _resumeEpisode.value = if (lastUi.isWatched) updatedEps.getOrNull(lastUiIndex + 1) ?: lastUi else lastUi
+                            _resumeEpisode.value = if (lastUi.isWatched) {
+                                val nextUnwatched = updatedEps.drop(lastUiIndex + 1).firstOrNull { !it.isWatched }
+                                nextUnwatched ?: updatedEps.getOrNull(lastUiIndex + 1)
+                            } else {
+                                lastUi
+                            }
                         } else {
                             _resumeEpisode.value = null
                         }
@@ -655,7 +666,7 @@ class DetailViewModel @Inject constructor(
     }
 
     fun enqueueDownload(episode: EpisodeUiModel, stream: VideoStream) {
-        viewModelScope.launch(Dispatchers.IO) {
+        externalScope.launch(Dispatchers.IO) {
             performEnqueueDownload(episode, stream)
         }
     }
@@ -671,17 +682,20 @@ class DetailViewModel @Inject constructor(
 
         try {
             val downloadedSubs = mutableListOf<JSONObject>()
-            stream.subtitles.forEach { sub ->
-                if (sub.url.isNotBlank()) {
-                    val localPath = downloadSubtitleLocally(sub.url, episode.id, sub.label, stream.headers)
-                    downloadedSubs.add(
-                        JSONObject().apply {
-                            put("url", localPath)
-                            put("label", sub.label)
-                            put("isDefault", sub.isDefault)
-                        }
-                    )
-                }
+            // Pre-download only primary/English subtitle to avoid blocking queue with dozens of HTTP calls
+            val candidateSubs = stream.subtitles.filter { sub ->
+                sub.url.isNotBlank() && (sub.isDefault || sub.label.contains("English", ignoreCase = true))
+            }.ifEmpty { stream.subtitles.filter { it.url.isNotBlank() }.take(1) }
+
+            candidateSubs.forEach { sub ->
+                val localPath = downloadSubtitleLocally(sub.url, episode.id, sub.label, stream.headers)
+                downloadedSubs.add(
+                    JSONObject().apply {
+                        put("url", localPath)
+                        put("label", sub.label)
+                        put("isDefault", sub.isDefault)
+                    }
+                )
             }
 
             val headersObj = JSONObject().apply { stream.headers.forEach { (k, v) -> put(k, v) } }
@@ -711,7 +725,12 @@ class DetailViewModel @Inject constructor(
 
             val isM3u8 = stream.isM3U8 || stream.url.contains(".m3u8", ignoreCase = true)
             if (isM3u8) {
-                val secureStreamUrl = "${stream.url}${if(stream.url.contains("?")) "&" else "?"}y_ref=${Uri.encode(stream.headers["Referer"] ?: "https://megaplay.buzz/")}&y_ori=${Uri.encode(stream.headers["Origin"] ?: "https://megaplay.buzz/")}"
+                val referer = stream.headers["Referer"] ?: "https://megaplay.buzz/"
+                val origin = stream.headers["Origin"] ?: referer
+                val host = Uri.parse(stream.url).host.orEmpty()
+                com.zenx.yugen.play.di.DownloadModule.registerDownloadHeaders(host, referer, origin)
+
+                val secureStreamUrl = "${stream.url}${if(stream.url.contains("?")) "&" else "?"}y_ref=${Uri.encode(referer)}&y_ori=${Uri.encode(origin)}"
                 val request = DownloadRequest.Builder(episode.id, secureStreamUrl.toUri())
                     .setMimeType(MimeTypes.APPLICATION_M3U8)
                     .setData(payloadResult.data).build()
@@ -745,14 +764,25 @@ class DetailViewModel @Inject constructor(
         }
     }
 
-    fun showBatchDownloadSheet() { _isBatchDownloadSheetVisible.value = true }
-    fun hideBatchDownloadSheet() { _isBatchDownloadSheetVisible.value = false }
+    fun showBatchDownloadSheet(preselectedEpisodeId: String? = null) {
+        _preselectedBatchEpisodeId.value = preselectedEpisodeId
+        _isBatchDownloadSheetVisible.value = true
+    }
 
-    fun batchDownloadEpisodes(episodes: List<EpisodeUiModel>, preferDub: Boolean) {
+    fun hideBatchDownloadSheet() {
+        _isBatchDownloadSheetVisible.value = false
+        _preselectedBatchEpisodeId.value = null
+    }
+
+    fun batchDownloadEpisodes(
+        episodes: List<EpisodeUiModel>,
+        preferDub: Boolean = false,
+        preferredQuality: String = "Best"
+    ) {
         if (episodes.isEmpty()) return
         hideBatchDownloadSheet()
 
-        viewModelScope.launch {
+        externalScope.launch {
             val toDownload = episodes.filter {
                 it.downloadState != DownloadState.COMPLETED &&
                         it.downloadState != DownloadState.DOWNLOADING &&
@@ -761,20 +791,18 @@ class DetailViewModel @Inject constructor(
 
             if (toDownload.isEmpty()) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "All selected episodes are already downloaded.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Selected episodes are already downloaded or queued.", Toast.LENGTH_SHORT).show()
                 }
                 return@launch
             }
 
             withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Queueing ${toDownload.size} episodes... Please wait.", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Adding ${toDownload.size} episode(s) to download queue...", Toast.LENGTH_SHORT).show()
             }
 
             var queuedCount = 0
             val sortedToDownload = toDownload.sortedBy { it.number.toFloatOrNull() ?: 0f }
 
-            // Fix 4: Throttle batch processing to avoid 429 IP Bans
-            // Process sequentially instead of chunked(3) async bursts
             for (ep in sortedToDownload) {
                 withContext(Dispatchers.IO) {
                     val cached = streamDataCache.get(ep.id)
@@ -788,24 +816,46 @@ class DetailViewModel @Inject constructor(
                     }
 
                     if (streams.isNotEmpty()) {
-                        val stream = if (preferDub) {
-                            streams.find { it.audioTrackType() == AudioTrackType.DUB || it.audioTrackType() == AudioTrackType.HDUB } ?: streams.first()
+                        // 1. Filter by audio preference (DUB vs SUB)
+                        val audioFiltered = if (preferDub) {
+                            val dubs = streams.filter { it.audioTrackType() == AudioTrackType.DUB || it.audioTrackType() == AudioTrackType.HDUB }
+                            dubs.ifEmpty { streams }
                         } else {
-                            streams.find { it.audioTrackType() != AudioTrackType.DUB && it.audioTrackType() != AudioTrackType.HDUB } ?: streams.first()
+                            val subs = streams.filter { it.audioTrackType() == AudioTrackType.SUB || it.audioTrackType() == AudioTrackType.HSUB }
+                            subs.ifEmpty { streams }
+                        }
+
+                        // 2. Select stream according to resolution preference
+                        val stream = when (preferredQuality) {
+                            "Best" -> audioFiltered.find { it.quality.contains("1080") || (it.resolution?.contains("1080") == true) }
+                                ?: audioFiltered.find { it.quality.contains("720") || (it.resolution?.contains("720") == true) }
+                                ?: audioFiltered.first()
+                            "1080p" -> audioFiltered.find { it.quality.contains("1080") || (it.resolution?.contains("1080") == true) }
+                                ?: audioFiltered.find { it.quality.contains("720") || (it.resolution?.contains("720") == true) }
+                                ?: audioFiltered.first()
+                            "720p" -> audioFiltered.find { it.quality.contains("720") || (it.resolution?.contains("720") == true) }
+                                ?: audioFiltered.find { it.quality.contains("480") || (it.resolution?.contains("480") == true) }
+                                ?: audioFiltered.first()
+                            "480p" -> audioFiltered.find { it.quality.contains("480") || (it.resolution?.contains("480") == true) }
+                                ?: audioFiltered.find { it.quality.contains("360") || (it.resolution?.contains("360") == true) }
+                                ?: audioFiltered.first()
+                            "360p" -> audioFiltered.find { it.quality.contains("360") || (it.resolution?.contains("360") == true) }
+                                ?: audioFiltered.first()
+                            else -> audioFiltered.first()
                         }
 
                         performEnqueueDownload(ep, stream)
                         queuedCount++
 
-                        // Add a slight delay between provider requests so we don't hammer the scraper
-                        delay(600)
+                        delay(400)
                     }
                 }
             }
 
             withContext(Dispatchers.Main) {
                 if (queuedCount > 0) {
-                    Toast.makeText(context, "Successfully queued $queuedCount episodes.", Toast.LENGTH_SHORT).show()
+                    val countText = if (queuedCount == toDownload.size) "$queuedCount episode(s)" else "$queuedCount of ${toDownload.size} episode(s)"
+                    Toast.makeText(context, "Added $countText to download queue.", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(context, "Failed to resolve streams for selected episodes.", Toast.LENGTH_SHORT).show()
                 }

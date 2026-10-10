@@ -389,7 +389,8 @@ fun TvDetailScreen(
                                 // --- HERO ACTION BUTTONS (CLEANLY ALIGNED) ---
                                 val targetEp = resumeEpisode ?: currentChunk.firstOrNull()
                                 val playLabel = when {
-                                    resumeEpisode != null -> "Resume Ep ${resumeEpisode?.number}"
+                                    targetEp != null && targetEp.watchProgress > 0f && !targetEp.isWatched -> "Resume Ep ${targetEp.number}"
+                                    targetEp != null -> "Play Ep ${targetEp.number}"
                                     currentChunk.isNotEmpty() -> "Play Ep ${currentChunk.first().number}"
                                     else -> "Play Episode 1"
                                 }

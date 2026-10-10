@@ -120,14 +120,14 @@ object NetworkModule {
     fun provideDownloadOkHttpClient(): OkHttpClient {
         return OkHttpClient.Builder()
             .dispatcher(Dispatcher().apply {
-                maxRequests = 128
-                maxRequestsPerHost = 32
+                maxRequests = 256
+                maxRequestsPerHost = 64
             })
             .connectionPool(ConnectionPool(64, 5, TimeUnit.MINUTES))
             .protocols(listOf(okhttp3.Protocol.HTTP_1_1)) // Prevents HTTP/2 single-socket bandwidth throttling on video CDNs
             .addInterceptor(JunkBytesInterceptor())
             .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .followRedirects(true)

@@ -86,9 +86,15 @@ fun SettingsScreen(
             isCheckingUpdate = false
         }
     }
-
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .padding(bottom = 96.dp)
+            )
+        },
         containerColor = YugenBackground,
         topBar = {
             Row(

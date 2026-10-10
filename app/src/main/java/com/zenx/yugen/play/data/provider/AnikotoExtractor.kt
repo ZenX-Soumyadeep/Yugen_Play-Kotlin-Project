@@ -21,12 +21,17 @@ class AnikotoExtractor(
 
     fun isMegaPlayServer(serverName: String): Boolean {
         val name = serverName.lowercase().replace(" ", "").replace("-", "")
-        return name in setOf("vidstream2", "hd1", "hd2", "vidcloud1", "vidplay1", "kiwistream") ||
-                name.contains("vidstream") || name.contains("hd1") || name.contains("hd2")
+        return name in setOf("vidstream2", "hd1", "hd2", "vidcloud1", "vidplay1", "kiwistream", "megaplay", "megacloud", "vidcloud") ||
+                name.contains("vidstream") || name.contains("hd1") || name.contains("hd2") ||
+                name.contains("megaplay") || name.contains("megacloud") || name.contains("vidcloud") ||
+                name.contains("server")
     }
 
     fun isMegaPlayUrl(url: String): Boolean {
-        return url.contains("megaplay", ignoreCase = true)
+        return url.contains("megaplay", ignoreCase = true) ||
+                url.contains("vidstream", ignoreCase = true) ||
+                url.contains("megacloud", ignoreCase = true) ||
+                url.contains("vidcloud", ignoreCase = true)
     }
 
     suspend fun getEmbedLink(serverId: String, epUrl: String): String? = withContext(Dispatchers.IO) {

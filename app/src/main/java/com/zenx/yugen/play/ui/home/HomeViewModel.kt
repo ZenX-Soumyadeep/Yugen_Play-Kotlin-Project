@@ -428,6 +428,11 @@ class HomeViewModel @Inject constructor(
             val hasProgress = entity.durationMs > 0L || entity.progressMs > 0L
             if (!hasProgress) return@filter false
 
+            val progressRatio = if (entity.durationMs > 0L) {
+                entity.progressMs.toFloat() / entity.durationMs.toFloat()
+            } else 0f
+            if (progressRatio >= 0.85f) return@filter false
+
             val anilistKey = entity.anilistId?.let { "anilist_$it" }
             val titleKey = "title_${com.zenx.yugen.play.util.StringUtils.normalizeTitleForComparison(entity.animeTitle)}"
             (anilistKey == null || anilistKey !in dismissedSeries) && titleKey !in dismissedSeries
@@ -457,17 +462,11 @@ class HomeViewModel @Inject constructor(
                 (entity.progressMs.toFloat() / entity.durationMs.toFloat()).coerceIn(0f, 1f)
             } else 0f
 
-            val isNearEnd = progress >= 0.88f
-            val epInt = cleanEpNum.toIntOrNull()
-            val subtitleText = if (isNearEnd && epInt != null) {
-                "Up Next • Episode ${epInt + 1}"
-            } else {
-                "Episode $cleanEpNum"
-            }
-            val effectiveProgress = if (isNearEnd) 0f else progress
-            val timeLeftStr = if (isNearEnd) {
-                "Up Next"
-            } else if (entity.durationMs > 0) {
+            if (progress >= 0.85f) return@mapNotNull null
+
+            val subtitleText = "Episode $cleanEpNum"
+            val effectiveProgress = progress
+            val timeLeftStr = if (entity.durationMs > 0) {
                 val minsLeft = ((entity.durationMs - entity.progressMs) / 60000L).coerceAtLeast(1)
                 "${minsLeft}m left"
             } else ""
@@ -481,7 +480,7 @@ class HomeViewModel @Inject constructor(
                 timeLeft = timeLeftStr,
                 isCloudSync = false,
                 mediaId = entity.anilistId?.toString(),
-                isUpNext = isNearEnd
+                isUpNext = false
             )
         }
 

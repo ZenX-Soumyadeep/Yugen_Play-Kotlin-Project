@@ -339,13 +339,11 @@ class AnikotoProvider(
                         val formattedName = server.serverName
                         val qualityTag = "Auto [${server.type}]"
 
-                        if (extractor.isMegaPlayServer(server.serverName) || extractor.isMegaPlayUrl(server.serverId)) {
-                            val embedUrl = if (server.serverId.startsWith("http")) server.serverId
-                            else extractor.getEmbedLink(server.serverId, epurlPart)
+                        val embedUrl = if (server.serverId.startsWith("http")) server.serverId
+                        else extractor.getEmbedLink(server.serverId, epurlPart)
 
-                            if (embedUrl != null) {
-                                extractor.extractFromMegaPlay(embedUrl, formattedName, qualityTag)
-                            } else emptyList()
+                        if (embedUrl != null && (extractor.isMegaPlayServer(server.serverName) || extractor.isMegaPlayUrl(server.serverId) || extractor.isMegaPlayUrl(embedUrl))) {
+                            extractor.extractFromMegaPlay(embedUrl, formattedName, qualityTag)
                         } else emptyList()
                     } catch (e: Exception) {
                         Log.e(TAG, "Extraction failed for server ${server.serverName}: ${e.message}")

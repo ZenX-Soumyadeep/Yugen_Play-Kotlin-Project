@@ -24,6 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -35,7 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.zenx.yugen.play.domain.AudioTrackType
 import com.zenx.yugen.play.domain.VideoStream
+import com.zenx.yugen.play.domain.audioTrackType
 import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.theme.*
 import kotlinx.coroutines.delay
@@ -310,10 +313,11 @@ fun EpisodeItemRow(
 ) {
     val context = LocalContext.current
     val cardShape = RoundedCornerShape(18.dp)
-    val cardBg = if (isResumeTarget) YugenPurple.copy(alpha = 0.20f) else YugenGlassSurface
-    val activeBorder = if (isResumeTarget) BorderStroke(1.5.dp, Brush.horizontalGradient(listOf(YugenPurple, YugenAccentViolet)))
+    val shouldHighlightResume = isResumeTarget && ep.watchProgress > 0f && !ep.isWatched
+    val cardBg = if (shouldHighlightResume) YugenPurple.copy(alpha = 0.20f) else YugenGlassSurface
+    val activeBorder = if (shouldHighlightResume) BorderStroke(1.5.dp, Brush.horizontalGradient(listOf(YugenPurple, YugenAccentViolet)))
                        else BorderStroke(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))))
-    val titleColor = if (isResumeTarget) YugenPurple else TextPrimary
+    val titleColor = if (shouldHighlightResume) YugenPurple else TextPrimary
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     val animatedDownloadProgress by animateFloatAsState(
@@ -400,7 +404,7 @@ fun EpisodeItemRow(
                 )
             }
             // Resume Target Tag
-            if (isResumeTarget) {
+            if (shouldHighlightResume) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -558,21 +562,39 @@ fun DynamicActionIsland(
 
     val isExpanded = state is IslandState.ServerSelection || state is IslandState.DeleteConfirmation
 
-    val bgColor by animateColorAsState(
-        targetValue = if (isExpanded) YugenGlassSurface else dominantColor,
-        label = "IslandBgColor"
+    val idleBgBrush = Brush.verticalGradient(
+        listOf(
+            dominantColor.copy(alpha = 0.32f),
+            Color(0xFF141320).copy(alpha = 0.85f)
+        )
     )
-    val borderBrush = if (isExpanded) YugenGlassBorderBrush else Brush.verticalGradient(
-        listOf(dominantColor.copy(alpha = 0.7f), dominantColor.copy(alpha = 0.3f))
+
+    val idleBorderBrush = Brush.linearGradient(
+        listOf(
+            Color.White.copy(alpha = 0.45f),
+            dominantColor.copy(alpha = 0.60f),
+            dominantColor.copy(alpha = 0.20f)
+        )
     )
+
+    val borderBrush = if (isExpanded) YugenGlassBorderBrush else idleBorderBrush
 
     BackHandler(enabled = state !is IslandState.Idle) { onDismiss() }
 
     Box(
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 20.dp)
+            .shadow(
+                elevation = if (isExpanded) 20.dp else 14.dp,
+                shape = if (isExpanded) YugenShape.dialog else YugenShape.pill,
+                ambientColor = if (isExpanded) Color.Black.copy(alpha = 0.5f) else dominantColor.copy(alpha = 0.45f),
+                spotColor = if (isExpanded) Color.Black.copy(alpha = 0.5f) else dominantColor.copy(alpha = 0.35f)
+            )
             .clip(if (isExpanded) YugenShape.dialog else YugenShape.pill)
-            .background(bgColor)
+            .background(if (isExpanded) YugenGlassSurface else Color.Transparent)
+            .then(
+                if (!isExpanded) Modifier.background(idleBgBrush) else Modifier
+            )
             .border(1.dp, borderBrush, if (isExpanded) YugenShape.dialog else YugenShape.pill)
             .animateContentSize(animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessLow)),
         contentAlignment = Alignment.Center
@@ -599,22 +621,32 @@ fun DynamicActionIsland(
                     Row(
                         modifier = Modifier
                             .bounceClick { onActionClick(targetState.episode) }
-                            .padding(horizontal = 28.dp, vertical = 14.dp),
+                            .padding(horizontal = 26.dp, vertical = 13.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            Icons.Rounded.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(dominantColor.copy(alpha = 0.35f))
+                                .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = if (targetState.isContinue) "Continue Ep ${targetState.episode.number}" else "Watch Ep ${targetState.episode.number}",
                             color = Color.White,
                             fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.3.sp
                         )
                     }
                 }
@@ -739,40 +771,59 @@ private fun IslandStreamSelector(
     onDismiss: () -> Unit,
     onStreamSelected: (VideoStream) -> Unit
 ) {
-    val serverGroups = remember(streams) {
-        streams.groupBy { stream ->
+    val hasSub = remember(streams) {
+        streams.any { it.audioTrackType() == AudioTrackType.SUB || it.audioTrackType() == AudioTrackType.HSUB }
+    }
+    val hasDub = remember(streams) {
+        streams.any { it.audioTrackType() == AudioTrackType.DUB || it.audioTrackType() == AudioTrackType.HDUB }
+    }
+
+    var selectedTrackFilter by remember(streams) {
+        mutableStateOf(if (hasSub && hasDub) "ALL" else if (hasDub) "DUB" else "SUB")
+    }
+
+    val filteredStreams = remember(streams, selectedTrackFilter) {
+        when (selectedTrackFilter) {
+            "SUB" -> streams.filter { it.audioTrackType() == AudioTrackType.SUB || it.audioTrackType() == AudioTrackType.HSUB }
+            "DUB" -> streams.filter { it.audioTrackType() == AudioTrackType.DUB || it.audioTrackType() == AudioTrackType.HDUB }
+            else -> streams
+        }
+    }
+
+    val serverGroups = remember(filteredStreams) {
+        filteredStreams.groupBy { stream ->
             val rawName = stream.serverName?.takeIf { it.isNotBlank() } ?: stream.quality
             rawName.replace(Regex("\\[?(sub|dub|hsub|hardsub|hdub)\\]?", RegexOption.IGNORE_CASE), "")
                    .replace(Regex("\\(.*\\)|\\[.*?\\]"), "")
                    .trim()
                    .ifBlank { "Server" }
         }.map { (cleanName, groupStreams) ->
-            val hasSub = groupStreams.any { 
+            val itemHasSub = groupStreams.any { 
                 val q = it.quality.uppercase()
                 val n = (it.serverName ?: "").uppercase()
                 !q.contains("DUB") && !n.contains("DUB") && !q.contains("HSUB") && !n.contains("HSUB") && !q.contains("HARDSUB") && !n.contains("HARDSUB")
             }
-            val hasDub = groupStreams.any { 
+            val itemHasDub = groupStreams.any { 
                 val q = it.quality.uppercase()
                 val n = (it.serverName ?: "").uppercase()
                 (q.contains("DUB") || n.contains("DUB")) && !q.contains("HDUB") && !n.contains("HDUB") 
             }
-            val hasHsub = groupStreams.any { 
+            val itemHasHsub = groupStreams.any { 
                 val q = it.quality.uppercase()
                 val n = (it.serverName ?: "").uppercase()
                 q.contains("HSUB") || n.contains("HSUB") || q.contains("HARDSUB") || n.contains("HARDSUB")
             }
-            val hasHdub = groupStreams.any { 
+            val itemHasHdub = groupStreams.any { 
                 val q = it.quality.uppercase()
                 val n = (it.serverName ?: "").uppercase()
                 q.contains("HDUB") || n.contains("HDUB")
             }
             
             val validBadges = mutableListOf<String>()
-            if (hasSub) validBadges.add("SUB")
-            if (hasDub) validBadges.add("DUB")
-            if (hasHsub) validBadges.add("HSUB")
-            if (hasHdub) validBadges.add("HDUB")
+            if (itemHasSub) validBadges.add("SUB")
+            if (itemHasDub) validBadges.add("DUB")
+            if (itemHasHsub) validBadges.add("HSUB")
+            if (itemHasHdub) validBadges.add("HDUB")
             
             val badge = if (validBadges.size > 1) "Multi" else validBadges.firstOrNull() ?: "SUB"
             cleanName to Pair(badge, groupStreams)
@@ -788,13 +839,22 @@ private fun IslandStreamSelector(
         IslandServerSelectionView(
             isDownloadMode = isDownloadMode,
             serverGroups = serverGroups,
+            hasSub = hasSub,
+            hasDub = hasDub,
+            selectedTrackFilter = selectedTrackFilter,
+            onSelectFilter = { selectedTrackFilter = it },
             dominantColor = dominantColor,
             onClose = onDismiss,
             onServerClick = { serverName ->
                 val serverStreams = serverGroups[serverName]?.second ?: emptyList()
-                val chosenStream = serverStreams.maxByOrNull { s ->
+                val targetStreams = when (selectedTrackFilter) {
+                    "SUB" -> serverStreams.filter { it.audioTrackType() == AudioTrackType.SUB || it.audioTrackType() == AudioTrackType.HSUB }
+                    "DUB" -> serverStreams.filter { it.audioTrackType() == AudioTrackType.DUB || it.audioTrackType() == AudioTrackType.HDUB }
+                    else -> serverStreams
+                }
+                val chosenStream = targetStreams.maxByOrNull { s ->
                     s.resolution?.filter { it.isDigit() }?.toIntOrNull() ?: 0
-                } ?: serverStreams.firstOrNull()
+                } ?: targetStreams.firstOrNull() ?: serverStreams.firstOrNull()
                 if (chosenStream != null) {
                     onStreamSelected(chosenStream)
                 }
@@ -807,6 +867,10 @@ private fun IslandStreamSelector(
 private fun IslandServerSelectionView(
     isDownloadMode: Boolean,
     serverGroups: Map<String, Pair<String, List<VideoStream>>>,
+    hasSub: Boolean,
+    hasDub: Boolean,
+    selectedTrackFilter: String,
+    onSelectFilter: (String) -> Unit,
     dominantColor: Color,
     onClose: () -> Unit,
     onServerClick: (String) -> Unit
@@ -818,7 +882,7 @@ private fun IslandServerSelectionView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Select Server",
+                text = if (isDownloadMode) "Download Server" else "Select Server",
                 color = TextPrimary,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold
@@ -827,7 +891,41 @@ private fun IslandServerSelectionView(
                 Icon(Icons.Rounded.Close, contentDescription = "Close", tint = TextSecondary)
             }
         }
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+
+        if (hasSub && hasDub) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+                    .clip(YugenShape.pill)
+                    .background(YugenGlassSurface)
+                    .border(1.dp, YugenGlassBorderBrush, YugenShape.pill)
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                listOf("ALL" to "All", "SUB" to "Sub", "DUB" to "Dub").forEach { (key, label) ->
+                    val isSelected = selectedTrackFilter == key
+                    val bg by animateColorAsState(if (isSelected) dominantColor else Color.Transparent, label = "tabBg")
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(YugenShape.pill)
+                            .background(bg)
+                            .clickable { onSelectFilter(key) }
+                            .padding(vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (isSelected) Color.White else TextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
 
         if (serverGroups.isEmpty()) {
             Box(

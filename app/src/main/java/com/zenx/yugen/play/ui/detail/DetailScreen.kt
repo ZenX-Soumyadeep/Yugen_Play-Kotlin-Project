@@ -362,18 +362,23 @@ fun DetailScreen(
                             val ep = activeEpisodes[index]
                             EpisodeItemRow(
                                 ep = ep,
-                                isResumeTarget = resumeEpisode?.id == ep.id,
+                                isResumeTarget = resumeEpisode?.id == ep.id && ep.watchProgress > 0f && !ep.isWatched,
                                 defaultPoster = state.bannerUrl.ifBlank { state.posterUrl },
                                 onPlayClicked = {
-                                    if (ep.downloadState == DownloadState.COMPLETED) {
-                                        onEpisodeClick(ep.id, state.animeUrl, state.activeProvider, viewModel.animeTitle, state.posterUrl, null, state.id, ep.number.toIntOrNull() ?: 1)
-                                    } else {
-                                        viewModel.triggerEpisodeAction(ep, isDownload = false)
-                                    }
+                                    onEpisodeClick(
+                                        ep.id,
+                                        state.animeUrl,
+                                        state.activeProvider,
+                                        viewModel.animeTitle,
+                                        state.posterUrl,
+                                        null,
+                                        state.id,
+                                        ep.number.toIntOrNull() ?: 1
+                                    )
                                 },
                                 onDownloadClicked = {
                                     when (ep.downloadState) {
-                                        DownloadState.NONE, DownloadState.FAILED -> viewModel.triggerEpisodeAction(ep, isDownload = true)
+                                        DownloadState.NONE, DownloadState.FAILED -> viewModel.showBatchDownloadSheet(preselectedEpisodeId = ep.id)
                                         DownloadState.COMPLETED -> viewModel.promptDeleteDownload(ep)
                                         else -> viewModel.toggleDownloadState(ep)
                                     }
@@ -470,7 +475,21 @@ fun DetailScreen(
                 isDownloadMode = viewModel.isDownloadMode,
                 dominantColor = YugenPurple,
                 onActionClick = { ep ->
-                    viewModel.triggerEpisodeAction(ep, isDownload = false)
+                    val successState = uiState as? DetailsUiState.Success
+                    if (successState != null) {
+                        onEpisodeClick(
+                            ep.id,
+                            successState.animeUrl,
+                            successState.activeProvider,
+                            viewModel.animeTitle,
+                            successState.posterUrl,
+                            null,
+                            successState.id,
+                            ep.number.toIntOrNull() ?: 1
+                        )
+                    } else {
+                        viewModel.triggerEpisodeAction(ep, isDownload = false)
+                    }
                 },
                 onStreamSelected = { selectedStream ->
                     val currentState = islandState
