@@ -4,6 +4,7 @@ import com.zenx.yugen.play.domain.EpisodeId
 import com.zenx.yugen.play.domain.ProviderRegistry
 import com.zenx.yugen.play.domain.Resource
 import com.zenx.yugen.play.domain.VideoStream
+import com.zenx.yugen.play.domain.priorityScore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
@@ -82,9 +83,9 @@ class GetVideoStreamsUseCase @Inject constructor(
                         }
                     }
 
-                    // Sort intelligently by adaptive quality first, preserving raw string models for the UI
-                    val sortedSubs = subStreams.sortedByDescending { getQualityScore(it) }
-                    val sortedDubs = dubStreams.sortedByDescending { getQualityScore(it) }
+                    // Sort intelligently by adaptive quality and server reliability
+                    val sortedSubs = subStreams.sortedByDescending { it.priorityScore() }
+                    val sortedDubs = dubStreams.sortedByDescending { it.priorityScore() }
 
                     Resource.Success(sortedSubs + sortedDubs)
                 } else {
@@ -100,21 +101,5 @@ class GetVideoStreamsUseCase @Inject constructor(
         return stream.url.contains("/dub", ignoreCase = true) ||
                 stream.quality.contains("dub", ignoreCase = true) ||
                 (stream.serverName?.contains("dub", ignoreCase = true) == true)
-    }
-
-    private fun getQualityScore(stream: VideoStream): Int {
-        val q = stream.quality.lowercase()
-        val res = stream.resolution?.lowercase() ?: ""
-        return when {
-            // Prioritize Adaptive Bitrate (HLS) over static files to prevent buffering freezes
-            stream.format == "HLS" || "auto" in q -> 1000
-            "1080" in q || "1080" in res -> 800
-            "720" in q || "720" in res -> 700
-            "480" in q || "480" in res -> 600
-            "360" in q || "360" in res -> 500
-            // De-prioritize static MP4s as they lack dynamic quality scaling
-            stream.format == "MP4" || "mp4" in q -> 400
-            else -> 0
-        }
     }
 }

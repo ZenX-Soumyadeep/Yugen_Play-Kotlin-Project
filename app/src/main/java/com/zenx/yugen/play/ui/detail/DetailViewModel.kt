@@ -24,6 +24,7 @@ import com.zenx.yugen.play.data.local.PlayerPreferences
 import com.zenx.yugen.play.domain.AudioTrackType
 import com.zenx.yugen.play.domain.audioTrackType
 import com.zenx.yugen.play.domain.cleanServerName
+import com.zenx.yugen.play.domain.priorityScore
 import com.zenx.yugen.play.data.local.WatchHistoryDao
 import com.zenx.yugen.play.data.local.WatchHistoryEntity
 import com.zenx.yugen.play.data.remote.AnilistService
@@ -832,23 +833,26 @@ class DetailViewModel @Inject constructor(
                             subs.ifEmpty { streams }
                         }
 
-                        // 2. Select stream according to resolution preference
+                        // Prioritize candidate streams by quality and server reliability
+                        val candidates = audioFiltered.sortedByDescending { it.priorityScore() }
+
+                        // 2. Select stream according to resolution preference from prioritized candidates
                         val stream = when (preferredQuality) {
-                            "Best" -> audioFiltered.find { it.quality.contains("1080") || (it.resolution?.contains("1080") == true) }
-                                ?: audioFiltered.find { it.quality.contains("720") || (it.resolution?.contains("720") == true) }
-                                ?: audioFiltered.first()
-                            "1080p" -> audioFiltered.find { it.quality.contains("1080") || (it.resolution?.contains("1080") == true) }
-                                ?: audioFiltered.find { it.quality.contains("720") || (it.resolution?.contains("720") == true) }
-                                ?: audioFiltered.first()
-                            "720p" -> audioFiltered.find { it.quality.contains("720") || (it.resolution?.contains("720") == true) }
-                                ?: audioFiltered.find { it.quality.contains("480") || (it.resolution?.contains("480") == true) }
-                                ?: audioFiltered.first()
-                            "480p" -> audioFiltered.find { it.quality.contains("480") || (it.resolution?.contains("480") == true) }
-                                ?: audioFiltered.find { it.quality.contains("360") || (it.resolution?.contains("360") == true) }
-                                ?: audioFiltered.first()
-                            "360p" -> audioFiltered.find { it.quality.contains("360") || (it.resolution?.contains("360") == true) }
-                                ?: audioFiltered.first()
-                            else -> audioFiltered.first()
+                            "Best" -> candidates.find { it.quality.contains("1080") || (it.resolution?.contains("1080") == true) }
+                                ?: candidates.find { it.quality.contains("720") || (it.resolution?.contains("720") == true) }
+                                ?: candidates.first()
+                            "1080p" -> candidates.find { it.quality.contains("1080") || (it.resolution?.contains("1080") == true) }
+                                ?: candidates.find { it.quality.contains("720") || (it.resolution?.contains("720") == true) }
+                                ?: candidates.first()
+                            "720p" -> candidates.find { it.quality.contains("720") || (it.resolution?.contains("720") == true) }
+                                ?: candidates.find { it.quality.contains("480") || (it.resolution?.contains("480") == true) }
+                                ?: candidates.first()
+                            "480p" -> candidates.find { it.quality.contains("480") || (it.resolution?.contains("480") == true) }
+                                ?: candidates.find { it.quality.contains("360") || (it.resolution?.contains("360") == true) }
+                                ?: candidates.first()
+                            "360p" -> candidates.find { it.quality.contains("360") || (it.resolution?.contains("360") == true) }
+                                ?: candidates.first()
+                            else -> candidates.first()
                         }
 
                         performEnqueueDownload(ep, stream, preferredQuality)

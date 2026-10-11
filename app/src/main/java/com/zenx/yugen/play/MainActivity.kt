@@ -177,34 +177,69 @@ fun GlobalNetworkBanner(context: Context) {
     val connectivityManager = remember(context) {
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     }
+
+    fun isCurrentlyConnected(): Boolean {
+        val activeNet = connectivityManager.activeNetwork ?: return false
+        val caps = connectivityManager.getNetworkCapabilities(activeNet) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
     val initialConnected = remember(connectivityManager) {
-        val activeNet = connectivityManager.activeNetwork
-        val caps = connectivityManager.getNetworkCapabilities(activeNet)
-        caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        isCurrentlyConnected()
     }
 
     val isConnected by produceState(initialValue = initialConnected, context) {
         callbackFlow {
             val callback = object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) { trySend(true) }
-                override fun onLost(network: Network) { trySend(false) }
+                override fun onAvailable(network: Network) {
+                    trySend(true)
+                }
+
+                override fun onLost(network: Network) {
+                    // Only emit disconnected if the device actually has no active internet
+                    trySend(isCurrentlyConnected())
+                }
+
+                override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                    val hasInternet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    trySend(hasInternet)
+                }
             }
 
-            val activeNetwork = connectivityManager.activeNetwork
-            val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
-            trySend(capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true)
+            trySend(isCurrentlyConnected())
 
-            val request = NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                connectivityManager.registerDefaultNetworkCallback(callback)
+            } else {
+                val request = NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build()
+                connectivityManager.registerNetworkCallback(request, callback)
+            }
 
-            connectivityManager.registerNetworkCallback(request, callback)
-            awaitClose { connectivityManager.unregisterNetworkCallback(callback) }
+            awaitClose {
+                try {
+                    connectivityManager.unregisterNetworkCallback(callback)
+                } catch (_: Exception) {}
+            }
         }.collect { value = it }
     }
 
+    var showBanner by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isConnected) {
+        if (!isConnected) {
+            // Debounce for 2.5s to prevent false alerts during interface handoffs, WiFi roaming, or transient drops
+            kotlinx.coroutines.delay(2500L)
+            showBanner = true
+        } else {
+            // Instantly clear the banner as soon as network is confirmed
+            showBanner = false
+        }
+    }
+
     AnimatedVisibility(
-        visible = !isConnected,
+        visible = showBanner,
         enter = expandVertically(animationSpec = tween(300)),
         exit = shrinkVertically(animationSpec = tween(300))
     ) {

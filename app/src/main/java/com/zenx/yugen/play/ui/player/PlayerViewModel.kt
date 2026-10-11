@@ -53,6 +53,7 @@ import com.zenx.yugen.play.domain.Subtitle
 import com.zenx.yugen.play.domain.VideoStream
 import com.zenx.yugen.play.domain.AudioTrackType
 import com.zenx.yugen.play.domain.audioTrackType
+import com.zenx.yugen.play.domain.priorityScore
 import com.zenx.yugen.play.domain.usecase.GetAnimeDetailsUseCase
 import com.zenx.yugen.play.domain.usecase.GetEpisodesUseCase
 import com.zenx.yugen.play.domain.usecase.GetVideoStreamsUseCase
@@ -491,6 +492,16 @@ class PlayerViewModel @Inject constructor(
                     }
                 }
                 
+                if (nextStreamIdx == -1) {
+                    // Wrap-around search from index 0 if current server was further down
+                    for (i in 0 until currentStreamIndex) {
+                        if (state.streams[i].audioTrackType() == currentType) {
+                            nextStreamIdx = i
+                            break
+                        }
+                    }
+                }
+
                 if (nextStreamIdx == -1 && currentStreamIndex < state.streams.size - 1) {
                     nextStreamIdx = currentStreamIndex + 1
                 }
@@ -988,7 +999,7 @@ class PlayerViewModel @Inject constructor(
                 }
             }
 
-            if (isInitialMp4Downloaded && initialMp4 != null) {
+            if (initialMp4 != null && isInitialMp4Downloaded) {
                 currentEpisodeId = episodeId
                 playOfflineMp4(initialMp4, episodeId)
                 viewModelScope.launch(Dispatchers.Main) {
@@ -1058,7 +1069,7 @@ class PlayerViewModel @Inject constructor(
 
             val savedPosition = getSavedPosition(targetEpId)
 
-            if (isMp4Downloaded && mp4Record != null) {
+            if (mp4Record != null && isMp4Downloaded) {
                 playOfflineMp4(mp4Record, targetEpId)
                 viewModelScope.launch(Dispatchers.Main) {
                     try {
@@ -1089,13 +1100,14 @@ class PlayerViewModel @Inject constructor(
                             streams.find { it.url.substringBefore("?") == targetBase } ?: streams.firstOrNull()
                         } else {
                             val preferDub = playerPreferences.preferDub.first()
-                            if (preferDub) {
-                                streams.find { it.audioTrackType() == AudioTrackType.DUB || it.audioTrackType() == AudioTrackType.HDUB }
-                                    ?: streams.firstOrNull()
+                            val matchingAudio = if (preferDub) {
+                                streams.filter { it.audioTrackType() == AudioTrackType.DUB || it.audioTrackType() == AudioTrackType.HDUB }
+                                    .ifEmpty { streams }
                             } else {
-                                streams.find { it.audioTrackType() == AudioTrackType.SUB || it.audioTrackType() == AudioTrackType.HSUB }
-                                    ?: streams.firstOrNull()
+                                streams.filter { it.audioTrackType() == AudioTrackType.SUB || it.audioTrackType() == AudioTrackType.HSUB }
+                                    .ifEmpty { streams }
                             }
+                            matchingAudio.sortedByDescending { it.priorityScore() }.firstOrNull() ?: streams.firstOrNull()
                         }
 
                         if (activeStream != null) {

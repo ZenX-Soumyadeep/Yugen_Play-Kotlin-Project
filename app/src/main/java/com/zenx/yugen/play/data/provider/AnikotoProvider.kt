@@ -73,7 +73,7 @@ class AnikotoProvider(
 
                 return client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) return@use emptyList<SearchResult>()
-                    val html = response.body?.string() ?: return@use emptyList<SearchResult>()
+                    val html = response.body.string()
                     val doc = Jsoup.parse(html)
 
                     doc.select("div.ani.items > div.item").mapNotNull { element ->
@@ -130,7 +130,7 @@ class AnikotoProvider(
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@use emptyList<Episode>()
-                val html = response.body?.string() ?: return@use emptyList<Episode>()
+                val html = response.body.string()
                 val doc = Jsoup.parse(html)
 
                 title = doc.selectFirst(".name")?.text().orEmpty()
@@ -174,7 +174,7 @@ class AnikotoProvider(
                 try {
                     client.newCall(epsRequest).execute().use { response ->
                         if (!response.isSuccessful) return@use
-                        val jsonStr = response.body?.string().orEmpty()
+                        val jsonStr = response.body.string()
                         if (jsonStr.isBlank()) return@use
 
                         try {
@@ -290,7 +290,7 @@ class AnikotoProvider(
 
             client.newCall(req).execute().use { response ->
                 if (response.isSuccessful) {
-                    val jsonStr = response.body?.string().orEmpty()
+                    val jsonStr = response.body.string()
                     val htmlContent = try {
                         val jsonNative = JSONObject(jsonStr)
                         jsonNative.optString("result").ifEmpty { jsonNative.optString("html") }
@@ -368,7 +368,7 @@ class AnikotoProvider(
 
                 client.newCall(req).execute().use { response ->
                     if (response.isSuccessful) {
-                        val jsonStr = response.body?.string() ?: ""
+                        val jsonStr = response.body.string()
                         val mapperObj = json.parseToJsonElement(jsonStr).jsonObject
 
                         mapperObj.keys.filter { !it.equals("status", true) }.forEach { key ->
@@ -389,9 +389,12 @@ class AnikotoProvider(
             }
         }
 
-        // 3. Extract Streams Concurrently
+        // 3. Extract Streams Concurrently (prioritizing reliable servers)
         coroutineScope {
-            servers.distinctBy { "${it.type}_${it.serverId}" }.map { server ->
+            val prioritizedServers = servers.distinctBy { "${it.type}_${it.serverId}" }
+                .sortedByDescending { getServerSortWeight(it.serverName) }
+
+            prioritizedServers.map { server ->
                 async {
                     try {
                         val formattedName = server.serverName
@@ -413,6 +416,18 @@ class AnikotoProvider(
     }
 
     private data class VideoServer(val type: String, val serverId: String, val serverName: String)
+
+    private fun getServerSortWeight(name: String): Int {
+        val lower = name.lowercase().replace("-", "").replace(" ", "")
+        return when {
+            lower.contains("vidstream2") -> 100
+            lower.contains("vidstream1") || lower.contains("vidstream") -> 90
+            lower.contains("hd2") -> 85
+            lower.contains("vidcloud") || lower.contains("megacloud") || lower.contains("vidplay") -> 80
+            lower.contains("hd1") -> 10
+            else -> 50
+        }
+    }
 
     private fun getMapperServerName(key: String): String {
         return when (key.lowercase()) {

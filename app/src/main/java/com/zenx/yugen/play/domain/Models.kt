@@ -268,3 +268,63 @@ fun VideoStream.cleanServerName(): String {
         .replace(Regex("\\(.*?\\)|\\[.*?\\]"), "")
         .trim()
 }
+
+fun VideoStream.serverReliabilityScore(): Int {
+    val name = (serverName?.takeIf { it.isNotBlank() } ?: cleanServerName()).lowercase()
+    val u = url.lowercase()
+
+    // 1. Critical deprioritization: known broken, throttled, or fake PNG/ad-wrapped servers
+    if (name.contains("hd-1") || name.contains("hd1") ||
+        u.contains("tcdn") || u.contains("tiktokcdn") || u.contains("shiora.top") || u.contains("ibyteimg")
+    ) {
+        return 10
+    }
+
+    // 2. High priority: specific proven servers
+    if (name.contains("vidstream-2") || name.contains("vidstream2")) {
+        return 100
+    }
+    if (name.contains("vidstream-1") || name.contains("vidstream1")) {
+        return 90
+    }
+    if (name.contains("hd-2") || name.contains("hd2")) {
+        return 85
+    }
+    if (name.contains("vidcloud") || name.contains("megacloud") || name.contains("vidplay")) {
+        return 80
+    }
+    if (name.contains("streamwish") || name.contains("mp4upload") || name.contains("filemoon")) {
+        return 70
+    }
+
+    // 3. High quality direct CDNs if server name was generic or omitted
+    if (u.contains("nexabloom") || u.contains("wintergrove")) {
+        return 95
+    }
+    if (u.contains("imgnex") || u.contains("bcdn")) {
+        return 85
+    }
+    if (name.contains("vidstream")) {
+        return 88
+    }
+
+    return 50 // Standard neutral score
+}
+
+fun VideoStream.priorityScore(): Int {
+    val q = quality.lowercase()
+    val res = resolution?.lowercase() ?: ""
+    val qualityBase = when {
+        // Prioritize Adaptive Bitrate (HLS) over static files to prevent buffering freezes
+        format == "HLS" || "auto" in q -> 10000
+        "1080" in q || "1080" in res -> 8000
+        "720" in q || "720" in res -> 7000
+        "480" in q || "480" in res -> 6000
+        "360" in q || "360" in res -> 5000
+        // De-prioritize static MP4s as they lack dynamic quality scaling
+        format == "MP4" || "mp4" in q -> 4000
+        else -> 1000
+    }
+    return qualityBase + serverReliabilityScore()
+}
+
