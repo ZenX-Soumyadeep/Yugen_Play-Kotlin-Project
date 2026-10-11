@@ -160,10 +160,7 @@ class HomeViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                val lastSeen = playerPreferences.lastSeenVersion.first()
-                if (lastSeen != BuildConfig.VERSION_NAME) {
-                    _shouldShowWhatsNew.value = true
-                }
+                playerPreferences.setLastSeenVersion(BuildConfig.VERSION_NAME)
             } catch (_: Exception) {}
         }
 

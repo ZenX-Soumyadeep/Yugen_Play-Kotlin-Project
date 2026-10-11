@@ -13,6 +13,7 @@ import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
+import org.json.JSONObject
 import java.net.URLEncoder
 import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
@@ -61,34 +62,51 @@ class AnikotoProvider(
     override suspend fun search(query: String): List<SearchResult> = withContext(Dispatchers.IO) {
         try {
             val encodedQuery = URLEncoder.encode(query, "UTF-8").replace("+", "%20")
-            val vrf = if (query.isNotEmpty()) vrfEncrypt(query) else ""
-            val url = "$baseUrl/search?keyword=$encodedQuery&vrf=$vrf"
 
-            val request = Request.Builder()
-                .url(url)
-                .addHeader("Referer", "$baseUrl/")
-                .addHeader("User-Agent", USER_AGENT)
-                .get()
-                .build()
+            fun performSearch(reqUrl: String): List<SearchResult> {
+                val request = Request.Builder()
+                    .url(reqUrl)
+                    .addHeader("Referer", "$baseUrl/")
+                    .addHeader("User-Agent", USER_AGENT)
+                    .get()
+                    .build()
 
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use emptyList<SearchResult>()
-                val html = response.body?.string() ?: return@use emptyList<SearchResult>()
-                val doc = Jsoup.parse(html)
+                return client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use emptyList<SearchResult>()
+                    val html = response.body?.string() ?: return@use emptyList<SearchResult>()
+                    val doc = Jsoup.parse(html)
 
-                doc.select("div.ani.items > div.item").mapNotNull { element ->
-                    val aName = element.selectFirst("a.name") ?: return@mapNotNull null
-                    val title = aName.text()
-                    val href = aName.attr("href").substringBefore("?").trim()
-                    val urlPath = if (href.startsWith(baseUrl)) href.substring(baseUrl.length) else href
+                    doc.select("div.ani.items > div.item").mapNotNull { element ->
+                        val aName = element.selectFirst("a.name")
+                            ?: element.selectFirst("a.d-title")
+                            ?: element.selectFirst(".info a")
+                            ?: return@mapNotNull null
+                        val title = aName.text().trim()
+                        val href = aName.attr("href").substringBefore("?").trim()
+                        val urlPath = if (href.startsWith(baseUrl)) href.substring(baseUrl.length) else href
 
-                    val poster = element.selectFirst("img")?.let {
-                        it.attr("data-src").ifBlank { it.attr("src") }
-                    }.orEmpty()
+                        val poster = element.selectFirst("img")?.let {
+                            it.attr("data-src").ifBlank { it.attr("src") }
+                        }.orEmpty()
 
-                    if (title.isBlank() || urlPath.isBlank()) null
-                    else SearchResult(title = title, url = urlPath, poster = poster)
+                        if (title.isBlank() || urlPath.isBlank()) null
+                        else SearchResult(title = title, url = urlPath, poster = poster)
+                    }
                 }
+            }
+
+            // Primary search without VRF (Anikoto backend rejects/drops outdated VRF parameter)
+            val primaryResults = performSearch("$baseUrl/search?keyword=$encodedQuery")
+            if (primaryResults.isNotEmpty()) {
+                return@withContext primaryResults
+            }
+
+            // Fallback search with VRF for legacy endpoints
+            val vrf = if (query.isNotEmpty()) vrfEncrypt(query) else ""
+            if (vrf.isNotBlank()) {
+                performSearch("$baseUrl/search?keyword=$encodedQuery&vrf=$vrf")
+            } else {
+                emptyList()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Search failed: ${e.message}")
@@ -135,65 +153,90 @@ class AnikotoProvider(
                 add("X-Requested-With", "XMLHttpRequest")
             }.build()
 
-            val epsRequest = Request.Builder()
-                .url("$baseUrl/ajax/episode/list/$dataId?vrf=${vrfEncrypt(dataId)}")
-                .headers(listHeaders)
-                .get()
-                .build()
-
-            client.newCall(epsRequest).execute().use { response ->
-                if (!response.isSuccessful) return@use emptyList<Episode>()
-                val jsonStr = response.body?.string() ?: return@use emptyList<Episode>()
-
-                var htmlContent: String? = null
-                try {
-                    val jsonObj = json.parseToJsonElement(jsonStr).jsonObject
-                    htmlContent = jsonObj["html"]?.jsonPrimitive?.content ?: jsonObj["result"]?.jsonPrimitive?.content
-                } catch(e: Exception) {
-                    val regex = Regex(""""(?:result|html)"\s*:\s*"([^"]+)"""")
-                    htmlContent = regex.find(jsonStr)?.groupValues?.get(1)?.replace("\\\"", "\"")?.replace("\\/", "/")?.replace("\\n", "")
-                }
-
-                if (htmlContent == null) return@use emptyList<Episode>()
-
-                val epsDoc = Jsoup.parse(htmlContent)
-
-                epsDoc.select("div.episodes ul > li > a").mapNotNull { element ->
-                    val epNum = element.attr("data-num")
-                    val ids = element.attr("data-ids")
-
-                    val timestamp = element.attr("data-timestamp").toLongOrNull() ?: 0L
-                    val elemMalId = element.attr("data-mal").takeIf { it.isNotEmpty() } ?: malId
-                    val elemSlug = element.attr("data-slug").takeIf { it.isNotEmpty() } ?: slug
-
-                    if (epNum.isBlank() || ids.isBlank()) return@mapNotNull null
-
-                    val stateJson = buildJsonObject {
-                        put("ids", ids)
-                        put("epurl", "$animeUrl/ep-$epNum")
-                        put("mal", elemMalId)
-                        put("slug", elemSlug)
-                        put("ts", timestamp)
-                    }
-                    val safeSourceUrl = Base64.encodeToString(stateJson.toString().toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP)
-
-                    val epName = element.parent()?.select("span.d-title")?.text().orEmpty()
-                    val displayTitle = if (epName.isNotEmpty() && epName != "Episode $epNum") "Episode $epNum: $epName" else "Episode $epNum"
-
-                    val generatedId = EpisodeId.build(
-                        sourceUrl = safeSourceUrl,
-                        animeTitle = title,
-                        episodeNumber = epNum.toFloatOrNull() ?: 1f
-                    )
-
-                    Episode(
-                        id = generatedId,
-                        number = epNum.toFloatOrNull() ?: 1f,
-                        title = displayTitle,
-                        thumbnail = null
-                    )
-                }.reversed()
+            val vrf = try { vrfEncrypt(dataId) } catch (e: Exception) { "" }
+            val epsUrlsToTry = if (vrf.isNotBlank()) {
+                listOf(
+                    "$baseUrl/ajax/episode/list/$dataId?vrf=$vrf",
+                    "$baseUrl/ajax/episode/list/$dataId"
+                )
+            } else {
+                listOf("$baseUrl/ajax/episode/list/$dataId")
             }
+
+            var htmlContent: String? = null
+            for (epListUrl in epsUrlsToTry) {
+                val epsRequest = Request.Builder()
+                    .url(epListUrl)
+                    .headers(listHeaders)
+                    .get()
+                    .build()
+
+                try {
+                    client.newCall(epsRequest).execute().use { response ->
+                        if (!response.isSuccessful) return@use
+                        val jsonStr = response.body?.string().orEmpty()
+                        if (jsonStr.isBlank()) return@use
+
+                        try {
+                            val jsonNative = JSONObject(jsonStr)
+                            htmlContent = jsonNative.optString("result").ifEmpty { jsonNative.optString("html") }
+                        } catch (_: Exception) {
+                            try {
+                                val jsonObj = json.parseToJsonElement(jsonStr).jsonObject
+                                htmlContent = jsonObj["html"]?.jsonPrimitive?.content ?: jsonObj["result"]?.jsonPrimitive?.content
+                            } catch (_: Exception) {
+                                val regex = Regex(""""(?:result|html)"\s*:\s*"([^"]+)"""")
+                                htmlContent = regex.find(jsonStr)?.groupValues?.get(1)?.replace("\\\"", "\"")?.replace("\\/", "/")?.replace("\\n", "")
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed fetching episodes from $epListUrl: ${e.message}")
+                }
+                if (!htmlContent.isNullOrBlank()) break
+            }
+
+            val finalHtml = htmlContent
+            if (finalHtml.isNullOrBlank()) return@withContext emptyList<Episode>()
+
+            val epsDoc = Jsoup.parse(finalHtml)
+            val elements = epsDoc.select("div.episodes ul > li > a").ifEmpty { epsDoc.select("a[data-num]") }
+
+            elements.mapNotNull { element ->
+                val epNum = element.attr("data-num")
+                val ids = element.attr("data-ids")
+
+                val timestamp = element.attr("data-timestamp").toLongOrNull() ?: 0L
+                val elemMalId = element.attr("data-mal").takeIf { it.isNotEmpty() } ?: malId
+                val elemSlug = element.attr("data-slug").takeIf { it.isNotEmpty() } ?: slug
+
+                if (epNum.isBlank() || ids.isBlank()) return@mapNotNull null
+
+                val stateJson = buildJsonObject {
+                    put("ids", ids)
+                    put("epurl", "$animeUrl/ep-$epNum")
+                    put("mal", elemMalId)
+                    put("slug", elemSlug)
+                    put("ts", timestamp)
+                }
+                val safeSourceUrl = Base64.encodeToString(stateJson.toString().toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP)
+
+                val epName = element.parent()?.select("span.d-title")?.text().orEmpty()
+                val displayTitle = if (epName.isNotEmpty() && epName != "Episode $epNum") "Episode $epNum: $epName" else "Episode $epNum"
+
+                val generatedId = EpisodeId.build(
+                    sourceUrl = safeSourceUrl,
+                    animeTitle = title,
+                    episodeNumber = epNum.toFloatOrNull() ?: 1f
+                )
+
+                Episode(
+                    id = generatedId,
+                    number = epNum.toFloatOrNull() ?: 1f,
+                    title = displayTitle,
+                    thumbnail = null
+                )
+            }.reversed()
         } catch (e: Exception) {
             Log.e(TAG, "getEpisodes failed: ${e.message}")
             emptyList()
@@ -233,17 +276,32 @@ class AnikotoProvider(
                 add("X-Requested-With", "XMLHttpRequest")
             }.build()
 
+            val encodedIds = try {
+                URLEncoder.encode(ids, "UTF-8")
+            } catch (e: Exception) {
+                ids
+            }
+
             val req = Request.Builder()
-                .url("$baseUrl/ajax/server/list?servers=$ids")
+                .url("$baseUrl/ajax/server/list?servers=$encodedIds")
                 .headers(listHeaders)
                 .get()
                 .build()
 
             client.newCall(req).execute().use { response ->
                 if (response.isSuccessful) {
-                    val jsonStr = response.body?.string() ?: ""
-                    val jsonObj = json.parseToJsonElement(jsonStr).jsonObject
-                    val htmlContent = jsonObj["html"]?.jsonPrimitive?.content ?: jsonObj["result"]?.jsonPrimitive?.content ?: ""
+                    val jsonStr = response.body?.string().orEmpty()
+                    val htmlContent = try {
+                        val jsonNative = JSONObject(jsonStr)
+                        jsonNative.optString("result").ifEmpty { jsonNative.optString("html") }
+                    } catch (_: Exception) {
+                        try {
+                            val jsonObj = json.parseToJsonElement(jsonStr).jsonObject
+                            jsonObj["html"]?.jsonPrimitive?.content ?: jsonObj["result"]?.jsonPrimitive?.content ?: ""
+                        } catch (_: Exception) {
+                            ""
+                        }
+                    }
                     val doc = Jsoup.parse(htmlContent)
 
                     val serverItems = doc.select(".server-item")

@@ -81,12 +81,29 @@ object DatabaseModule {
         }
     }
 
+    private fun addColumnIfNotExists(db: SupportSQLiteDatabase, table: String, column: String, columnDef: String) {
+        val cursor = db.query("PRAGMA table_info(`$table`)")
+        var exists = false
+        cursor.use {
+            val nameCol = it.getColumnIndex("name")
+            while (it.moveToNext()) {
+                if (nameCol != -1 && it.getString(nameCol).equals(column, ignoreCase = true)) {
+                    exists = true
+                    break
+                }
+            }
+        }
+        if (!exists) {
+            db.execSQL("ALTER TABLE `$table` ADD COLUMN `$column` $columnDef")
+        }
+    }
+
     private val MIGRATION_5_6 = object : Migration(5, 6) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL("ALTER TABLE `watch_history` ADD COLUMN `anilistId` INTEGER DEFAULT NULL")
-            db.execSQL("ALTER TABLE `watch_history` ADD COLUMN `providerName` TEXT DEFAULT NULL")
-            db.execSQL("ALTER TABLE `title_mappings` ADD COLUMN `createdAt` INTEGER NOT NULL DEFAULT 0")
-            db.execSQL("ALTER TABLE `title_mappings` ADD COLUMN `confidence` REAL NOT NULL DEFAULT 1.0")
+            addColumnIfNotExists(db, "watch_history", "anilistId", "INTEGER DEFAULT NULL")
+            addColumnIfNotExists(db, "watch_history", "providerName", "TEXT DEFAULT NULL")
+            addColumnIfNotExists(db, "title_mappings", "createdAt", "INTEGER NOT NULL DEFAULT 0")
+            addColumnIfNotExists(db, "title_mappings", "confidence", "REAL NOT NULL DEFAULT 1.0")
             db.execSQL(
                 """
                 CREATE TABLE IF NOT EXISTS `mp4_downloads` (

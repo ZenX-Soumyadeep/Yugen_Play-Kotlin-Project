@@ -193,7 +193,73 @@ class DownloadsViewModel @Inject constructor(
     }
 
     fun retryDownload(id: String) {
-        DownloadService.sendSetStopReason(context, VideoDownloadService::class.java, id, Download.STOP_REASON_NONE, false)
+        viewModelScope.launch(Dispatchers.IO) {
+            val mp4 = mp4DownloadDao.getDownloadById(id)
+            if (mp4 != null) {
+                val cleanTitle = mp4.animeTitle.replace(Regex("[^a-zA-Z0-9.-]"), "_")
+                val epInt = if (mp4.episodeNumber % 1f == 0f) mp4.episodeNumber.toInt().toString() else mp4.episodeNumber.toString()
+                val metaFile = File(context.filesDir, "downloads/$cleanTitle/EP_$epInt.meta.json")
+                val savedHeaders = if (metaFile.exists()) {
+                    try { metaFile.readText() } catch (_: Exception) { null }
+                } else null
+
+                val headersJson = savedHeaders ?: run {
+                    val host = android.net.Uri.parse(mp4.videoUrl).host.orEmpty()
+                    if (host.isNotBlank()) {
+                        JSONObject().apply {
+                            put("Referer", "https://$host/")
+                            put("Origin", "https://$host")
+                        }.toString()
+                    } else "{}"
+                }
+
+                val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.zenx.yugen.play.worker.Mp4DownloadWorker>()
+                    .setInputData(
+                        androidx.work.workDataOf(
+                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_ID to mp4.id,
+                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_EPISODE_ID to mp4.episodeId,
+                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_ANIME_TITLE to mp4.animeTitle,
+                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_EPISODE_NUMBER to mp4.episodeNumber,
+                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_POSTER_URL to mp4.posterUrl,
+                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_VIDEO_URL to mp4.videoUrl,
+                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_HEADERS_JSON to headersJson
+                        )
+                    )
+                    .build()
+                androidx.work.WorkManager.getInstance(context).enqueue(workRequest)
+            } else {
+                val download = downloadManager.downloadIndex.getDownload(id)
+                if (download != null) {
+                    if (download.state == Download.STATE_FAILED) {
+                        // In Media3 ExoPlayer, sendSetStopReason(STOP_REASON_NONE) is a no-op on STATE_FAILED.
+                        // Re-sending sendAddDownload with the existing request resets the failed state to QUEUED and restarts it!
+                        DownloadService.sendAddDownload(
+                            context,
+                            VideoDownloadService::class.java,
+                            download.request,
+                            Download.STOP_REASON_NONE,
+                            false
+                        )
+                    } else {
+                        DownloadService.sendSetStopReason(
+                            context,
+                            VideoDownloadService::class.java,
+                            id,
+                            Download.STOP_REASON_NONE,
+                            false
+                        )
+                    }
+                } else {
+                    DownloadService.sendSetStopReason(
+                        context,
+                        VideoDownloadService::class.java,
+                        id,
+                        Download.STOP_REASON_NONE,
+                        false
+                    )
+                }
+            }
+        }
     }
 
     fun cancelDownload(id: String) {

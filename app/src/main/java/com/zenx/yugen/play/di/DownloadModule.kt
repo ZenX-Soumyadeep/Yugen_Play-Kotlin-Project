@@ -20,6 +20,9 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.DefaultDownloadIndex
 import androidx.media3.exoplayer.offline.DefaultDownloaderFactory
 import androidx.media3.exoplayer.offline.DownloadManager
+import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.offline.DownloaderFactory
+import org.json.JSONObject
 import com.zenx.yugen.play.data.local.PlayerPreferences
 import com.zenx.yugen.play.service.DownloadTracker
 import com.zenx.yugen.play.util.CdnHostRewriter
@@ -137,6 +140,39 @@ object DownloadModule {
         }
     }
 
+    private fun extractHeadersFromRequest(request: DownloadRequest): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        try {
+            if (request.data.isNotEmpty()) {
+                val json = JSONObject(String(request.data, Charsets.UTF_8))
+                val headersObj = json.optJSONObject("headers")
+                if (headersObj != null) {
+                    val keys = headersObj.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        val value = headersObj.optString(key, "")
+                        if (value.isNotBlank()) {
+                            result[key] = value
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        if (!result.containsKey("Referer") || result["Referer"].isNullOrBlank()) {
+            val uriStr = request.uri.toString()
+            val refMatch = REGEX_REF.find(uriStr)
+            val decodedRef = refMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) }
+            if (!decodedRef.isNullOrBlank()) {
+                result["Referer"] = decodedRef
+                val oriMatch = REGEX_ORI.find(uriStr)
+                val decodedOri = oriMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) } ?: decodedRef
+                result["Origin"] = decodedOri
+            }
+        }
+        return result
+    }
+
     @Provides
     @Singleton
     fun provideDownloadManager(
@@ -156,82 +192,9 @@ object DownloadModule {
 
         val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-        val baseDataSourceFactory = OkHttpDataSource.Factory(downloadOkHttpClient)
-            .setUserAgent(userAgent)
-
-        val resolvingDataSourceFactory = ResolvingDataSource.Factory(baseDataSourceFactory) { dataSpec ->
-            // CDN fix: MegaPlay playlists advertise segments on stale `*.akirax.buzz` hosts that
-            // answer 404/403. Re-point them at the live segment CDN so downloads succeed too.
-            val resolvedUri = CdnHostRewriter.rewriteSegmentHost(dataSpec.uri)
-            val uriStr = resolvedUri.toString()
-            val host = resolvedUri.host.orEmpty()
-            val dynamicHeaders = mutableMapOf<String, String>().apply {
-                putAll(dataSpec.httpRequestHeaders)
-            }
-
-            val hasRef = uriStr.contains("y_ref=")
-            val hasOri = uriStr.contains("y_ori=")
-
-            if (hasRef) {
-                val refMatch = REGEX_REF.find(uriStr)
-                val decodedRef = refMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) }
-                if (!decodedRef.isNullOrBlank()) {
-                    val decodedOri = if (hasOri) {
-                        val oriMatch = REGEX_ORI.find(uriStr)
-                        oriMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) } ?: decodedRef
-                    } else decodedRef
-                    hostHeaderRegistry[host] = Pair(decodedRef, decodedOri)
-                }
-            }
-
-            val cachedHeaders = hostHeaderRegistry[host]
-                ?: hostHeaderRegistry.entries.firstOrNull { host.contains(it.key, ignoreCase = true) || it.key.contains(host, ignoreCase = true) }?.value
-                ?: hostHeaderRegistry.values.firstOrNull()
-
-            val referer = when {
-                hasRef -> {
-                    val refMatch = REGEX_REF.find(uriStr)
-                    refMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) } ?: cachedHeaders?.first ?: "https://megaplay.buzz/"
-                }
-                cachedHeaders != null -> cachedHeaders.first
-                host.contains("vidtube", ignoreCase = true) || host.contains("vtbe", ignoreCase = true) -> "https://vidtube.site/"
-                host.contains("megaplay", ignoreCase = true) -> "https://megaplay.buzz/"
-                host.contains("megacloud", ignoreCase = true) -> "https://megacloud.tv/"
-                host.contains("vidcloud", ignoreCase = true) -> "https://vidcloud.co/"
-                else -> "https://megaplay.buzz/"
-            }
-
-            val origin = when {
-                hasOri -> {
-                    val oriMatch = REGEX_ORI.find(uriStr)
-                    oriMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) } ?: referer
-                }
-                cachedHeaders != null -> cachedHeaders.second
-                else -> referer
-            }
-
-            val cleanUriStr = if (hasRef || hasOri) {
-                var s = uriStr.replace(REGEX_CLEAN_REF, "")
-                s = s.replace(REGEX_CLEAN_ORI, "")
-                s.replace("?&", "?").removeSuffix("?")
-            } else {
-                uriStr
-            }
-
-            dynamicHeaders["Referer"] = referer
-            dynamicHeaders["Origin"] = origin
-            dynamicHeaders["User-Agent"] = userAgent
-            dynamicHeaders["Accept"] = "*/*"
-
-            dataSpec.buildUpon()
-                .setUri(cleanUriStr.toUri())
-                .setHttpRequestHeaders(dynamicHeaders)
-                .build()
-        }
-
-        // Optimal 8 concurrent segment download threads to maximize high-speed throughput
-        // while preventing CDN per-IP burst throttling, TCP socket stalls, and SQLite cache lock contention
-        val downloadExecutor = Executors.newFixedThreadPool(8)
+        // 6 concurrent segment download threads provides high throughput while preventing
+        // CDN per-IP burst throttling, TCP socket stalls, and SQLite cache lock contention
+        val downloadExecutor = Executors.newFixedThreadPool(6)
 
         // 512 KB buffer size drastically reduces disk write syscalls and flash write thrashing
         val cacheWriteDataSinkFactory = CacheDataSink.Factory()
@@ -239,13 +202,81 @@ object DownloadModule {
             .setBufferSize(512 * 1024)
             .setFragmentSize(CacheDataSink.DEFAULT_FRAGMENT_SIZE)
 
-        val cacheDataSourceFactory = CacheDataSource.Factory()
-            .setCache(cache)
-            .setUpstreamDataSourceFactory(resolvingDataSourceFactory)
-            .setCacheWriteDataSinkFactory(cacheWriteDataSinkFactory)
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        // Dedicated DownloaderFactory that binds each download's specific headers (extracted from persistent request.data)
+        // directly to its upstream DataSource.Factory. This prevents cross-download header pollution and survives service restarts.
+        val downloaderFactory = DownloaderFactory { request ->
+            val requestHeaders = extractHeadersFromRequest(request)
 
-        val downloaderFactory = DefaultDownloaderFactory(cacheDataSourceFactory, downloadExecutor)
+            val baseDataSourceFactory = OkHttpDataSource.Factory(downloadOkHttpClient)
+                .setUserAgent(userAgent)
+
+            val resolvingDataSourceFactory = ResolvingDataSource.Factory(baseDataSourceFactory) { dataSpec ->
+                val resolvedUri = CdnHostRewriter.rewriteSegmentHost(dataSpec.uri)
+                val uriStr = resolvedUri.toString()
+                val host = resolvedUri.host.orEmpty()
+                val dynamicHeaders = mutableMapOf<String, String>().apply {
+                    putAll(dataSpec.httpRequestHeaders)
+                }
+
+                val hasRef = uriStr.contains("y_ref=")
+                val hasOri = uriStr.contains("y_ori=")
+
+                val referer = when {
+                    requestHeaders["Referer"]?.isNotBlank() == true -> requestHeaders["Referer"]!!
+                    hasRef -> {
+                        val refMatch = REGEX_REF.find(uriStr)
+                        refMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) } ?: "https://megaplay.buzz/"
+                    }
+                    host.contains("vidtube", ignoreCase = true) || host.contains("vtbe", ignoreCase = true) -> "https://vidtube.site/"
+                    host.contains("megaplay", ignoreCase = true) -> "https://megaplay.buzz/"
+                    host.contains("megacloud", ignoreCase = true) -> "https://megacloud.tv/"
+                    host.contains("vidcloud", ignoreCase = true) -> "https://vidcloud.co/"
+                    else -> hostHeaderRegistry[host]?.first ?: "https://megaplay.buzz/"
+                }
+
+                val origin = when {
+                    requestHeaders["Origin"]?.isNotBlank() == true -> requestHeaders["Origin"]!!
+                    hasOri -> {
+                        val oriMatch = REGEX_ORI.find(uriStr)
+                        oriMatch?.groupValues?.getOrNull(1)?.let { Uri.decode(it) } ?: referer
+                    }
+                    else -> referer
+                }
+
+                val cleanUriStr = if (hasRef || hasOri) {
+                    var s = uriStr.replace(REGEX_CLEAN_REF, "")
+                    s = s.replace(REGEX_CLEAN_ORI, "")
+                    s.replace("?&", "?").removeSuffix("?")
+                } else {
+                    uriStr
+                }
+
+                requestHeaders.forEach { (k, v) ->
+                    if (k.isNotBlank() && v.isNotBlank()) {
+                        dynamicHeaders[k] = v
+                    }
+                }
+
+                dynamicHeaders["Referer"] = referer
+                dynamicHeaders["Origin"] = origin
+                dynamicHeaders["User-Agent"] = userAgent
+                dynamicHeaders["Accept"] = "*/*"
+
+                dataSpec.buildUpon()
+                    .setUri(cleanUriStr.toUri())
+                    .setHttpRequestHeaders(dynamicHeaders)
+                    .build()
+            }
+
+            val requestCacheDataSourceFactory = CacheDataSource.Factory()
+                .setCache(cache)
+                .setUpstreamDataSourceFactory(resolvingDataSourceFactory)
+                .setCacheWriteDataSinkFactory(cacheWriteDataSinkFactory)
+                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+            DefaultDownloaderFactory(requestCacheDataSourceFactory, downloadExecutor).createDownloader(request)
+        }
+
         val downloadIndex = DefaultDownloadIndex(databaseProvider)
 
         val initialParallel = runCatching {

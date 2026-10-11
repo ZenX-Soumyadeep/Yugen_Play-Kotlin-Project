@@ -15,10 +15,19 @@ object AesCipher {
             System.arraycopy(keySrc, 0, keyBytes, 0, keySrc.size.coerceAtMost(32))
 
             val ivBytes = iv.toByteArray(StandardCharsets.UTF_8)
-            val encrypted = Base64.decode(
-                encryptedBase64.replace('-', '+').replace('_', '/'),
-                Base64.DEFAULT
-            )
+            var cleanBase64 = encryptedBase64.replace('-', '+').replace('_', '/')
+            while (cleanBase64.length % 4 != 0) {
+                cleanBase64 += "="
+            }
+            val encrypted = try {
+                Base64.decode(cleanBase64, Base64.DEFAULT)
+            } catch (_: Exception) {
+                try {
+                    Base64.decode(encryptedBase64, Base64.URL_SAFE or Base64.NO_WRAP)
+                } catch (_: Exception) {
+                    ByteArray(0)
+                }
+            }
 
             if (encrypted.isNotEmpty() && encrypted.size % 16 == 0) {
                 val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")

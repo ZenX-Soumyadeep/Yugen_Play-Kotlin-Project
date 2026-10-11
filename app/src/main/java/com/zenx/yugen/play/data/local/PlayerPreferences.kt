@@ -64,11 +64,8 @@ class PlayerPreferences @Inject constructor(
     // ── Safe Data Stream with IOException Fallback ───────────────────────────
 
     private val safeData: Flow<Preferences> = dataStore.data.catch { exception ->
-        if (exception is java.io.IOException) {
-            emit(androidx.datastore.preferences.core.emptyPreferences())
-        } else {
-            throw exception
-        }
+        android.util.Log.w("PlayerPreferences", "DataStore error encountered; falling back to empty preferences", exception)
+        emit(androidx.datastore.preferences.core.emptyPreferences())
     }
 
     // ── Subtitle ─────────────────────────────────────────────────────────────

@@ -8,6 +8,8 @@ import kotlinx.serialization.json.*
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
+import java.net.URLEncoder
 
 class AnikotoExtractor(
     private val client: OkHttpClient,
@@ -42,8 +44,14 @@ class AnikotoExtractor(
                 add("X-Requested-With", "XMLHttpRequest")
             }.build()
 
+            val encodedServerId = try {
+                URLEncoder.encode(serverId, "UTF-8")
+            } catch (e: Exception) {
+                serverId
+            }
+
             val request = Request.Builder()
-                .url("$baseUrl/ajax/server?get=$serverId")
+                .url("$baseUrl/ajax/server?get=$encodedServerId")
                 .headers(listHeaders)
                 .get()
                 .build()
@@ -52,8 +60,16 @@ class AnikotoExtractor(
                 if (!response.isSuccessful) return@use null
                 val bodyStr = response.body?.string() ?: return@use null
 
-                val jsonObj = json.parseToJsonElement(bodyStr).jsonObject
-                val embedUrl = jsonObj["result"]?.jsonObject?.get("url")?.jsonPrimitive?.content
+                val embedUrl = try {
+                    JSONObject(bodyStr).optJSONObject("result")?.optString("url")
+                } catch (_: Exception) {
+                    try {
+                        val jsonObj = json.parseToJsonElement(bodyStr).jsonObject
+                        jsonObj["result"]?.jsonObject?.get("url")?.jsonPrimitive?.content
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
 
                 embedUrl?.replace("\\/", "/")
             }

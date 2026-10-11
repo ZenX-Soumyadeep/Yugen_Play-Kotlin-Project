@@ -124,7 +124,7 @@ object NetworkModule {
                 maxRequestsPerHost = 64
             })
             .connectionPool(ConnectionPool(64, 5, TimeUnit.MINUTES))
-            .protocols(listOf(okhttp3.Protocol.HTTP_1_1)) // Prevents HTTP/2 single-socket bandwidth throttling on video CDNs
+            .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
             .addInterceptor(JunkBytesInterceptor())
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)

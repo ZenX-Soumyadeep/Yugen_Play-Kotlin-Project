@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.SystemUpdateAlt
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.ErrorOutline
@@ -27,12 +28,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.zenx.yugen.play.BuildConfig
 import com.zenx.yugen.play.ui.components.bounceClick
 import java.io.File
@@ -55,8 +59,23 @@ fun UpdateDialog(
         onDismiss()
     }
 
+    // Automatically synchronize state when user returns to the app from permission settings or home screen
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                onResetDownloadState()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val accentPurple = Color(0xFF8B5CF6)
-    val cardBg = Color(0xFF141416)
+    val accentCyan = Color(0xFF38BDF8)
+    val successGreen = Color(0xFF10B981)
+    val cardBg = Color(0xFF101014)
+    val cardSurface = Color(0xFF18181E)
     val glassBorder = Color.White.copy(alpha = 0.12f)
 
     Dialog(
@@ -72,9 +91,19 @@ fun UpdateDialog(
                 .fillMaxWidth(0.92f)
                 .clip(RoundedCornerShape(26.dp))
                 .background(cardBg)
-                .border(1.2.dp, Brush.verticalGradient(listOf(accentPurple.copy(alpha = 0.45f), glassBorder)), RoundedCornerShape(26.dp))
+                .border(
+                    1.dp,
+                    Brush.verticalGradient(
+                        listOf(
+                            accentPurple.copy(alpha = 0.45f),
+                            glassBorder,
+                            accentPurple.copy(alpha = 0.15f)
+                        )
+                    ),
+                    RoundedCornerShape(26.dp)
+                )
         ) {
-            // Top Right Close Button (only when not actively downloading)
+            // Close Button (visible when not actively downloading)
             if (downloadState !is AppDownloadState.Downloading) {
                 Box(
                     modifier = Modifier
@@ -82,28 +111,49 @@ fun UpdateDialog(
                         .padding(16.dp)
                         .size(32.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.1f))
+                        .background(Color.White.copy(alpha = 0.08f))
                         .bounceClick {
                             onResetDownloadState()
                             onDismiss()
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
 
             Column(
-                modifier = Modifier.padding(24.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 26.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Header Icon
+                // Header Icon with Double-Ring Glow
                 Box(
                     modifier = Modifier
-                        .size(64.dp)
+                        .size(68.dp)
                         .clip(CircleShape)
-                        .background(accentPurple.copy(alpha = 0.15f))
-                        .border(1.dp, accentPurple.copy(alpha = 0.35f), CircleShape),
+                        .background(
+                            when (downloadState) {
+                                is AppDownloadState.ReadyToInstall, AppDownloadState.Installing -> successGreen.copy(alpha = 0.12f)
+                                is AppDownloadState.Failed -> Color(0xFFEF4444).copy(alpha = 0.12f)
+                                else -> accentPurple.copy(alpha = 0.15f)
+                            }
+                        )
+                        .border(
+                            1.dp,
+                            when (downloadState) {
+                                is AppDownloadState.ReadyToInstall, AppDownloadState.Installing -> successGreen.copy(alpha = 0.35f)
+                                is AppDownloadState.Failed -> Color(0xFFEF4444).copy(alpha = 0.35f)
+                                else -> accentPurple.copy(alpha = 0.4f)
+                            },
+                            CircleShape
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     val headerIcon = when (downloadState) {
@@ -113,71 +163,89 @@ fun UpdateDialog(
                         else -> Icons.Default.SystemUpdateAlt
                     }
                     val iconColor = when (downloadState) {
-                        is AppDownloadState.ReadyToInstall, AppDownloadState.Installing -> Color(0xFF10B981)
+                        is AppDownloadState.ReadyToInstall, AppDownloadState.Installing -> successGreen
                         is AppDownloadState.Failed -> Color(0xFFEF4444)
                         else -> accentPurple
                     }
-                    Icon(headerIcon, contentDescription = null, tint = iconColor, modifier = Modifier.size(32.dp))
+                    Icon(
+                        headerIcon,
+                        contentDescription = null,
+                        tint = iconColor,
+                        modifier = Modifier.size(32.dp)
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                // Title
                 Text(
                     text = when (downloadState) {
                         is AppDownloadState.Downloading -> "Downloading Update"
                         is AppDownloadState.ReadyToInstall -> "Ready to Install"
                         AppDownloadState.Installing -> "Installing Update"
-                        is AppDownloadState.Failed -> "Download Failed"
-                        else -> "Update Available"
+                        is AppDownloadState.Failed -> "Download Interrupted"
+                        else -> "New Version Available"
                     },
                     color = Color.White,
                     fontSize = 20.sp,
-                    fontWeight = FontWeight.Black
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.3).sp
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Version comparison pills
+                // Version Transition Row
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = Color.White.copy(alpha = 0.08f)
                     ) {
                         Text(
                             text = "v${BuildConfig.VERSION_NAME}",
                             color = Color.White.copy(alpha = 0.65f),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
 
                     Icon(
                         imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
                         contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.4f),
-                        modifier = Modifier.size(12.dp)
+                        tint = Color.White.copy(alpha = 0.35f),
+                        modifier = Modifier.size(13.dp)
                     )
 
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = accentPurple.copy(alpha = 0.2f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, accentPurple.copy(alpha = 0.4f))
+                        shape = RoundedCornerShape(8.dp),
+                        color = accentPurple.copy(alpha = 0.18f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, accentPurple.copy(alpha = 0.45f))
                     ) {
-                        Text(
-                            text = updateInfo.version,
-                            color = accentPurple,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(successGreen)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = updateInfo.version,
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 // Dynamic Animated State Area
                 AnimatedContent(
@@ -188,26 +256,55 @@ fun UpdateDialog(
                     when (state) {
                         AppDownloadState.Idle -> {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                // Scrollable Release Notes
+                                // Realistic Release Notes Card
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .heightIn(min = 100.dp, max = 220.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color.Black.copy(alpha = 0.35f))
-                                        .border(1.dp, glassBorder, RoundedCornerShape(12.dp))
+                                        .heightIn(min = 120.dp, max = 220.dp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(cardSurface)
+                                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
                                         .padding(14.dp)
                                 ) {
-                                    Text(
-                                        text = if (updateInfo.releaseNotes.isNotBlank()) updateInfo.releaseNotes else "• Performance improvements and bug fixes\n• In-app seamless updates",
-                                        color = Color.LightGray,
-                                        fontSize = 12.5.sp,
-                                        lineHeight = 18.sp,
-                                        modifier = Modifier.verticalScroll(rememberScrollState())
-                                    )
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .verticalScroll(rememberScrollState())
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.AutoAwesome,
+                                                contentDescription = null,
+                                                tint = accentPurple,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "RELEASE HIGHLIGHTS",
+                                                color = Color.White.copy(alpha = 0.6f),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                letterSpacing = 0.8.sp
+                                            )
+                                        }
+
+                                        val rawNotes = updateInfo.releaseNotes.trim()
+                                        val displayNotes = if (rawNotes.isNotBlank()) rawNotes else "• Comprehensive playback & streaming stability fixes\n• High-speed resilient HLS download pipeline\n• Seamless in-app package updates\n• General performance & UI polish"
+
+                                        Text(
+                                            text = displayNotes,
+                                            color = Color(0xFFE2E8F0),
+                                            fontSize = 13.sp,
+                                            lineHeight = 20.sp,
+                                            fontWeight = FontWeight.Normal
+                                        )
+                                    }
                                 }
 
-                                Spacer(modifier = Modifier.height(20.dp))
+                                Spacer(modifier = Modifier.height(22.dp))
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -217,27 +314,27 @@ fun UpdateDialog(
                                         onClick = onDismiss,
                                         modifier = Modifier
                                             .weight(1f)
-                                            .height(46.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)),
-                                        shape = RoundedCornerShape(12.dp)
+                                            .height(48.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.08f)),
+                                        shape = RoundedCornerShape(14.dp)
                                     ) {
-                                        Text("Later", color = Color.White, fontWeight = FontWeight.Bold)
+                                        Text("Later", color = Color.White.copy(alpha = 0.85f), fontWeight = FontWeight.SemiBold)
                                     }
 
                                     Button(
                                         onClick = { onStartDownload(updateInfo.downloadUrl) },
                                         modifier = Modifier
                                             .weight(1.3f)
-                                            .height(46.dp),
+                                            .height(48.dp),
                                         colors = ButtonDefaults.buttonColors(containerColor = accentPurple),
-                                        shape = RoundedCornerShape(12.dp)
+                                        shape = RoundedCornerShape(14.dp)
                                     ) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Icon(
                                                 imageVector = Icons.Rounded.CloudDownload,
                                                 contentDescription = null,
                                                 tint = Color.White,
-                                                modifier = Modifier.size(17.dp)
+                                                modifier = Modifier.size(18.dp)
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Text("Update Now", color = Color.White, fontWeight = FontWeight.Bold)
@@ -258,30 +355,33 @@ fun UpdateDialog(
                             val speedMb = state.speedBytesPerSec / (1024f * 1024f)
 
                             Column(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
+                                // Modern Gradient Progress Bar
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(10.dp)
-                                        .clip(RoundedCornerShape(5.dp))
-                                        .background(Color.White.copy(alpha = 0.1f))
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color.White.copy(alpha = 0.08f))
                                 ) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxHeight()
                                             .fillMaxWidth(animatedProgress.coerceIn(0.01f, 1f))
-                                            .clip(RoundedCornerShape(5.dp))
+                                            .clip(RoundedCornerShape(6.dp))
                                             .background(
                                                 Brush.horizontalGradient(
-                                                    listOf(accentPurple, Color(0xFFA78BFA), Color(0xFF67E8F9))
+                                                    listOf(accentPurple, Color(0xFFA78BFA), accentCyan)
                                                 )
                                             )
                                     )
                                 }
 
-                                Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(14.dp))
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -292,7 +392,7 @@ fun UpdateDialog(
                                         text = "$percent%",
                                         color = Color.White,
                                         fontSize = 18.sp,
-                                        fontWeight = FontWeight.Black
+                                        fontWeight = FontWeight.Bold
                                     )
                                     Text(
                                         text = if (totalMb > 0f) {
@@ -300,22 +400,23 @@ fun UpdateDialog(
                                         } else {
                                             String.format(Locale.US, "%.1f MB (%.1f MB/s)", downloadedMb, speedMb)
                                         },
-                                        color = Color.White.copy(alpha = 0.65f),
-                                        fontSize = 12.sp
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
 
-                                Spacer(modifier = Modifier.height(20.dp))
+                                Spacer(modifier = Modifier.height(22.dp))
 
                                 Button(
                                     onClick = onCancelDownload,
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444).copy(alpha = 0.25f)),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444).copy(alpha = 0.16f)),
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier
-                                        .fillMaxWidth(0.6f)
+                                        .fillMaxWidth(0.55f)
                                         .height(42.dp)
                                 ) {
-                                    Text("Cancel", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                                    Text("Cancel", color = Color(0xFFF87171), fontWeight = FontWeight.SemiBold)
                                 }
                             }
                         }
@@ -325,15 +426,33 @@ fun UpdateDialog(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(
-                                    text = "Download completed! Press Install Now to apply update without leaving the app.",
-                                    color = Color.White.copy(alpha = 0.8f),
-                                    fontSize = 13.sp,
-                                    textAlign = TextAlign.Center,
-                                    lineHeight = 19.sp
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(successGreen.copy(alpha = 0.12f))
+                                        .border(1.dp, successGreen.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+                                        .padding(14.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = "Update downloaded & verified",
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Ready to install immediately without re-downloading.",
+                                            color = Color.White.copy(alpha = 0.75f),
+                                            fontSize = 12.sp,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
 
-                                Spacer(modifier = Modifier.height(20.dp))
+                                Spacer(modifier = Modifier.height(22.dp))
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -343,27 +462,27 @@ fun UpdateDialog(
                                         onClick = onDismiss,
                                         modifier = Modifier
                                             .weight(1f)
-                                            .height(46.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)),
-                                        shape = RoundedCornerShape(12.dp)
+                                            .height(48.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.08f)),
+                                        shape = RoundedCornerShape(14.dp)
                                     ) {
-                                        Text("Dismiss", color = Color.White, fontWeight = FontWeight.Bold)
+                                        Text("Dismiss", color = Color.White.copy(alpha = 0.85f), fontWeight = FontWeight.SemiBold)
                                     }
 
                                     Button(
                                         onClick = { onInstallApk(state.apkFile) },
                                         modifier = Modifier
                                             .weight(1.3f)
-                                            .height(46.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                                        shape = RoundedCornerShape(12.dp)
+                                            .height(48.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = successGreen),
+                                        shape = RoundedCornerShape(14.dp)
                                     ) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Icon(
                                                 imageVector = Icons.Rounded.CheckCircle,
                                                 contentDescription = null,
                                                 tint = Color.White,
-                                                modifier = Modifier.size(17.dp)
+                                                modifier = Modifier.size(18.dp)
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Text("Install Now", color = Color.White, fontWeight = FontWeight.Bold)
@@ -375,15 +494,17 @@ fun UpdateDialog(
 
                         AppDownloadState.Installing -> {
                             Column(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                CircularProgressIndicator(color = accentPurple, modifier = Modifier.size(32.dp))
-                                Spacer(modifier = Modifier.height(14.dp))
+                                CircularProgressIndicator(color = accentPurple, modifier = Modifier.size(36.dp), strokeWidth = 3.dp)
+                                Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    text = "Launching Android Package Installer...",
-                                    color = Color.White.copy(alpha = 0.85f),
-                                    fontSize = 13.5.sp,
+                                    text = "Launching Package Installer...",
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    fontSize = 14.sp,
                                     fontWeight = FontWeight.Medium
                                 )
                             }
@@ -394,14 +515,24 @@ fun UpdateDialog(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(
-                                    text = state.error,
-                                    color = Color(0xFFF87171),
-                                    fontSize = 12.5.sp,
-                                    textAlign = TextAlign.Center
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(Color(0xFFEF4444).copy(alpha = 0.12f))
+                                        .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+                                        .padding(12.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = state.error,
+                                        color = Color(0xFFFCA5A5),
+                                        fontSize = 12.5.sp,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
 
-                                Spacer(modifier = Modifier.height(18.dp))
+                                Spacer(modifier = Modifier.height(20.dp))
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -414,20 +545,20 @@ fun UpdateDialog(
                                         },
                                         modifier = Modifier
                                             .weight(1f)
-                                            .height(44.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)),
-                                        shape = RoundedCornerShape(12.dp)
+                                            .height(46.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.08f)),
+                                        shape = RoundedCornerShape(14.dp)
                                     ) {
-                                        Text("Dismiss", color = Color.White, fontWeight = FontWeight.Bold)
+                                        Text("Dismiss", color = Color.White.copy(alpha = 0.85f), fontWeight = FontWeight.SemiBold)
                                     }
 
                                     Button(
                                         onClick = { onStartDownload(updateInfo.downloadUrl) },
                                         modifier = Modifier
                                             .weight(1f)
-                                            .height(44.dp),
+                                            .height(46.dp),
                                         colors = ButtonDefaults.buttonColors(containerColor = accentPurple),
-                                        shape = RoundedCornerShape(12.dp)
+                                        shape = RoundedCornerShape(14.dp)
                                     ) {
                                         Text("Retry", color = Color.White, fontWeight = FontWeight.Bold)
                                     }

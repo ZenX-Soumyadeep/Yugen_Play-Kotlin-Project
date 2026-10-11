@@ -98,6 +98,9 @@ class DownloadTracker @Inject constructor(
         download: Download,
         finalException: Exception?
     ) {
+        if (download.state == Download.STATE_FAILED) {
+            android.util.Log.e("DownloadTracker", "Download ${download.request.id} FAILED! Reason code: ${download.failureReason}, Exception: ${finalException?.message}", finalException)
+        }
         synchronized(stateLock) {
             currentMap[download.request.id] = download
             if (download.state != Download.STATE_DOWNLOADING) {

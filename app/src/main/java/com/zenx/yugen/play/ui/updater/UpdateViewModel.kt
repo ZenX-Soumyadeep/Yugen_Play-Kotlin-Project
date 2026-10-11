@@ -3,6 +3,8 @@ package com.zenx.yugen.play.ui.updater
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -73,6 +75,10 @@ class UpdateViewModel @Inject constructor(
         val now = System.currentTimeMillis()
         if (!force && (now - lastCheckTime) < UPDATE_CHECK_TTL_MS && lastCheckTime > 0L) {
             _updateInfo.value = cachedUpdateInfo
+            val readyApk = getDownloadedApkIfReady(cachedUpdateInfo?.version)
+            if (readyApk != null && _downloadState.value !is AppDownloadState.Downloading) {
+                _downloadState.value = AppDownloadState.ReadyToInstall(readyApk)
+            }
             return
         }
 
@@ -109,16 +115,21 @@ class UpdateViewModel @Inject constructor(
                     }
 
                     if (apkUrl.isEmpty()) {
-                        apkUrl = json.getString("html_url")
+                        apkUrl = json.optString("html_url", "")
                     }
 
                     val info = AppUpdateInfo(
-                        version = json.getString("tag_name"),
-                        releaseNotes = json.getString("body"),
+                        version = json.optString("tag_name", latestVersion),
+                        releaseNotes = json.optString("body", ""),
                         downloadUrl = apkUrl
                     )
                     cachedUpdateInfo = info
                     _updateInfo.value = info
+
+                    val readyApk = getDownloadedApkIfReady(latestVersion)
+                    if (readyApk != null && _downloadState.value !is AppDownloadState.Downloading) {
+                        _downloadState.value = AppDownloadState.ReadyToInstall(readyApk)
+                    }
                 } else {
                     cachedUpdateInfo = null
                     _updateInfo.value = null
@@ -223,9 +234,48 @@ class UpdateViewModel @Inject constructor(
         }
     }
 
+    fun getDownloadedApkIfReady(targetVersion: String? = null): File? {
+        val updatesDir = File(context.getExternalFilesDir(null), "updates")
+        val apkFile = File(updatesDir, "YugenPlay-update.apk")
+        if (!apkFile.exists() || apkFile.length() <= 1024L) return null
+
+        return try {
+            val pkgInfo = context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)
+            if (pkgInfo != null && pkgInfo.packageName == context.packageName) {
+                val apkVersion = pkgInfo.versionName.orEmpty().replace("v", "")
+                val currentVersion = BuildConfig.VERSION_NAME.replace("v", "")
+                if (targetVersion != null) {
+                    val cleanTarget = targetVersion.replace("v", "")
+                    if (apkVersion == cleanTarget || isNewerVersion(currentVersion, apkVersion)) {
+                        apkFile
+                    } else null
+                } else if (isNewerVersion(currentVersion, apkVersion)) {
+                    apkFile
+                } else {
+                    null
+                }
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun installApk(file: File) {
         try {
-            _downloadState.value = AppDownloadState.Installing
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (!context.packageManager.canRequestPackageInstalls()) {
+                    val permIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(permIntent)
+                    _downloadState.value = AppDownloadState.ReadyToInstall(file)
+                    return
+                }
+            }
+
             val uri: Uri = FileProvider.getUriForFile(
                 context,
                 "${context.packageName}.fileprovider",
@@ -237,6 +287,9 @@ class UpdateViewModel @Inject constructor(
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
+            // Maintain ReadyToInstall so if user returns without completing installation,
+            // they can immediately tap "Install Now" rather than re-downloading!
+            _downloadState.value = AppDownloadState.ReadyToInstall(file)
         } catch (e: Exception) {
             Log.e(tag, "Failed to launch package installer", e)
             _downloadState.value = AppDownloadState.Failed("Installer failed: ${e.localizedMessage}")
@@ -250,7 +303,23 @@ class UpdateViewModel @Inject constructor(
     }
 
     fun resetDownloadState() {
-        _downloadState.value = AppDownloadState.Idle
+        val info = _updateInfo.value
+        val readyApk = if (info != null) getDownloadedApkIfReady(info.version) else null
+        if (readyApk != null) {
+            _downloadState.value = AppDownloadState.ReadyToInstall(readyApk)
+        } else {
+            _downloadState.value = AppDownloadState.Idle
+        }
+    }
+
+    fun refreshUpdateState() {
+        val info = _updateInfo.value ?: cachedUpdateInfo ?: return
+        if (_downloadState.value !is AppDownloadState.Downloading) {
+            val readyApk = getDownloadedApkIfReady(info.version)
+            if (readyApk != null) {
+                _downloadState.value = AppDownloadState.ReadyToInstall(readyApk)
+            }
+        }
     }
 
     fun triggerUpdateDownload(url: String) {

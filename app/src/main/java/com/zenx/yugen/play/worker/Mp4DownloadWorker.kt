@@ -84,11 +84,21 @@ class Mp4DownloadWorker @AssistedInject constructor(
             mp4DownloadDao.updateProgress(downloadId, entity.bytesDownloaded, entity.totalBytes, "DOWNLOADING")
         }
 
+        val effectiveHeadersJson = if (!headersJson.isNullOrBlank() && headersJson != "{}") {
+            try { File(downloadDir, "EP_$epInt.meta.json").writeText(headersJson) } catch (_: Exception) {}
+            headersJson
+        } else {
+            val metaFile = File(downloadDir, "EP_$epInt.meta.json")
+            if (metaFile.exists()) {
+                try { metaFile.readText() } catch (_: Exception) { null }
+            } else null
+        }
+
         try {
             val requestBuilder = Request.Builder().url(videoUrl)
-            if (!headersJson.isNullOrBlank()) {
+            if (!effectiveHeadersJson.isNullOrBlank()) {
                 try {
-                    val jsonObj = JSONObject(headersJson)
+                    val jsonObj = JSONObject(effectiveHeadersJson)
                     jsonObj.keys().forEach { key ->
                         requestBuilder.addHeader(key, jsonObj.getString(key))
                     }
@@ -103,10 +113,7 @@ class Mp4DownloadWorker @AssistedInject constructor(
                 return@withContext Result.retry()
             }
 
-            val body = response.body ?: run {
-                mp4DownloadDao.updateProgress(downloadId, 0L, 0L, "FAILED")
-                return@withContext Result.failure()
-            }
+            val body = response.body
 
             val totalBytes = body.contentLength()
             var downloadedBytes = 0L

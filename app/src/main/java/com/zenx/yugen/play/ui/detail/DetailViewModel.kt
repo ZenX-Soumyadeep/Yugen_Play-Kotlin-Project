@@ -667,11 +667,16 @@ class DetailViewModel @Inject constructor(
 
     fun enqueueDownload(episode: EpisodeUiModel, stream: VideoStream) {
         externalScope.launch(Dispatchers.IO) {
-            performEnqueueDownload(episode, stream)
+            val quality = stream.quality.ifBlank { "Best" }
+            performEnqueueDownload(episode, stream, quality)
         }
     }
 
-    private suspend fun performEnqueueDownload(episode: EpisodeUiModel, stream: VideoStream) = withContext(Dispatchers.IO) {
+    private suspend fun performEnqueueDownload(
+        episode: EpisodeUiModel,
+        stream: VideoStream,
+        preferredQuality: String = "Best"
+    ) = withContext(Dispatchers.IO) {
         if (stream.url.isBlank() || stream.url.contains("/watch/")) return@withContext
         if (context.filesDir.usableSpace < 500L * 1024 * 1024) {
             withContext(Dispatchers.Main) { Toast.makeText(context, "Not enough storage.", Toast.LENGTH_LONG).show() }
@@ -731,9 +736,11 @@ class DetailViewModel @Inject constructor(
                 com.zenx.yugen.play.di.DownloadModule.registerDownloadHeaders(host, referer, origin)
 
                 val secureStreamUrl = "${stream.url}${if(stream.url.contains("?")) "&" else "?"}y_ref=${Uri.encode(referer)}&y_ori=${Uri.encode(origin)}"
+
                 val request = DownloadRequest.Builder(episode.id, secureStreamUrl.toUri())
                     .setMimeType(MimeTypes.APPLICATION_M3U8)
-                    .setData(payloadResult.data).build()
+                    .setData(payloadResult.data)
+                    .build()
 
                 DownloadService.sendAddDownload(context, VideoDownloadService::class.java, request, false)
             } else {
@@ -844,7 +851,7 @@ class DetailViewModel @Inject constructor(
                             else -> audioFiltered.first()
                         }
 
-                        performEnqueueDownload(ep, stream)
+                        performEnqueueDownload(ep, stream, preferredQuality)
                         queuedCount++
 
                         delay(400)

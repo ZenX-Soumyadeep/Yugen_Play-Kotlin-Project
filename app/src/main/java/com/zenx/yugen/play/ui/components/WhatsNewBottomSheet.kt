@@ -15,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -239,17 +240,17 @@ private fun WhatsNewContentList(releaseNotes: ReleaseNotes) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        releaseNotes.sections.forEach { section ->
+        releaseNotes.sections.forEachIndexed { secIdx, section ->
             // Section Category Chip
-            item(key = "section_${section.title}") {
+            item(key = "section_${secIdx}_${section.title}") {
                 CategorySectionHeader(section = section)
             }
 
             // Section Feature Items
-            items(
+            itemsIndexed(
                 items = section.items,
-                key = { "item_${section.title}_${it.title}" }
-            ) { item ->
+                key = { itemIdx, item -> "item_${secIdx}_${itemIdx}_${item.title}" }
+            ) { _, item ->
                 ReleaseItemCard(item = item)
             }
         }
