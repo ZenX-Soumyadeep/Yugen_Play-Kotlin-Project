@@ -21,6 +21,7 @@ app/release/
 # Agent tools & skills
 .agents/
 skills-lock.json
+graphify-out/
 
 # OS artifacts
 .DS_Store
