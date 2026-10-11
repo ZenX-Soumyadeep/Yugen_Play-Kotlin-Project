@@ -11,6 +11,8 @@ app/release/
 /captures/
 .externalNativeBuild/
 .cxx/
+schemas/
+app/schemas/
 
 # Android Studio / IntelliJ
 .idea/
