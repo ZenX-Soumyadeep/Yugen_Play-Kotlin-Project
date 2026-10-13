@@ -59,14 +59,9 @@ class DownloadTracker @Inject constructor(
     fun initialize(manager: DownloadManager) {
         if (downloadManager == manager) return
         downloadManager = manager
+        manager.maxParallelDownloads = 1
         manager.addListener(this)
         loadInitialDownloads(manager)
-
-        scope.launch(Dispatchers.Main) {
-            playerPreferences.maxParallelDownloads.collect { maxCount ->
-                manager.maxParallelDownloads = maxCount.coerceIn(1, 5)
-            }
-        }
     }
 
     fun getDownloadSpeed(id: String): Long {

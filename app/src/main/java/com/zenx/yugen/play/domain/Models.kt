@@ -172,7 +172,8 @@ data class Episode(
     val id: String,
     val number: Float,
     val title: String,
-    val thumbnail: String? = null
+    val thumbnail: String? = null,
+    val hasDub: Boolean = false
 ) {
     val numberInt: Int
         get() = number.toInt()
@@ -196,7 +197,8 @@ data class VideoStream(
     val format: String = if (isM3U8) "HLS" else "MP4",
     val resolution: String? = null,
     val codec: String? = null,
-    val serverName: String? = null
+    val serverName: String? = null,
+    val providerName: String? = null
 )
 
 data class Subtitle(

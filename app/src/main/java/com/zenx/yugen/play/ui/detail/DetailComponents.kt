@@ -39,6 +39,7 @@ import coil.request.ImageRequest
 import com.zenx.yugen.play.domain.AudioTrackType
 import com.zenx.yugen.play.domain.VideoStream
 import com.zenx.yugen.play.domain.audioTrackType
+import com.zenx.yugen.play.domain.priorityScore
 import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.theme.*
 import kotlinx.coroutines.delay
@@ -49,7 +50,8 @@ import kotlin.time.Duration.Companion.milliseconds
 @Composable
 fun AnimeInfoHeader(
     state: DetailsUiState.Success,
-    onGenreClick: ((String) -> Unit)? = null
+    onGenreClick: ((String) -> Unit)? = null,
+    showSynopsis: Boolean = false
 ) {
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
         Row(
@@ -193,39 +195,41 @@ fun AnimeInfoHeader(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        if (showSynopsis && state.synopsis.isNotBlank()) {
+            Spacer(modifier = Modifier.height(14.dp))
 
-        var isSynopsisExpanded by remember { mutableStateOf(false) }
-        Column(
-            modifier = Modifier
-                .animateContentSize()
-                .bounceClick { isSynopsisExpanded = !isSynopsisExpanded }
-        ) {
-            Text(
-                text = state.synopsis,
-                color = TextSecondary,
-                fontSize = 13.sp,
-                lineHeight = 19.sp,
-                maxLines = if (isSynopsisExpanded) Int.MAX_VALUE else 3,
-                overflow = TextOverflow.Ellipsis
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(top = 4.dp)
+            var isSynopsisExpanded by remember { mutableStateOf(false) }
+            Column(
+                modifier = Modifier
+                    .animateContentSize()
+                    .bounceClick { isSynopsisExpanded = !isSynopsisExpanded }
             ) {
                 Text(
-                    text = if (isSynopsisExpanded) "Show Less" else "Read More",
-                    color = YugenPurple,
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Bold
+                    text = state.synopsis,
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    maxLines = if (isSynopsisExpanded) Int.MAX_VALUE else 3,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.width(4.dp))
-                Icon(
-                    if (isSynopsisExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
-                    contentDescription = null,
-                    tint = YugenPurple,
-                    modifier = Modifier.size(16.dp)
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Text(
+                        text = if (isSynopsisExpanded) "Show Less" else "Read More",
+                        color = YugenPurple,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        if (isSynopsisExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = YugenPurple,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
         }
     }
@@ -388,6 +392,10 @@ fun EpisodeItemRow(
                 }
             }
             // Episode Number Badge
+            val displayEpNum = ep.number.toFloatOrNull()?.let {
+                if (it % 1f == 0f) it.toInt().toString() else ep.number
+            } ?: ep.number
+
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -397,7 +405,7 @@ fun EpisodeItemRow(
                     .padding(horizontal = 5.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = "EP ${ep.number}",
+                    text = "Ep $displayEpNum",
                     color = Color.White,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
@@ -449,30 +457,63 @@ fun EpisodeItemRow(
         Spacer(modifier = Modifier.width(14.dp))
 
         Column(modifier = Modifier.weight(1f)) {
+            val displayEpNum = ep.number.toFloatOrNull()?.let {
+                if (it % 1f == 0f) it.toInt().toString() else ep.number
+            } ?: ep.number
+
+            val cleanTitle = run {
+                val raw = ep.title.trim()
+                if (raw.isBlank() || raw.equals("null", ignoreCase = true) || Regex("""^(Episode|Ep\.?|EP)?\s*\d+(\.0+)?$""", RegexOption.IGNORE_CASE).matches(raw)) {
+                    ""
+                } else {
+                    raw.replace(Regex("""^(Episode|Ep\.?|EP)\s*\d+(\.0+)?\s*[:\-.•]\s*""", RegexOption.IGNORE_CASE), "")
+                        .replace(Regex("""^\d+(\.0+)?\s*[:\-.•]\s*"""), "")
+                        .replace(Regex("""^#\d+\s*[:\-.•]?\s*"""), "")
+                        .trim()
+                }
+            }
+
+            val finalTitle = if (cleanTitle.isNotBlank() && !cleanTitle.equals("null", ignoreCase = true) && !Regex("""^(Episode|Ep\.?|EP)?\s*\d+(\.0+)?$""", RegexOption.IGNORE_CASE).matches(cleanTitle)) {
+                cleanTitle
+            } else {
+                "Episode $displayEpNum"
+            }
+
+            val ratingBadge = ep.rating?.let { " • ★ $it" }.orEmpty()
+            val metaText = if (finalTitle != "Episode $displayEpNum") {
+                "Episode $displayEpNum$ratingBadge • SUB" + if (ep.hasDub) " • DUB" else ""
+            } else {
+                (if (ep.rating != null) "★ ${ep.rating} • " else "") + "SUB" + if (ep.hasDub) " • DUB" else ""
+            }
+
             Text(
-                text = run {
-                    val raw = ep.title.trim()
-                    val isRedundant = raw.isBlank() || Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?$", RegexOption.IGNORE_CASE).matches(raw)
-                    val hasPrefix = Regex("^(Episode|Ep\\.?|EP)\\s*\\d+\\b", RegexOption.IGNORE_CASE).containsMatchIn(raw) || raw.startsWith("${ep.number.toInt()}")
-                    if (isRedundant) "${ep.number.toInt()}."
-                    else if (hasPrefix) raw
-                    else "${ep.number.toInt()}. $raw"
-                },
+                text = finalTitle,
                 color = titleColor,
                 fontSize = 14.5.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(3.dp))
             Text(
-                text = ep.description,
-                color = TextMuted,
-                fontSize = 12.5.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 17.sp
+                text = metaText,
+                color = TextSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
+            if (ep.description.isNotBlank() && !ep.description.contains("not available", ignoreCase = true)) {
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = ep.description,
+                    color = TextMuted,
+                    fontSize = 11.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 15.sp
+                )
+            }
         }
 
         Spacer(modifier = Modifier.width(8.dp))
@@ -591,7 +632,7 @@ fun DynamicActionIsland(
                 spotColor = if (isExpanded) Color.Black.copy(alpha = 0.5f) else dominantColor.copy(alpha = 0.35f)
             )
             .clip(if (isExpanded) YugenShape.dialog else YugenShape.pill)
-            .background(if (isExpanded) YugenGlassSurface else Color.Transparent)
+            .background(if (isExpanded) YugenGlassSurface else Color(0xFF0F1222).copy(alpha = 0.95f))
             .then(
                 if (!isExpanded) Modifier.background(idleBgBrush) else Modifier
             )
@@ -790,44 +831,8 @@ private fun IslandStreamSelector(
         }
     }
 
-    val serverGroups = remember(filteredStreams) {
-        filteredStreams.groupBy { stream ->
-            val rawName = stream.serverName?.takeIf { it.isNotBlank() } ?: stream.quality
-            rawName.replace(Regex("\\[?(sub|dub|hsub|hardsub|hdub)\\]?", RegexOption.IGNORE_CASE), "")
-                   .replace(Regex("\\(.*\\)|\\[.*?\\]"), "")
-                   .trim()
-                   .ifBlank { "Server" }
-        }.map { (cleanName, groupStreams) ->
-            val itemHasSub = groupStreams.any { 
-                val q = it.quality.uppercase()
-                val n = (it.serverName ?: "").uppercase()
-                !q.contains("DUB") && !n.contains("DUB") && !q.contains("HSUB") && !n.contains("HSUB") && !q.contains("HARDSUB") && !n.contains("HARDSUB")
-            }
-            val itemHasDub = groupStreams.any { 
-                val q = it.quality.uppercase()
-                val n = (it.serverName ?: "").uppercase()
-                (q.contains("DUB") || n.contains("DUB")) && !q.contains("HDUB") && !n.contains("HDUB") 
-            }
-            val itemHasHsub = groupStreams.any { 
-                val q = it.quality.uppercase()
-                val n = (it.serverName ?: "").uppercase()
-                q.contains("HSUB") || n.contains("HSUB") || q.contains("HARDSUB") || n.contains("HARDSUB")
-            }
-            val itemHasHdub = groupStreams.any { 
-                val q = it.quality.uppercase()
-                val n = (it.serverName ?: "").uppercase()
-                q.contains("HDUB") || n.contains("HDUB")
-            }
-            
-            val validBadges = mutableListOf<String>()
-            if (itemHasSub) validBadges.add("SUB")
-            if (itemHasDub) validBadges.add("DUB")
-            if (itemHasHsub) validBadges.add("HSUB")
-            if (itemHasHdub) validBadges.add("HDUB")
-            
-            val badge = if (validBadges.size > 1) "Multi" else validBadges.firstOrNull() ?: "SUB"
-            cleanName to Pair(badge, groupStreams)
-        }.toMap()
+    val rankedStreams = remember(filteredStreams) {
+        filteredStreams.sortedByDescending { it.priorityScore() }
     }
 
     Box(
@@ -838,26 +843,15 @@ private fun IslandStreamSelector(
     ) {
         IslandServerSelectionView(
             isDownloadMode = isDownloadMode,
-            serverGroups = serverGroups,
+            streams = rankedStreams,
             hasSub = hasSub,
             hasDub = hasDub,
             selectedTrackFilter = selectedTrackFilter,
             onSelectFilter = { selectedTrackFilter = it },
             dominantColor = dominantColor,
             onClose = onDismiss,
-            onServerClick = { serverName ->
-                val serverStreams = serverGroups[serverName]?.second ?: emptyList()
-                val targetStreams = when (selectedTrackFilter) {
-                    "SUB" -> serverStreams.filter { it.audioTrackType() == AudioTrackType.SUB || it.audioTrackType() == AudioTrackType.HSUB }
-                    "DUB" -> serverStreams.filter { it.audioTrackType() == AudioTrackType.DUB || it.audioTrackType() == AudioTrackType.HDUB }
-                    else -> serverStreams
-                }
-                val chosenStream = targetStreams.maxByOrNull { s ->
-                    s.resolution?.filter { it.isDigit() }?.toIntOrNull() ?: 0
-                } ?: targetStreams.firstOrNull() ?: serverStreams.firstOrNull()
-                if (chosenStream != null) {
-                    onStreamSelected(chosenStream)
-                }
+            onStreamClick = { stream ->
+                onStreamSelected(stream)
             }
         )
     }
@@ -866,14 +860,14 @@ private fun IslandStreamSelector(
 @Composable
 private fun IslandServerSelectionView(
     isDownloadMode: Boolean,
-    serverGroups: Map<String, Pair<String, List<VideoStream>>>,
+    streams: List<VideoStream>,
     hasSub: Boolean,
     hasDub: Boolean,
     selectedTrackFilter: String,
     onSelectFilter: (String) -> Unit,
     dominantColor: Color,
     onClose: () -> Unit,
-    onServerClick: (String) -> Unit
+    onStreamClick: (VideoStream) -> Unit
 ) {
     Column(modifier = Modifier.padding(horizontal = 20.dp)) {
         Row(
@@ -882,7 +876,7 @@ private fun IslandServerSelectionView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = if (isDownloadMode) "Download Server" else "Select Server",
+                text = if (isDownloadMode) "Download Stream" else "Select Stream",
                 color = TextPrimary,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold
@@ -927,24 +921,29 @@ private fun IslandServerSelectionView(
             }
         }
 
-        if (serverGroups.isEmpty()) {
+        if (streams.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(100.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text("No servers available.", color = TextMuted)
+                Text("No streams available.", color = TextMuted)
             }
         } else {
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                itemsIndexed(serverGroups.entries.toList()) { index, (serverName, data) ->
-                    val badge = data.first
-                    val streams = data.second
+                itemsIndexed(streams) { index, stream ->
+                    val badge = stream.audioTrackType().badge
                     val isTopRecommended = index == 0
+                    val routeTitle = if (index == 0) "Optimal Stream (Recommended)" else "Backup Route $index"
+                    val subtitleText = when {
+                        stream.isM3U8 || stream.format.equals("HLS", ignoreCase = true) -> "Adaptive HLS"
+                        stream.format.equals("MP4", ignoreCase = true) -> "Direct MP4"
+                        else -> stream.quality.ifBlank { "Standard Stream" }
+                    }
 
                     Row(
                         modifier = Modifier
@@ -956,7 +955,7 @@ private fun IslandServerSelectionView(
                                 if (isTopRecommended) YugenActiveGlassBorderBrush else YugenGlassBorderBrush,
                                 YugenShape.card
                             )
-                            .clickable { onServerClick(serverName) }
+                            .clickable { onStreamClick(stream) }
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -968,20 +967,27 @@ private fun IslandServerSelectionView(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                if (streams.any { it.format == "MP4" }) Icons.Rounded.OndemandVideo else Icons.Rounded.PlayArrow,
+                                if (stream.format == "MP4") Icons.Rounded.OndemandVideo else Icons.Rounded.PlayArrow,
                                 contentDescription = null,
                                 tint = if (isTopRecommended) Color.White else TextSecondary,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(14.dp))
-                        Text(
-                            text = serverName,
-                            color = TextPrimary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f)
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = routeTitle,
+                                color = TextPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = subtitleText,
+                                color = TextSecondary,
+                                fontSize = 12.sp
+                            )
+                        }
                         Box(
                             modifier = Modifier
                                 .clip(YugenShape.xs)

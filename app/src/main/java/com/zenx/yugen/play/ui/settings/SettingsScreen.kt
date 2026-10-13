@@ -78,7 +78,6 @@ fun SettingsScreen(
     val seekDurationSec by viewModel.seekDurationSec.collectAsStateWithLifecycle(initialValue = 10)
     val autoPlayNext by viewModel.autoPlayNext.collectAsStateWithLifecycle(initialValue = true)
     val preferDub by viewModel.preferDub.collectAsStateWithLifecycle(initialValue = false)
-    val maxParallelDownloads by viewModel.maxParallelDownloads.collectAsStateWithLifecycle(initialValue = 1)
 
     LaunchedEffect(updateInfo) {
         if (updateInfo != null) {
@@ -375,53 +374,6 @@ fun SettingsScreen(
                         .background(YugenGlassSurface)
                         .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))), YugenShape.cardLg)
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(YugenShape.xs)
-                                    .background(YugenPurple.copy(alpha = 0.14f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.Download, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(18.dp))
-                            }
-                            Column {
-                                Text("Max Parallel Downloads", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp)
-                                Text("Simultaneous episode downloads in a queue", color = TextSecondary, fontSize = 12.sp)
-                            }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(1, 2, 3, 5).forEach { count ->
-                                val isSelected = maxParallelDownloads == count
-                                val bg = if (isSelected) YugenPurple.copy(alpha = 0.18f) else YugenOverlayLight
-                                val border = if (isSelected) YugenPurple else YugenOverlayMedium
-                                val textColor = if (isSelected) YugenPurple else TextSecondary
-
-                                Box(
-                                    modifier = Modifier
-                                        .clip(YugenShape.xs)
-                                        .background(bg)
-                                        .border(1.dp, border, YugenShape.xs)
-                                        .bounceClick { viewModel.setMaxParallelDownloads(count) }
-                                        .padding(horizontal = 16.dp, vertical = 9.dp)
-                                ) {
-                                    Text(
-                                        "$count",
-                                        color = textColor,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        fontSize = 13.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    HorizontalDivider(color = YugenOverlayMedium)
-
                     SettingsItem(
                         icon = Icons.Default.Refresh,
                         title = "Clear Image Cache",

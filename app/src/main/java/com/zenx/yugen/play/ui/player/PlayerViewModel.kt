@@ -153,7 +153,8 @@ sealed interface PlayerUiState {
         // Configurable double-tap seek duration in seconds
         val seekDurationSec: Int = 10,
         // Whether to trigger the auto-play countdown at episode end
-        val autoPlayNext: Boolean = true
+        val autoPlayNext: Boolean = true,
+        val providerName: String = ""
     ) : PlayerUiState
     data class Error(val message: String) : PlayerUiState
 }
@@ -182,15 +183,16 @@ class PlayerViewModel @Inject constructor(
     private val streamDataCache: com.zenx.yugen.play.ui.detail.StreamDataCache,
     private val mp4DownloadDao: com.zenx.yugen.play.data.local.Mp4DownloadDao,
     private val titleMappingRepository: com.zenx.yugen.play.data.repository.TitleMappingRepository,
+    private val streamResolverEngine: com.zenx.yugen.play.domain.usecase.StreamResolverEngine,
     @ApplicationScope private val externalScope: CoroutineScope
 ) : ViewModel() {
 
     private val tag = "YUGEN_PLAYER"
 
     private var currentEpisodeId: String = savedStateHandle.get<String>("episodeId") ?: ""
-    private val animeUrl: String = savedStateHandle["animeUrl"] ?: ""
-    private val animeTitle: String = savedStateHandle.get<String>("title") ?: ""
-    private val posterUrl: String = savedStateHandle["poster"] ?: ""
+    private val animeUrl: String = savedStateHandle.get<String>("animeUrl")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) } ?: ""
+    private val animeTitle: String = savedStateHandle.get<String>("title")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) } ?: ""
+    private val posterUrl: String = savedStateHandle.get<String>("poster")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) } ?: ""
     private val activeProviderName: String = savedStateHandle.get<String>("provider")?.takeIf { it.isNotBlank() }
         ?: providerRegistry.getDefaultProvider().name
 
@@ -253,6 +255,7 @@ class PlayerViewModel @Inject constructor(
     private var savedPlaybackSpeed: Float = PlayerPreferences.DEFAULT_PLAYBACK_SPEED
     private var savedSeekDurationSec: Int = PlayerPreferences.DEFAULT_SEEK_DURATION_SEC
     private var savedAutoPlayNext: Boolean = PlayerPreferences.DEFAULT_AUTO_PLAY_NEXT
+    private var userPreferDub: Boolean = false
 
 
     companion object {
@@ -388,8 +391,31 @@ class PlayerViewModel @Inject constructor(
             
             // Auto-select English audio track for Multi-Audio dub streams if standard preference failed
             if (state != null && state.activeStream != null) {
-                val s = state.activeStream
-                val isDubStream = s.quality.contains("dub", ignoreCase = true) || s.serverName?.contains("dub", ignoreCase = true) == true
+                var s = state.activeStream
+                val isOffline = s.quality.startsWith("Offline", ignoreCase = true)
+                val isExplicitSub = s.serverName?.contains("SUB", ignoreCase = true) == true || s.audioTrackType() == AudioTrackType.SUB
+                if (isOffline && !isExplicitSub && s.audioTrackType() != AudioTrackType.DUB) {
+                    val hasEnglishTrack = tracks.groups.any { group ->
+                        group.type == androidx.media3.common.C.TRACK_TYPE_AUDIO && (0 until group.length).any { i ->
+                            val fmt = group.getTrackFormat(i)
+                            fmt.language?.contains("en", ignoreCase = true) == true ||
+                            fmt.label?.contains("eng", ignoreCase = true) == true ||
+                            fmt.label?.contains("dub", ignoreCase = true) == true
+                        }
+                    }
+                    if (hasEnglishTrack) {
+                        val updated = s.copy(
+                            quality = "Offline (DUB)",
+                            serverName = "Local DUB"
+                        )
+                        s = updated
+                        updateReadyState { it.copy(activeStream = updated, streams = listOf(updated)) }
+                    }
+                }
+
+                val isDubStream = userPreferDub ||
+                    s.quality.contains("dub", ignoreCase = true) ||
+                    s.serverName?.contains("dub", ignoreCase = true) == true
                 
                 var targetLanguageFound = false
                 var fallbackTrackGroup: androidx.media3.common.TrackGroup? = null
@@ -452,7 +478,7 @@ class PlayerViewModel @Inject constructor(
                 activeStream = state?.activeStream,
                 allStreams = state?.streams ?: emptyList(),
                 tracks = tracks,
-                isOffline = false
+                isOffline = state?.activeStream?.quality?.startsWith("Offline", ignoreCase = true) == true
             )
             cachedQualities = availableQualities
             updateReadyState { it.copy(qualities = availableQualities, currentPlayingHeight = cachedVideoHeight) }
@@ -483,33 +509,16 @@ class PlayerViewModel @Inject constructor(
             if (state.streams.size > 1) {
                 streamRetryCount = 0
                 val currentType = currentStream?.audioTrackType()
-                
-                var nextStreamIdx = -1
-                for (i in currentStreamIndex + 1 until state.streams.size) {
-                    if (state.streams[i].audioTrackType() == currentType) {
-                        nextStreamIdx = i
-                        break
-                    }
-                }
-                
-                if (nextStreamIdx == -1) {
-                    // Wrap-around search from index 0 if current server was further down
-                    for (i in 0 until currentStreamIndex) {
-                        if (state.streams[i].audioTrackType() == currentType) {
-                            nextStreamIdx = i
-                            break
-                        }
-                    }
-                }
+                val preferDub = currentType == AudioTrackType.DUB || currentType == AudioTrackType.HDUB
+                val nextStream = streamResolverEngine.getNextFailoverStream(
+                    currentStream = currentStream,
+                    allStreams = state.streams,
+                    preferDub = preferDub
+                )
 
-                if (nextStreamIdx == -1 && currentStreamIndex < state.streams.size - 1) {
-                    nextStreamIdx = currentStreamIndex + 1
-                }
-
-                if (nextStreamIdx != -1) {
-                    currentStreamIndex = nextStreamIdx
-                    val nextStream = state.streams[currentStreamIndex]
-                    showTransientWarning("Server died. Switching to backup...")
+                if (nextStream != null) {
+                    currentStreamIndex = state.streams.indexOf(nextStream).coerceAtLeast(0)
+                    showTransientWarning("Stream connection dropped. Seamlessly switching to backup...")
 
                     if (skipIntervals.isEmpty() && nextStream.skipIntervals.isNotEmpty()) {
                         skipIntervals = nextStream.skipIntervals
@@ -610,6 +619,7 @@ class PlayerViewModel @Inject constructor(
             savedPlaybackSpeed     = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_PLAYBACK_SPEED] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_PLAYBACK_SPEED
             savedSeekDurationSec   = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_SEEK_DURATION_SEC] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_SEEK_DURATION_SEC
             savedAutoPlayNext      = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_AUTO_PLAY_NEXT] ?: com.zenx.yugen.play.data.local.PlayerPreferences.DEFAULT_AUTO_PLAY_NEXT
+            userPreferDub          = prefs[com.zenx.yugen.play.data.local.PlayerPreferences.KEY_PREFER_DUB] ?: false
 
             updateReadyState {
                 it.copy(
@@ -675,11 +685,10 @@ class PlayerViewModel @Inject constructor(
         tracks: Tracks,
         isOffline: Boolean = false
     ): List<VideoQualityUiModel> {
-        if (isOffline) {
-            return listOf(VideoQualityUiModel(-1, "Offline"))
-        }
         val qualities = mutableListOf<VideoQualityUiModel>()
-        qualities.add(VideoQualityUiModel(-1, "Auto"))
+        if (!isOffline) {
+            qualities.add(VideoQualityUiModel(-1, "Auto"))
+        }
 
         tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }.forEach { group ->
             for (i in 0 until group.length) {
@@ -688,7 +697,7 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
-        if (activeStream != null) {
+        if (activeStream != null && !isOffline) {
             val serverStreams = getActiveServerStreams(activeStream, allStreams)
             for (stream in serverStreams) {
                 val h = stream.resolution?.filter { it.isDigit() }?.toIntOrNull()
@@ -697,6 +706,11 @@ class PlayerViewModel @Inject constructor(
                     qualities.add(VideoQualityUiModel(h, "${h}p"))
                 }
             }
+        }
+
+        if (isOffline && qualities.isEmpty()) {
+            val fallbackHeight = cachedVideoHeight.takeIf { it > 0 } ?: 1080
+            qualities.add(VideoQualityUiModel(fallbackHeight, "${fallbackHeight}p"))
         }
 
         return qualities.distinctBy { it.height }.sortedWith(
@@ -808,7 +822,7 @@ class PlayerViewModel @Inject constructor(
                     .build()
             }
 
-            val isOffline = stream.quality == "Offline (Local)"
+            val isOffline = stream.quality.startsWith("Offline", ignoreCase = true)
             val activeCache = if (isOffline) downloadCache else playbackCache
             val cacheSinkFactory = if (isOffline) null else CacheDataSink.Factory().setCache(playbackCache).setBufferSize(256 * 1024)
 
@@ -858,12 +872,18 @@ class PlayerViewModel @Inject constructor(
                 ?: validSubtitles.firstOrNull()?.label
 
             val isDubStream = stream.quality.contains("dub", ignoreCase = true) || stream.serverName?.contains("dub", ignoreCase = true) == true
+            val isOfflineStream = stream.quality.startsWith("Offline", ignoreCase = true)
             val trackBuilder = targetPlayer.trackSelectionParameters.buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
             
-            if (isDubStream) {
+            if (isDubStream || userPreferDub) {
                 trackBuilder.setPreferredAudioLanguage("en")
             } else {
                 trackBuilder.setPreferredAudioLanguage("ja")
+            }
+
+            if (isOfflineStream) {
+                trackBuilder.setForceHighestSupportedBitrate(true)
             }
 
             if (defaultTrackLang != null) {
@@ -913,7 +933,7 @@ class PlayerViewModel @Inject constructor(
     private fun sanitizeTitleForAnilist(title: String): String {
         return title
             .substringBefore(" - ")
-            .replace(Regex("""(?i)\b(season|part|cour)\s*\d+\b"""), "")
+            .replace(Regex("""(?i)\b(?:(?:\d+(?:st|nd|rd|th)?\s*(?:season|part|cour|core))|(?:(?:season|part|cour|core)[-.\s]*\d+))\b"""), "")
             .replace(Regex("""(?i)\(dub\)|\(sub\)|\b(dub|sub)\b"""), "")
             .replace(Regex("""\s+"""), " ")
             .trim()
@@ -983,11 +1003,13 @@ class PlayerViewModel @Inject constructor(
                 val validUrl = mappedUrl ?: candidateUrl
 
                 if (allEpisodes.isEmpty() || allEpisodes.none { it.id == episodeId || it.numberInt == currentEpisodeNumberInt.get() }) {
+                    val mediaDetails = anilistMediaId?.let { getAnimeDetailsUseCase(it) }
                     val epResult = getEpisodesUseCase(
                         animeUrlOrTitle = validUrl.ifBlank { animeTitle },
                         title = animeTitle,
                         providerName = activeProviderName,
-                        anilistId = anilistMediaId
+                        anilistId = anilistMediaId,
+                        details = mediaDetails
                     )
                     if (epResult is Resource.Success) {
                         epResult.data ?: emptyList()
@@ -1032,17 +1054,22 @@ class PlayerViewModel @Inject constructor(
             val streamsDeferred = async(Dispatchers.IO) {
                 if (parsedEpisode.isCloudSync) {
                     val resolved = episodesDeferred.await()
-                    val matchedEp = resolved.find { it.numberInt == currentEpisodeNumberInt.get() } ?: resolved.firstOrNull()
-                    val concreteId = matchedEp?.id ?: episodeId
-                    val cachedStreams = streamDataCache.get(concreteId)
-                    val res = if (cachedStreams != null) {
-                        Resource.Success(cachedStreams)
-                    } else if (!targetStreamUrl.isNullOrBlank()) {
-                        Resource.Success(listOf(VideoStream(quality = "Default", url = targetStreamUrl)))
+                    val requestedEpNum = currentEpisodeNumberInt.get()
+                    val matchedEp = resolved.find { it.numberInt == requestedEpNum }
+                    if (matchedEp == null) {
+                        episodeId to Resource.Error("Episode $requestedEpNum is not available on $activeProviderName yet. Try switching providers.")
                     } else {
-                        getVideoStreamsUseCase(concreteId)
+                        val concreteId = matchedEp.id
+                        val cachedStreams = streamDataCache.get(concreteId)
+                        val res = if (cachedStreams != null) {
+                            Resource.Success(cachedStreams)
+                        } else if (!targetStreamUrl.isNullOrBlank()) {
+                            Resource.Success(listOf(VideoStream(quality = "Default", url = targetStreamUrl)))
+                        } else {
+                            getVideoStreamsUseCase(concreteId)
+                        }
+                        concreteId to res
                     }
-                    concreteId to res
                 } else {
                     val cachedStreams = streamDataCache.get(episodeId)
                     val res = if (cachedStreams != null) {
@@ -1095,19 +1122,20 @@ class PlayerViewModel @Inject constructor(
                 when (streamResult) {
                     is Resource.Success -> {
                         val streams = streamResult.data ?: emptyList()
+                        val preferDub = playerPreferences.preferDub.first()
+                        val resolved = streamResolverEngine.resolve(
+                            streams = streams,
+                            providerName = activeProviderName,
+                            preferDub = preferDub,
+                            preferredQuality = "Best"
+                        )
                         val activeStream = if (targetStreamUrl != null) {
                             val targetBase = targetStreamUrl.substringBefore("?")
-                            streams.find { it.url.substringBefore("?") == targetBase } ?: streams.firstOrNull()
+                            streams.find { it.url.substringBefore("?") == targetBase }
+                                ?: resolved?.primaryStream
+                                ?: streams.firstOrNull()
                         } else {
-                            val preferDub = playerPreferences.preferDub.first()
-                            val matchingAudio = if (preferDub) {
-                                streams.filter { it.audioTrackType() == AudioTrackType.DUB || it.audioTrackType() == AudioTrackType.HDUB }
-                                    .ifEmpty { streams }
-                            } else {
-                                streams.filter { it.audioTrackType() == AudioTrackType.SUB || it.audioTrackType() == AudioTrackType.HSUB }
-                                    .ifEmpty { streams }
-                            }
-                            matchingAudio.sortedByDescending { it.priorityScore() }.firstOrNull() ?: streams.firstOrNull()
+                            resolved?.primaryStream ?: streams.firstOrNull()
                         }
 
                         if (activeStream != null) {
@@ -1182,7 +1210,8 @@ class PlayerViewModel @Inject constructor(
                                 subtitleTextColor = savedSubtitleTextColor,
                                 subtitleBgOpacity = savedSubtitleBgOpacity,
                                 seekDurationSec = savedSeekDurationSec,
-                                autoPlayNext = savedAutoPlayNext
+                                autoPlayNext = savedAutoPlayNext,
+                                providerName = activeProviderName
                             )
                             if (liveIsPlaying) startProgressTracker()
 
@@ -1431,6 +1460,7 @@ class PlayerViewModel @Inject constructor(
         streamRetryCount = 0
 
         val isDub = stream.audioTrackType() == AudioTrackType.DUB || stream.audioTrackType() == AudioTrackType.HDUB
+        userPreferDub = isDub
         viewModelScope.launch {
             val oldPref = playerPreferences.preferDub.first()
             if (oldPref != isDub) {
@@ -1447,7 +1477,7 @@ class PlayerViewModel @Inject constructor(
             activeStream = stream,
             allStreams = state.streams,
             tracks = playerEngine.exoPlayer.currentTracks,
-            isOffline = false
+            isOffline = stream.quality.startsWith("Offline", ignoreCase = true)
         )
         cachedQualities = newQualities
 
@@ -1458,6 +1488,48 @@ class PlayerViewModel @Inject constructor(
             isServerSheetVisible = false
         ) }
         playStream(stream, startPositionMs = currentPos)
+    }
+
+    fun selectAudioTrack(type: AudioTrackType) {
+        val state = _uiState.value as? PlayerUiState.Ready ?: return
+        val isDub = type == AudioTrackType.DUB || type == AudioTrackType.HDUB
+        userPreferDub = isDub
+        viewModelScope.launch {
+            playerPreferences.setPreferDub(isDub)
+        }
+
+        // Only switch stream if the active stream does not already have the requested audio type
+        if (state.activeStream?.audioTrackType() != type && state.streams.size > 1) {
+            val matchingStream = state.streams
+                .filter { it.audioTrackType() == type }
+                .maxByOrNull { it.priorityScore() }
+            if (matchingStream != null) {
+                selectStream(matchingStream)
+                return
+            }
+        }
+
+        val activePlayer = getActivePlayer()
+        val lang = when (type) {
+            AudioTrackType.DUB -> "en"
+            AudioTrackType.HDUB -> "hi"
+            else -> "ja"
+        }
+        val trackBuilder = activePlayer.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_AUDIO)
+            .setPreferredAudioLanguage(lang)
+        activePlayer.trackSelectionParameters = trackBuilder.build()
+
+        val currentStream = state.activeStream
+        if (currentStream != null) {
+            val isOffline = currentStream.quality.startsWith("Offline", ignoreCase = true)
+            val updated = currentStream.copy(
+                quality = if (isOffline) "Offline (${type.badge})" else currentStream.quality,
+                serverName = if (isOffline) "Local ${type.badge}" else currentStream.serverName
+            )
+            val updatedStreams = if (isOffline) listOf(updated) else state.streams
+            updateReadyState { it.copy(activeStream = updated, streams = updatedStreams) }
+        }
     }
 
     fun selectEpisode(episode: Episode) {
@@ -1563,11 +1635,14 @@ class PlayerViewModel @Inject constructor(
 
     private suspend fun playOfflineMp4(mp4: com.zenx.yugen.play.data.local.Mp4DownloadEntity, targetEpId: String) {
         val fileUri = android.net.Uri.fromFile(java.io.File(mp4.localFilePath)).toString()
+        val isDubMp4 = mp4.videoUrl.contains("dub", ignoreCase = true) || mp4.animeTitle.contains("dub", ignoreCase = true)
+        val detectedMp4AudioType = if (isDubMp4) AudioTrackType.DUB else AudioTrackType.SUB
         val offlineStream = VideoStream(
-            quality = "Offline (MP4)",
+            quality = "Offline (${detectedMp4AudioType.badge})",
             url = fileUri,
             isM3U8 = false,
-            format = "MP4"
+            format = "MP4",
+            serverName = "Local ${detectedMp4AudioType.badge}"
         )
         val savedPosition = getSavedPosition(targetEpId)
         playStream(offlineStream, startPositionMs = savedPosition)
@@ -1609,7 +1684,8 @@ class PlayerViewModel @Inject constructor(
             subtitleTextColor = savedSubtitleTextColor,
             subtitleBgOpacity = savedSubtitleBgOpacity,
             seekDurationSec = savedSeekDurationSec,
-            autoPlayNext = savedAutoPlayNext
+            autoPlayNext = savedAutoPlayNext,
+            providerName = "Offline"
         )
         if (liveIsPlaying) startProgressTracker()
     }
@@ -1662,7 +1738,32 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
-        val offlineStream = VideoStream("Offline (Local)", download.request.uri.toString(), parsedHeaders, true, parsedSubtitles, parsedSkipIntervals)
+        val audioTypeStr = meta.optString("audioTrackType", "").ifBlank {
+            val rawServer = meta.optString("serverName", "")
+            val uriStr = download.request.uri.toString()
+            when {
+                rawServer.contains("HDUB", ignoreCase = true) || uriStr.contains("/HDUB/", ignoreCase = true) || uriStr.contains("hdub", ignoreCase = true) -> "HDUB"
+                rawServer.contains("HSUB", ignoreCase = true) || uriStr.contains("/HSUB/", ignoreCase = true) || uriStr.contains("hsub", ignoreCase = true) -> "HSUB"
+                rawServer.contains("DUB", ignoreCase = true) || uriStr.contains("/DUB/", ignoreCase = true) || uriStr.contains("dub", ignoreCase = true) -> "DUB"
+                else -> "SUB"
+            }
+        }
+        val detectedAudioType = when {
+            audioTypeStr.equals("HDUB", ignoreCase = true) -> AudioTrackType.HDUB
+            audioTypeStr.equals("HSUB", ignoreCase = true) -> AudioTrackType.HSUB
+            audioTypeStr.equals("DUB", ignoreCase = true) -> AudioTrackType.DUB
+            else -> AudioTrackType.SUB
+        }
+
+        val offlineStream = VideoStream(
+            quality = "Offline (${detectedAudioType.badge})",
+            url = download.request.uri.toString(),
+            headers = parsedHeaders,
+            isM3U8 = true,
+            subtitles = parsedSubtitles,
+            skipIntervals = parsedSkipIntervals,
+            serverName = "Local ${detectedAudioType.badge}"
+        )
         skipIntervals = parsedSkipIntervals
         val savedPosition = getSavedPosition(targetEpId)
 
@@ -1712,7 +1813,8 @@ class PlayerViewModel @Inject constructor(
             subtitleTextColor = savedSubtitleTextColor,
             subtitleBgOpacity = savedSubtitleBgOpacity,
             seekDurationSec = savedSeekDurationSec,
-            autoPlayNext = savedAutoPlayNext
+            autoPlayNext = savedAutoPlayNext,
+            providerName = "Offline"
         )
         if (liveIsPlaying) startProgressTracker()
     }

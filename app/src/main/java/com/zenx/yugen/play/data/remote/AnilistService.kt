@@ -10,8 +10,13 @@ import com.zenx.yugen.play.domain.AnimeCardItem
 import com.zenx.yugen.play.domain.AnimeDetails
 import com.zenx.yugen.play.domain.AnilistListEntry
 import com.zenx.yugen.play.domain.AnilistUser
+import com.zenx.yugen.play.domain.CharacterCast
 import com.zenx.yugen.play.domain.HeroUiModel
 import com.zenx.yugen.play.domain.HomeAnimeCardUiModel
+import com.zenx.yugen.play.domain.MediaRecommendation
+import com.zenx.yugen.play.domain.MediaRelation
+import com.zenx.yugen.play.domain.MediaTrailer
+import com.zenx.yugen.play.domain.StaffMember
 import com.zenx.yugen.play.domain.UserListEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -147,6 +152,15 @@ class AnilistService @Inject constructor(
         return@withContext fetchKitsuPopular()
     }
 
+    private fun extractCleanTitle(titleObj: JSONObject?, fallback: String = "Unknown Anime"): String {
+        if (titleObj == null) return fallback
+        val english = titleObj.optString("english").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+        val romaji = titleObj.optString("romaji").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+        val userPref = titleObj.optString("userPreferred").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+        val native = titleObj.optString("native").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+        return english ?: romaji ?: userPref ?: native ?: fallback
+    }
+
     private suspend fun fetchAnilistPopular(): List<AnimeCardItem> {
         val query = """query { Page(page: 1, perPage: 20) { media(type: ANIME, sort: POPULARITY_DESC, countryOfOrigin: "JP", isAdult: false) { id title { english romaji } coverImage { large } averageScore } } }"""
         val jsonPayload = JSONObject().apply { put("query", query) }
@@ -178,8 +192,7 @@ class AnilistService @Inject constructor(
         for (i in 0 until mediaArray.length()) {
             val item = mediaArray.getJSONObject(i)
             val titleObj = item.optJSONObject("title")
-            val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
-                ?: titleObj?.optString("romaji").orEmpty()
+            val title = extractCleanTitle(titleObj)
 
             val score = item.optInt("averageScore", 0).takeIf { it > 0 }
 
@@ -309,8 +322,7 @@ class AnilistService @Inject constructor(
             for (i in 0 until mediaArray.length()) {
                 val item = mediaArray.getJSONObject(i)
                 val titleObj = item.optJSONObject("title")
-                val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
-                    ?: titleObj?.optString("romaji").orEmpty()
+                val title = extractCleanTitle(titleObj)
 
                 val banner = item.optString("bannerImage", "").takeIf { it.isNotBlank() && it != "null" }
                     ?: item.optJSONObject("coverImage")?.optString("extraLarge").takeIf { it != "null" }.orEmpty()
@@ -415,8 +427,7 @@ class AnilistService @Inject constructor(
             for (i in 0 until mediaArray.length()) {
                 val item = mediaArray.getJSONObject(i)
                 val titleObj = item.optJSONObject("title")
-                val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
-                    ?: titleObj?.optString("romaji").orEmpty()
+                val title = extractCleanTitle(titleObj)
 
                 val poster = item.optJSONObject("coverImage")?.optString("extraLarge")?.takeIf { it.isNotBlank() }
                     ?: item.optJSONObject("coverImage")?.optString("large").takeIf { it != "null" }.orEmpty()
@@ -491,8 +502,7 @@ class AnilistService @Inject constructor(
             for (i in 0 until mediaArray.length()) {
                 val item = mediaArray.getJSONObject(i)
                 val titleObj = item.optJSONObject("title")
-                val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
-                    ?: titleObj?.optString("romaji").orEmpty()
+                val title = extractCleanTitle(titleObj)
 
                 val poster = item.optJSONObject("coverImage")?.optString("extraLarge")?.takeIf { it.isNotBlank() }
                     ?: item.optJSONObject("coverImage")?.optString("large").takeIf { it != "null" }.orEmpty()
@@ -615,8 +625,7 @@ class AnilistService @Inject constructor(
         for (i in 0 until mediaArray.length()) {
             val item = mediaArray.getJSONObject(i)
             val titleObj = item.optJSONObject("title")
-            val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
-                ?: titleObj?.optString("romaji").orEmpty()
+            val title = extractCleanTitle(titleObj)
             val poster = item.optJSONObject("coverImage")?.optString("extraLarge")?.takeIf { it.isNotBlank() }
                 ?: item.optJSONObject("coverImage")?.optString("large").takeIf { it != "null" }.orEmpty()
             val score = item.optInt("averageScore", 0).takeIf { it > 0 }
@@ -756,8 +765,7 @@ class AnilistService @Inject constructor(
             if (media.optString("countryOfOrigin") != "JP" || media.optBoolean("isAdult", false)) continue
 
             val titleObj = media.optJSONObject("title")
-            val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
-                ?: titleObj?.optString("romaji").orEmpty()
+            val title = extractCleanTitle(titleObj)
 
             list.add(
                 AiringAnimeItem(
@@ -924,10 +932,65 @@ class AnilistService @Inject constructor(
         val query = """
             query (${'$'}id: Int) {
                 Media(id: ${'$'}id, type: ANIME) {
-                    id idMal title { english romaji } bannerImage coverImage { extraLarge }
+                    id idMal title { english romaji native userPreferred } synonyms bannerImage coverImage { extraLarge large }
                     description(asHtml: false) averageScore seasonYear format episodes genres
                     streamingEpisodes { title thumbnail url site }
                     nextAiringEpisode { airingAt episode }
+                    trailer { id site thumbnail }
+                    studios(isMain: true) { nodes { id name } }
+                    relations {
+                        edges {
+                            relationType(version: 2)
+                            node {
+                                id
+                                title { english romaji userPreferred }
+                                format
+                                type
+                                status
+                                episodes
+                                coverImage { extraLarge large }
+                                bannerImage
+                                seasonYear
+                            }
+                        }
+                    }
+                    recommendations(sort: RATING_DESC, perPage: 12) {
+                        nodes {
+                            mediaRecommendation {
+                                id
+                                title { english romaji userPreferred }
+                                format
+                                episodes
+                                coverImage { extraLarge large }
+                                averageScore
+                            }
+                        }
+                    }
+                    characters(sort: [ROLE, RELEVANCE], perPage: 12) {
+                        edges {
+                            role
+                            node {
+                                id
+                                name { full }
+                                image { large }
+                            }
+                            voiceActors(language: JAPANESE) {
+                                id
+                                name { full }
+                                image { large }
+                            }
+                        }
+                    }
+                    staff(perPage: 8) {
+                        edges {
+                            role
+                            node {
+                                id
+                                name { full }
+                                image { large }
+                            }
+                        }
+                    }
                 }
             }
         """.trimIndent()
@@ -993,10 +1056,65 @@ class AnilistService @Inject constructor(
             query (${'$'}search: String) {
                 Page(page: 1, perPage: 1) {
                     media(search: ${'$'}search, type: ANIME) {
-                        id idMal title { english romaji } bannerImage coverImage { extraLarge }
+                        id idMal title { english romaji native userPreferred } synonyms bannerImage coverImage { extraLarge large }
                         description(asHtml: false) averageScore seasonYear format episodes genres
                         streamingEpisodes { title thumbnail url site }
                         nextAiringEpisode { airingAt episode }
+                        trailer { id site thumbnail }
+                        studios(isMain: true) { nodes { id name } }
+                        relations {
+                            edges {
+                                relationType(version: 2)
+                                node {
+                                    id
+                                    title { english romaji userPreferred }
+                                    format
+                                    type
+                                    status
+                                    episodes
+                                    coverImage { extraLarge large }
+                                    bannerImage
+                                    seasonYear
+                                }
+                            }
+                        }
+                        recommendations(sort: RATING_DESC, perPage: 12) {
+                            nodes {
+                                mediaRecommendation {
+                                    id
+                                    title { english romaji userPreferred }
+                                    format
+                                    episodes
+                                    coverImage { extraLarge large }
+                                    averageScore
+                                }
+                            }
+                        }
+                        characters(sort: [ROLE, RELEVANCE], perPage: 12) {
+                            edges {
+                                role
+                                node {
+                                    id
+                                    name { full }
+                                    image { large }
+                                }
+                                voiceActors(language: JAPANESE) {
+                                    id
+                                    name { full }
+                                    image { large }
+                                }
+                            }
+                        }
+                        staff(perPage: 8) {
+                            edges {
+                                role
+                                node {
+                                    id
+                                    name { full }
+                                    image { large }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1026,16 +1144,27 @@ class AnilistService @Inject constructor(
 
     private fun parseMediaNodeToAnimeDetails(media: JSONObject): AnimeDetails {
         val titleObj = media.optJSONObject("title")
-        val englishTitle = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
-        val romajiTitle = titleObj?.optString("romaji")?.takeIf { it.isNotBlank() && it != "null" }
-        val resolvedTitle = englishTitle ?: romajiTitle.orEmpty()
+        val englishTitle = titleObj?.optString("english")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+        val romajiTitle = titleObj?.optString("romaji")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+        val userPreferredTitle = titleObj?.optString("userPreferred")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }.orEmpty()
+        val nativeTitle = titleObj?.optString("native")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }.orEmpty()
+        val resolvedTitle = englishTitle ?: romajiTitle ?: userPreferredTitle.takeIf { it.isNotBlank() } ?: nativeTitle.takeIf { it.isNotBlank() } ?: "Unknown Anime"
+
+        val synonymsList = mutableListOf<String>()
+        val synArray = media.optJSONArray("synonyms")
+        if (synArray != null) {
+            for (i in 0 until synArray.length()) {
+                val s = synArray.optString(i)
+                if (s.isNotBlank() && !s.equals("null", ignoreCase = true)) synonymsList.add(s)
+            }
+        }
 
         val genresList = mutableListOf<String>()
         val genresArray = media.optJSONArray("genres")
         if (genresArray != null) {
             for (i in 0 until genresArray.length()) {
                 val g = genresArray.optString(i)
-                if (g.isNotBlank()) genresList.add(g)
+                if (g.isNotBlank() && !g.equals("null", ignoreCase = true)) genresList.add(g)
             }
         }
 
@@ -1044,12 +1173,13 @@ class AnilistService @Inject constructor(
         if (streamingArray != null) {
             for (i in 0 until streamingArray.length()) {
                 val epObj = streamingArray.getJSONObject(i)
-                val epTitle = epObj.optString("title", "Episode ${i + 1}")
-                val epThumbnail = epObj.optString("thumbnail", "")
-                val epUrl = epObj.optString("url", "")
-                if (epThumbnail.isNotBlank()) {
-                    parsedEpisodes.add(AniListEpisode(epTitle, epThumbnail, epUrl))
-                }
+                val rawTitle = epObj.optString("title", "")
+                val epTitle = rawTitle.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) } ?: "Episode ${i + 1}"
+                val rawThumb = epObj.optString("thumbnail", "")
+                val epThumbnail = rawThumb.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }.orEmpty()
+                val rawUrl = if (epObj.isNull("url")) null else epObj.optString("url")
+                val epUrl = rawUrl?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                parsedEpisodes.add(AniListEpisode(epTitle, epThumbnail, epUrl))
             }
         }
 
@@ -1058,22 +1188,172 @@ class AnilistService @Inject constructor(
         val nextAiringAt = if (nextAiringNode != null && !nextAiringNode.isNull("airingAt")) nextAiringNode.optLong("airingAt") else null
         val nextAiringEp = if (nextAiringNode != null && !nextAiringNode.isNull("episode")) nextAiringNode.optInt("episode") else null
 
+        val seasonYr = media.optInt("seasonYear", 0)
+
+        // Studios
+        val studiosList = mutableListOf<String>()
+        val studioNodes = media.optJSONObject("studios")?.optJSONArray("nodes")
+        if (studioNodes != null) {
+            for (i in 0 until studioNodes.length()) {
+                val s = studioNodes.getJSONObject(i).optString("name")
+                if (s.isNotBlank() && !s.equals("null", ignoreCase = true)) studiosList.add(s)
+            }
+        }
+
+        // Trailer
+        val trailerObj = media.optJSONObject("trailer")
+        val trailer = if (trailerObj != null) {
+            val trId = trailerObj.optString("id").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+            val trSite = trailerObj.optString("site").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+            val trThumb = trailerObj.optString("thumbnail").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }.orEmpty()
+            if (trId != null && trSite != null) MediaTrailer(trId, trSite, trThumb) else null
+        } else null
+
+        // Relations
+        val relationsList = mutableListOf<MediaRelation>()
+        val relEdges = media.optJSONObject("relations")?.optJSONArray("edges")
+        if (relEdges != null) {
+            for (i in 0 until relEdges.length()) {
+                val edge = relEdges.getJSONObject(i)
+                val relType = edge.optString("relationType", "OTHER")
+                val node = edge.optJSONObject("node") ?: continue
+                val relId = node.optInt("id", 0)
+                if (relId == 0) continue
+                val relTitle = extractCleanTitle(node.optJSONObject("title"))
+                val relFormat = node.optString("format", "TV")
+                val nodeType = node.optString("type", "ANIME")
+                val relStatus = node.optString("status", "")
+                val relEps = node.optInt("episodes", 0).takeIf { it > 0 }
+                val relPoster = node.optJSONObject("coverImage")?.optString("extraLarge")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                    ?: node.optJSONObject("coverImage")?.optString("large")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }.orEmpty()
+                val relBanner = node.optString("bannerImage", "").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }.orEmpty()
+                val relYear = node.optInt("seasonYear", 0).takeIf { it > 0 }
+                relationsList.add(
+                    MediaRelation(
+                        id = relId,
+                        title = relTitle,
+                        format = relFormat,
+                        type = nodeType,
+                        status = relStatus,
+                        episodes = relEps,
+                        posterUrl = relPoster,
+                        bannerUrl = relBanner,
+                        seasonYear = relYear,
+                        relationType = relType
+                    )
+                )
+            }
+        }
+
+        // Recommendations
+        val recommendationsList = mutableListOf<MediaRecommendation>()
+        val recNodes = media.optJSONObject("recommendations")?.optJSONArray("nodes")
+        if (recNodes != null) {
+            for (i in 0 until recNodes.length()) {
+                val recNode = recNodes.getJSONObject(i)
+                val mRec = recNode.optJSONObject("mediaRecommendation") ?: continue
+                val recId = mRec.optInt("id", 0)
+                if (recId == 0) continue
+                val recTitle = extractCleanTitle(mRec.optJSONObject("title"))
+                val recFormat = mRec.optString("format", "TV")
+                val recEps = mRec.optInt("episodes", 0).takeIf { it > 0 }
+                val recPoster = mRec.optJSONObject("coverImage")?.optString("extraLarge")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                    ?: mRec.optJSONObject("coverImage")?.optString("large")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }.orEmpty()
+                val recScore = mRec.optInt("averageScore", 0).takeIf { it > 0 }
+                recommendationsList.add(
+                    MediaRecommendation(
+                        id = recId,
+                        title = recTitle,
+                        format = recFormat,
+                        episodes = recEps,
+                        posterUrl = recPoster,
+                        score = recScore
+                    )
+                )
+            }
+        }
+
+        // Characters & Cast
+        val charactersList = mutableListOf<CharacterCast>()
+        val charEdges = media.optJSONObject("characters")?.optJSONArray("edges")
+        if (charEdges != null) {
+            for (i in 0 until charEdges.length()) {
+                val edge = charEdges.getJSONObject(i)
+                val role = edge.optString("role", "MAIN")
+                val charNode = edge.optJSONObject("node") ?: continue
+                val charId = charNode.optInt("id", 0)
+                val charName = charNode.optJSONObject("name")?.optString("full")
+                    ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) } ?: "Unknown"
+                val charImg = charNode.optJSONObject("image")?.optString("large")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }.orEmpty()
+
+                val vaArray = edge.optJSONArray("voiceActors")
+                val primaryVa = vaArray?.optJSONObject(0)
+                val vaName = primaryVa?.optJSONObject("name")?.optString("full")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                val vaImg = primaryVa?.optJSONObject("image")?.optString("large")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+
+                charactersList.add(
+                    CharacterCast(
+                        id = charId,
+                        name = charName,
+                        role = role,
+                        imageUrl = charImg,
+                        voiceActorName = vaName,
+                        voiceActorImage = vaImg
+                    )
+                )
+            }
+        }
+
+        // Staff
+        val staffList = mutableListOf<StaffMember>()
+        val staffEdges = media.optJSONObject("staff")?.optJSONArray("edges")
+        if (staffEdges != null) {
+            for (i in 0 until staffEdges.length()) {
+                val edge = staffEdges.getJSONObject(i)
+                val role = edge.optString("role", "Staff")
+                val staffNode = edge.optJSONObject("node") ?: continue
+                val staffId = staffNode.optInt("id", 0)
+                val staffName = staffNode.optJSONObject("name")?.optString("full")
+                    ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) } ?: "Unknown"
+                val staffImg = staffNode.optJSONObject("image")?.optString("large")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }.orEmpty()
+                staffList.add(
+                    StaffMember(
+                        id = staffId,
+                        name = staffName,
+                        role = role,
+                        imageUrl = staffImg
+                    )
+                )
+            }
+        }
+
         return AnimeDetails(
             id = media.optString("id"),
             idMal = malId,
             title = resolvedTitle,
             romajiTitle = romajiTitle ?: "",
-            description = media.optString("description", "No description available.").replace("<br>", "\n"),
-            bannerImage = media.optString("bannerImage", "").takeIf { it.isNotBlank() && it != "null" } ?: "",
-            posterImage = media.optJSONObject("coverImage")?.optString("extraLarge").takeIf { it != "null" }.orEmpty(),
+            description = media.optString("description", "No description available.").takeIf { !it.equals("null", ignoreCase = true) }?.replace("<br>", "\n") ?: "No description available.",
+            bannerImage = media.optString("bannerImage", "").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) } ?: "",
+            posterImage = media.optJSONObject("coverImage")?.optString("extraLarge")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                ?: media.optJSONObject("coverImage")?.optString("large")?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }.orEmpty(),
             averageScore = media.optInt("averageScore", 0),
-            year = media.optInt("seasonYear", 0),
+            year = if (seasonYr > 0) seasonYr else media.optInt("year", 0),
             format = media.optString("format", "TV"),
             totalEpisodes = media.optInt("episodes", 0),
             genres = genresList,
             streamingEpisodes = parsedEpisodes,
             nextAiringAt = nextAiringAt,
-            nextAiringEpisode = nextAiringEp
+            nextAiringEpisode = nextAiringEp,
+            synonyms = synonymsList,
+            nativeTitle = nativeTitle,
+            userPreferredTitle = userPreferredTitle,
+            seasonYear = seasonYr.takeIf { it > 0 },
+            studios = studiosList,
+            trailer = trailer,
+            relations = relationsList,
+            recommendations = recommendationsList,
+            characters = charactersList,
+            staff = staffList
         )
     }
 
@@ -1269,8 +1549,7 @@ class AnilistService @Inject constructor(
                     }
 
                     val titleObj = media.optJSONObject("title")
-                    val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
-                        ?: titleObj?.optString("romaji").orEmpty()
+                    val title = extractCleanTitle(titleObj)
 
                     val listEntry = AnilistListEntry(
                         entryId = entry.optInt("id"),
@@ -1492,8 +1771,7 @@ class AnilistService @Inject constructor(
                     val media = item.getJSONObject("media")
                     val mediaId = media.optInt("id", -1).takeIf { it != -1 }?.toString()
                     val titleObj = media.optJSONObject("title")
-                    val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
-                        ?: titleObj?.optString("romaji") ?: "Anime"
+                    val title = extractCleanTitle(titleObj, fallback = "Anime")
                     val ep = item.optInt("episode", 0)
                     val poster = media.optJSONObject("coverImage")?.optString("large")?.takeIf { it != "null" }
 

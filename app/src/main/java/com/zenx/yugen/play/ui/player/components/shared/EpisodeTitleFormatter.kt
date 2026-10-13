@@ -3,7 +3,7 @@ package com.zenx.yugen.play.ui.player.components.shared
 object EpisodeTitleFormatter {
 
     private val REDUNDANT_REGEX = Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?$", RegexOption.IGNORE_CASE)
-    private val PREFIX_STRIP_REGEX = Regex("^(Episode|Ep\\.?|EP)?\\s*\\d+(\\.0+)?\\s*[:\\-•]\\s*", RegexOption.IGNORE_CASE)
+    private val PREFIX_STRIP_REGEX = Regex("^(Episode|Ep\\.?|EP)?\\s*#?\\s*\\d+(\\.0+)?\\s*[:\\-•]\\s*", RegexOption.IGNORE_CASE)
 
     /**
      * Standard player display title:
@@ -14,6 +14,7 @@ object EpisodeTitleFormatter {
         val raw = rawTitle.trim()
 
         val isRedundant = raw.isBlank() ||
+                raw.equals("null", ignoreCase = true) ||
                 raw.equals("Stream", ignoreCase = true) ||
                 REDUNDANT_REGEX.matches(raw)
 
@@ -22,7 +23,7 @@ object EpisodeTitleFormatter {
         }
 
         val stripped = raw.replace(PREFIX_STRIP_REGEX, "").trim()
-        return if (stripped.isNotBlank() && !stripped.matches(Regex("^\\d+(\\.0+)?$"))) {
+        return if (stripped.isNotBlank() && !stripped.equals("null", ignoreCase = true) && !stripped.matches(Regex("^\\d+(\\.0+)?$"))) {
             "Episode $numStr • $stripped"
         } else {
             "Episode $numStr"
@@ -36,13 +37,13 @@ object EpisodeTitleFormatter {
     fun formatCardTitle(number: Float, rawTitle: String): String {
         val numInt = if (number % 1f == 0f) number.toInt().toString() else number.toString()
         val raw = rawTitle.trim()
-        val isRedundant = raw.isBlank() || raw.equals("Stream", ignoreCase = true) || REDUNDANT_REGEX.matches(raw)
+        val isRedundant = raw.isBlank() || raw.equals("null", ignoreCase = true) || raw.equals("Stream", ignoreCase = true) || REDUNDANT_REGEX.matches(raw)
         if (isRedundant) {
             return "Episode $numInt"
         }
         val stripped = raw.replace(PREFIX_STRIP_REGEX, "").trim()
-        return if (stripped.isNotBlank() && !stripped.matches(Regex("^\\d+(\\.0+)?$"))) {
-            "$numInt. $stripped"
+        return if (stripped.isNotBlank() && !stripped.equals("null", ignoreCase = true) && !stripped.matches(Regex("^\\d+(\\.0+)?$"))) {
+            stripped
         } else {
             "Episode $numInt"
         }
@@ -54,11 +55,11 @@ object EpisodeTitleFormatter {
      */
     fun extractSubtitle(number: Float, rawTitle: String): String? {
         val raw = rawTitle.trim()
-        if (raw.isBlank() || raw.equals("Stream", ignoreCase = true) || REDUNDANT_REGEX.matches(raw)) {
+        if (raw.isBlank() || raw.equals("null", ignoreCase = true) || raw.equals("Stream", ignoreCase = true) || REDUNDANT_REGEX.matches(raw)) {
             return null
         }
         val stripped = raw.replace(PREFIX_STRIP_REGEX, "").trim()
-        return if (stripped.isNotBlank() && !stripped.matches(Regex("^\\d+(\\.0+)?$"))) {
+        return if (stripped.isNotBlank() && !stripped.equals("null", ignoreCase = true) && !stripped.matches(Regex("^\\d+(\\.0+)?$"))) {
             stripped
         } else {
             null

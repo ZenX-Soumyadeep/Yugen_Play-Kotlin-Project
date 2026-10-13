@@ -63,6 +63,7 @@ import com.zenx.yugen.play.domain.VideoStream
 import com.zenx.yugen.play.domain.AudioTrackType
 import com.zenx.yugen.play.domain.audioTrackType
 import com.zenx.yugen.play.domain.cleanServerName
+import com.zenx.yugen.play.domain.priorityScore
 import com.zenx.yugen.play.ui.theme.*
 import com.zenx.yugen.play.ui.tv.TvSpacing
 import com.zenx.yugen.play.ui.tv.TvType
@@ -545,6 +546,9 @@ fun TvPlayerScreen(
                             viewModel.selectStream(stream)
                             showServerSheet = false
                         },
+                        onSelectAudioTrack = { trackType ->
+                            viewModel.selectAudioTrack(trackType)
+                        },
                         onClose = { showServerSheet = false }
                     )
                 }
@@ -563,9 +567,13 @@ fun TvPlayerScreen(
                 if (showSubtitleSheet) {
                     TvSubtitleSidePanel(
                         state = state,
+                        tracks = viewModel.player.currentTracks,
                         onSelectSubtitle = { index ->
                             viewModel.selectSubtitleTrack(index)
                             showSubtitleSheet = false
+                        },
+                        onSelectAudioTrack = { trackType ->
+                            viewModel.selectAudioTrack(trackType)
                         },
                         onSelectStream = { stream ->
                             viewModel.selectStream(stream)
@@ -1061,8 +1069,8 @@ private fun TvPlayerOverlay(
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     TvActionPill(
                         icon = Icons.Rounded.Dns,
-                        label = "Server",
-                        badge = state.activeStream?.serverName?.take(8) ?: "Audio",
+                        label = "Source",
+                        badge = state.activeStream?.audioTrackType()?.badge ?: "SUB",
                         modifier = Modifier
                             .focusRequester(serverFocusRequester)
                             .focusProperties { up = playPauseFocusRequester },
@@ -1173,42 +1181,93 @@ private data class TvServerGroup(
 private fun TvServerSidePanel(
     state: PlayerUiState.Ready,
     onSelectStream: (VideoStream) -> Unit,
+    onSelectAudioTrack: (AudioTrackType) -> Unit = {},
     onClose: () -> Unit
 ) {
-    val serverGroups = remember(state.streams) {
-        state.streams.groupBy { stream ->
-            stream.cleanServerName().ifBlank { "Server" }
-        }.map { (cleanName, groupStreams) ->
-            val trackTypes = groupStreams.map { it.audioTrackType() }.toSet()
-            
-            val validBadges = mutableListOf<String>()
-            if (AudioTrackType.SUB in trackTypes) validBadges.add(AudioTrackType.SUB.badge)
-            if (AudioTrackType.DUB in trackTypes) validBadges.add(AudioTrackType.DUB.badge)
-            if (AudioTrackType.HSUB in trackTypes) validBadges.add(AudioTrackType.HSUB.badge)
-            if (AudioTrackType.HDUB in trackTypes) validBadges.add(AudioTrackType.HDUB.badge)
-            
-            val badge = if (validBadges.size > 1) "Multi" else validBadges.firstOrNull() ?: "SUB"
-            val maxRes = groupStreams.mapNotNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() }.maxOrNull()
-            
-            TvServerGroup(
-                serverName = cleanName,
-                badgeText = badge,
-                streams = groupStreams,
-                maxResolution = if (maxRes != null && maxRes > 0) "${maxRes}p" else null
-            )
-        }
+    val activeStream = state.activeStream
+    val currentProvider = remember(activeStream, state.providerName) {
+        activeStream?.providerName?.takeIf { it.isNotBlank() } ?: state.providerName.ifBlank { "Anikoto" }
     }
+    val currentAudio = activeStream?.audioTrackType() ?: AudioTrackType.SUB
+    val currentIsDub = currentAudio == AudioTrackType.DUB || currentAudio == AudioTrackType.HDUB
 
-    val selectedGroupIndex = remember(serverGroups, state.activeStream) {
-        val currentStream = state.activeStream ?: return@remember -1
+    data class TvServerCardModel(
+        val providerName: String,
+        val isDub: Boolean,
+        val badge: String,
+        val subtitleText: String,
+        val isSelected: Boolean,
+        val targetStream: VideoStream?
+    )
 
-        val byRef = serverGroups.indexOfFirst { group -> group.streams.any { it === currentStream } }
-        if (byRef != -1) return@remember byRef
+    val serverCards = remember(state.streams, activeStream, currentProvider, currentIsDub) {
+        val cards = mutableListOf<TvServerCardModel>()
 
-        val byUrl = serverGroups.indexOfFirst { group -> group.streams.any { it.url == currentStream.url } }
-        if (byUrl != -1) return@remember byUrl
+        val providerGroups = state.streams.groupBy { s ->
+            s.providerName?.takeIf { it.isNotBlank() } ?: currentProvider
+        }
 
-        serverGroups.indexOfFirst { group -> group.serverName.equals(currentStream.cleanServerName().ifBlank { "Server" }, ignoreCase = true) }
+        val allProviders = if (providerGroups.isEmpty()) listOf(currentProvider) else providerGroups.keys.toList()
+
+        allProviders.forEach { prov ->
+            val provStreams = providerGroups[prov] ?: emptyList()
+
+            val subStreams = provStreams.filter { it.audioTrackType() == AudioTrackType.SUB || it.audioTrackType() == AudioTrackType.HSUB }
+            val dubStreams = provStreams.filter { it.audioTrackType() == AudioTrackType.DUB || it.audioTrackType() == AudioTrackType.HDUB }
+
+            // 1. SUB Card for this provider
+            val subCandidates = if (subStreams.isNotEmpty()) subStreams else if (dubStreams.isEmpty()) provStreams else emptyList()
+            if (subCandidates.isNotEmpty() || provStreams.isEmpty()) {
+                val subSubs = subCandidates.flatMap { it.subtitles }
+                    .map { it.label.trim() }
+                    .filter { it.isNotBlank() && !it.equals("off", ignoreCase = true) }
+                    .distinct()
+                val subLangSummary = if (subSubs.isNotEmpty()) {
+                    subSubs.take(4).joinToString(", ") + if (subSubs.size > 4) "..." else ""
+                } else {
+                    "Original Audio"
+                }
+                val isSubSelected = prov.equals(currentProvider, ignoreCase = true) && !currentIsDub
+
+                cards.add(
+                    TvServerCardModel(
+                        providerName = prov,
+                        isDub = false,
+                        badge = "SUB",
+                        subtitleText = "Subtitled • $subLangSummary",
+                        isSelected = isSubSelected,
+                        targetStream = subCandidates.maxByOrNull { it.priorityScore() }
+                    )
+                )
+            }
+
+            // 2. DUB Card for this provider
+            if (dubStreams.isNotEmpty()) {
+                val dubSubs = dubStreams.flatMap { it.subtitles }
+                    .map { it.label.trim() }
+                    .filter { it.isNotBlank() && !it.equals("off", ignoreCase = true) }
+                    .distinct()
+                val dubLangSummary = if (dubSubs.isNotEmpty()) {
+                    dubSubs.take(4).joinToString(", ") + if (dubSubs.size > 4) "..." else ""
+                } else {
+                    "English"
+                }
+                val isDubSelected = prov.equals(currentProvider, ignoreCase = true) && currentIsDub
+
+                cards.add(
+                    TvServerCardModel(
+                        providerName = prov,
+                        isDub = true,
+                        badge = "DUB",
+                        subtitleText = "Dubbed • $dubLangSummary",
+                        isSelected = isDubSelected,
+                        targetStream = dubStreams.maxByOrNull { it.priorityScore() } ?: provStreams.firstOrNull()
+                    )
+                )
+            }
+        }
+
+        cards
     }
 
     val panelFocusRequester = remember { FocusRequester() }
@@ -1243,7 +1302,7 @@ private fun TvServerSidePanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Select Server", style = TvType.detailSectionHeader, color = TextPrimary)
+                Text("Sources", style = TvType.detailSectionHeader, color = TextPrimary)
                 Box(
                     modifier = Modifier
                         .focusRequester(panelFocusRequester)
@@ -1263,76 +1322,86 @@ private fun TvServerSidePanel(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            Text(
+                text = "SERVER",
+                color = Color.White.copy(alpha = 0.5f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (serverGroups.isEmpty()) {
+                if (serverCards.isEmpty()) {
                     item {
                         Text(
-                            "No servers available.",
+                            "No streams available.",
                             color = Color.White.copy(alpha = 0.6f),
                             fontSize = 13.sp
                         )
                     }
                 } else {
-                    itemsIndexed(serverGroups) { index, group ->
-                        val isSelected = index == selectedGroupIndex
+                    items(serverCards) { card ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .tvButtonFocusable(
                                     onClick = {
-                                        val bestStream = group.streams.firstOrNull { it.url == state.activeStream?.url }
-                                            ?: group.streams.first()
-                                        onSelectStream(bestStream)
+                                        val target = card.targetStream
+                                        if (target != null && target.url != activeStream?.url) {
+                                            onSelectStream(target)
+                                        } else {
+                                            onSelectAudioTrack(
+                                                target?.audioTrackType()
+                                                    ?: if (card.isDub) AudioTrackType.DUB else AudioTrackType.SUB
+                                            )
+                                        }
                                     },
                                     shape = RoundedCornerShape(12.dp),
                                     focusedBackgroundColor = YugenPurple,
-                                    unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
+                                    unfocusedBackgroundColor = if (card.isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
                                     focusedBorderColor = Color.White
                                 )
                                 .padding(horizontal = 16.dp, vertical = 13.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = group.serverName,
+                                        text = card.providerName,
                                         color = Color.White,
                                         fontSize = 14.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        fontWeight = if (card.isSelected) FontWeight.Bold else FontWeight.Medium
                                     )
-                                if (!group.maxResolution.isNullOrBlank()) {
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "Up to ${group.maxResolution}",
-                                        color = Color.White.copy(alpha = 0.5f),
-                                        fontSize = 11.sp
-                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(if (card.isSelected) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = card.badge,
+                                            color = Color.White,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
-                                }
-                                
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(if (isSelected) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = group.badgeText,
-                                        color = Color.White,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = card.subtitleText,
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
-                            if (isSelected) {
+                            if (card.isSelected) {
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
                             }
@@ -1477,7 +1546,9 @@ private fun TvQualitySidePanel(
 @Composable
 private fun TvSubtitleSidePanel(
     state: PlayerUiState.Ready,
+    tracks: androidx.media3.common.Tracks? = null,
     onSelectSubtitle: (Int) -> Unit,
+    onSelectAudioTrack: (AudioTrackType) -> Unit = {},
     onSelectStream: (VideoStream) -> Unit,
     onAdjustSize: (Float) -> Unit,
     onAdjustOpacity: (Float) -> Unit,
@@ -1487,19 +1558,6 @@ private fun TvSubtitleSidePanel(
     LaunchedEffect(Unit) {
         delay(100)
         try { panelFocusRequester.requestFocus() } catch (_: Exception) {}
-    }
-
-    val activeStream = state.activeStream
-    val audioOptions = remember(state.streams, activeStream) {
-        if (activeStream != null) {
-            val currentClean = activeStream.cleanServerName()
-            val currentServerStreams = state.streams.filter { s ->
-                s.cleanServerName().equals(currentClean, ignoreCase = true)
-            }
-            currentServerStreams.groupBy { it.audioTrackType() }
-        } else {
-            emptyMap()
-        }
     }
 
     Box(
@@ -1552,55 +1610,6 @@ private fun TvSubtitleSidePanel(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (activeStream != null && (audioOptions.size > 1 || audioOptions.keys.firstOrNull() != null)) {
-                    item {
-                        Text(
-                            "AUDIO TRACKS",
-                            color = Color.White.copy(alpha = 0.5f),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 2.dp, top = 8.dp)
-                        )
-                    }
-
-                    val currentCategory = activeStream.audioTrackType()
-
-                    audioOptions.forEach { (type, streams) ->
-                        item {
-                            val isSelected = type == currentCategory
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .tvButtonFocusable(
-                                        onClick = {
-                                            if (type != currentCategory) {
-                                                val chosenStream = streams.maxByOrNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() ?: 0 } ?: streams.first()
-                                                onSelectStream(chosenStream)
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(12.dp),
-                                        focusedBackgroundColor = YugenPurple,
-                                        unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
-                                        focusedBorderColor = Color.White
-                                    )
-                                    .padding(horizontal = 16.dp, vertical = 13.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(type.label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                if (isSelected) {
-                                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
-                                }
-                            }
-                        }
-                    }
-
-                    item {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        HorizontalDivider(color = YugenOverlayMedium, modifier = Modifier.padding(vertical = 4.dp))
-                        Spacer(modifier = Modifier.height(12.dp))
-                    }
-                }
 
                 item {
                     Text(

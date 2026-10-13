@@ -106,10 +106,14 @@ fun TvEpisodeCard(
                     )
             )
 
-            // Episode number pill (Top Left)
+            // Episode number pill (Bottom Left)
+            val displayEpNum = episode.number.toFloatOrNull()?.let {
+                if (it % 1f == 0f) it.toInt().toString() else episode.number
+            } ?: episode.number
+
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
+                    .align(Alignment.BottomStart)
                     .padding(6.dp)
                     .clip(RoundedCornerShape(5.dp))
                     .background(Color.Black.copy(alpha = 0.75f))
@@ -117,7 +121,7 @@ fun TvEpisodeCard(
                     .padding(horizontal = 6.dp, vertical = 2.5.dp)
             ) {
                 Text(
-                    text = "EP ${episode.number}",
+                    text = "Ep $displayEpNum",
                     color = Color.White,
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.Bold
@@ -164,11 +168,11 @@ fun TvEpisodeCard(
                 }
             }
 
-            // Watched badge (Bottom Left)
+            // Watched badge (Top Left)
             if (episode.isWatched) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
+                        .align(Alignment.TopStart)
                         .padding(6.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(YugenPurple.copy(alpha = 0.9f))
@@ -208,15 +212,40 @@ fun TvEpisodeCard(
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        val displayEpNum = episode.number.toFloatOrNull()?.let {
+            if (it % 1f == 0f) it.toInt().toString() else episode.number
+        } ?: episode.number
+
+        val cardTitle = EpisodeTitleFormatter.formatCardTitle(
+            number = episode.number.toFloatOrNull() ?: 1f,
+            rawTitle = episode.title
+        )
+
+        val ratingPrefix = episode.rating?.let { "★ $it • " } ?: ""
+        val metaText = if (cardTitle != "Episode $displayEpNum") {
+            "${ratingPrefix}Episode $displayEpNum • SUB" + if (episode.hasDub) " • DUB" else ""
+        } else {
+            "${ratingPrefix}SUB" + if (episode.hasDub) " • DUB" else ""
+        }
+
         // Episode Title
         Text(
-            text = EpisodeTitleFormatter.formatCardTitle(
-                number = episode.number.toFloatOrNull() ?: 1f,
-                rawTitle = episode.title
-            ),
+            text = cardTitle,
             color = Color.White,
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp)
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = metaText,
+            color = Color.White.copy(alpha = 0.55f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier

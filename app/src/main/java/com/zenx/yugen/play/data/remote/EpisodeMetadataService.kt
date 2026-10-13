@@ -16,7 +16,11 @@ data class ExternalEpisodeMeta(
     val number: Int,
     val title: String,
     val description: String,
-    val image: String
+    val image: String,
+    val rating: String? = null,
+    val seasonNumber: Int? = null,
+    val providerEpisodeNumber: Int? = null,
+    val absoluteEpisodeNumber: Int? = null
 )
 
 private const val TAG = "EpisodeMetadataService"
@@ -28,6 +32,7 @@ class EpisodeMetadataService @Inject constructor(
     private val okHttpClient: OkHttpClient
 ) {
     private val cache = ConcurrentHashMap<Int, Map<Int, ExternalEpisodeMeta>>()
+    private val aliasTitlesCache = ConcurrentHashMap<Int, List<String>>()
 
     private val metadataClient by lazy {
         okHttpClient.newBuilder()
@@ -66,11 +71,15 @@ class EpisodeMetadataService @Inject constructor(
     }
 
     private fun parseEpisodeNode(epNode: JSONObject, defaultEpNum: Int): ExternalEpisodeMeta? {
-        val epNum = epNode.optInt("episodeNumber", epNode.optInt("episode", epNode.optInt("number", defaultEpNum)))
+        val seasonNum = epNode.optInt("seasonNumber", -1).takeIf { it > 0 }
+        val tvdbEpNum = epNode.optInt("episodeNumber", -1).takeIf { it > 0 }
+        val absNum = epNode.optInt("absoluteEpisodeNumber", -1).takeIf { it > 0 }
+
+        val epNum = if (defaultEpNum > 0) defaultEpNum else (tvdbEpNum ?: absNum ?: 1)
         if (epNum == -1) return null
 
         val titleNode = epNode.opt("title")
-        val title = when (titleNode) {
+        val rawTitle = when (titleNode) {
             is JSONObject -> titleNode.optString("en").ifBlank {
                 titleNode.optString("x-jat").ifBlank { titleNode.optString("ja", "") }
             }
@@ -78,8 +87,11 @@ class EpisodeMetadataService @Inject constructor(
             null -> ""
             else -> ""
         }.trim()
+        val title = rawTitle.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }.orEmpty()
 
         val desc = epNode.optString("overview", epNode.optString("description", "")).trim()
+            .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }.orEmpty()
+
         val rawImage = epNode.optString("image").ifBlank {
             epNode.optString("thumbnail").ifBlank {
                 epNode.optString("thumb").ifBlank {
@@ -88,17 +100,26 @@ class EpisodeMetadataService @Inject constructor(
             }
         }.trim()
 
+        val validRawImage = rawImage.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
         val image = when {
-            rawImage.startsWith("http://") || rawImage.startsWith("https://") -> rawImage
-            rawImage.startsWith("/") -> "https://image.tmdb.org/t/p/w500$rawImage"
-            else -> rawImage
+            validRawImage == null -> ""
+            validRawImage.startsWith("http://") || validRawImage.startsWith("https://") -> validRawImage
+            validRawImage.startsWith("/") -> "https://image.tmdb.org/t/p/w500$validRawImage"
+            else -> validRawImage
         }
+
+        val ratingRaw = epNode.optDouble("rating", epNode.optDouble("voteAverage", epNode.optDouble("community_rating", 0.0)))
+        val rating = if (ratingRaw > 0.0) String.format(java.util.Locale.US, "%.1f", ratingRaw) else null
 
         return ExternalEpisodeMeta(
             number = epNum,
             title = title,
             description = desc,
-            image = image
+            image = image,
+            rating = rating,
+            seasonNumber = seasonNum,
+            providerEpisodeNumber = tvdbEpNum,
+            absoluteEpisodeNumber = absNum
         )
     }
 
@@ -114,22 +135,47 @@ class EpisodeMetadataService @Inject constructor(
         try {
             val json = JSONObject(jsonString)
 
+            // Cache multilingual aliases from AniZip
+            val titlesObj = json.optJSONObject("titles")
+            if (titlesObj != null) {
+                val aliases = mutableListOf<String>()
+                titlesObj.optString("x-jat").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }?.let { aliases.add(it) }
+                titlesObj.optString("en").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }?.let { aliases.add(it) }
+                titlesObj.optString("ja").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }?.let { aliases.add(it) }
+                if (aliases.isNotEmpty()) {
+                    aliasTitlesCache[anilistId] = aliases.distinct()
+                }
+            }
+
             val episodesObj = json.optJSONObject("episodes")
             if (episodesObj != null) {
                 val keys = episodesObj.keys()
                 while (keys.hasNext()) {
                     val key = keys.next()
                     val epNode = episodesObj.optJSONObject(key) ?: continue
-                    val meta = parseEpisodeNode(epNode, key.toIntOrNull() ?: -1)
-                    if (meta != null) result[meta.number] = meta
+                    val absNum = epNode.optInt("absoluteEpisodeNumber", 0)
+                    val kNum = key.toIntOrNull() ?: -1
+                    // Non-numeric keys (e.g. "S1") and seasonNumber 0 are specials; skip them to protect regular episode metadata
+                    if (kNum <= 0 || epNode.optInt("seasonNumber", 1) == 0) continue
+                    val meta = parseEpisodeNode(epNode, kNum)
+                    if (meta != null) {
+                        result[meta.number] = meta
+                        if (kNum > 0) result.putIfAbsent(kNum, meta)
+                        if (absNum > 0) result.putIfAbsent(absNum, meta)
+                    }
                 }
             } else {
                 val episodesArr = json.optJSONArray("episodes")
                 if (episodesArr != null) {
                     for (i in 0 until episodesArr.length()) {
                         val epNode = episodesArr.optJSONObject(i) ?: continue
+                        val absNum = epNode.optInt("absoluteEpisodeNumber", 0)
                         val meta = parseEpisodeNode(epNode, i + 1)
-                        if (meta != null) result[meta.number] = meta
+                        if (meta != null) {
+                            result[meta.number] = meta
+                            result.putIfAbsent(i + 1, meta)
+                            if (absNum > 0) result.putIfAbsent(absNum, meta)
+                        }
                     }
                 }
             }
@@ -142,5 +188,15 @@ class EpisodeMetadataService @Inject constructor(
         }
 
         return@withContext result
+    }
+
+    fun getCachedAliasTitles(anilistId: Int): List<String> {
+        return aliasTitlesCache[anilistId].orEmpty()
+    }
+
+    suspend fun getAliasTitles(anilistId: Int): List<String> = withContext(Dispatchers.IO) {
+        aliasTitlesCache[anilistId]?.let { return@withContext it }
+        getMetadata(anilistId)
+        return@withContext aliasTitlesCache[anilistId].orEmpty()
     }
 }

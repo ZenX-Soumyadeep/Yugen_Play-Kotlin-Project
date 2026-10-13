@@ -1,7 +1,7 @@
 package com.zenx.yugen.play.util
 
 object StringUtils {
-    val SEASON_REGEX = Regex("""\b(season|part|cour)\s*\d+\b""", RegexOption.IGNORE_CASE)
+    val SEASON_REGEX = Regex("""\b(?:(?:\d+(?:st|nd|rd|th)?\s*(?:season|part|cour|core))|(?:(?:season|part|cour|core)[-.\s]*\d+))\b""", RegexOption.IGNORE_CASE)
 
     fun normalizeTitleForComparison(title: String): String {
         return title.lowercase()

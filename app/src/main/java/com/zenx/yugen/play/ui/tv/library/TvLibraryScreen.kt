@@ -303,10 +303,13 @@ fun TvLibraryScreen(
                                 ((item.durationMs - item.progressMs) / 60000L).coerceAtLeast(1)
                             } else 0L
 
+                            val epNumberStr = com.zenx.yugen.play.domain.EpisodeId.parse(item.episodeId).formattedNumber
+                            val subtitleText = "Episode $epNumberStr"
+
                             val continueModel = ContinueWatchingUiModel(
                                 episodeId = item.episodeId,
                                 animeTitle = item.animeTitle,
-                                subtitle = "Episode",
+                                subtitle = subtitleText,
                                 posterUrl = item.posterUrl,
                                 progress = progress,
                                 timeLeft = if (minsLeft > 0) "${minsLeft}m left" else "",

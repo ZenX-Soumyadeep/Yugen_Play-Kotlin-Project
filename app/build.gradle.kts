@@ -117,6 +117,9 @@ dependencies {
 
     implementation(libs.androidx.security.crypto)
 
+    // Palette for dynamic thumbnail color extraction
+    implementation("androidx.palette:palette-ktx:1.0.0")
+
     // QR Code Generation for TV Phone Sync
     implementation("com.google.zxing:core:3.5.4")
 

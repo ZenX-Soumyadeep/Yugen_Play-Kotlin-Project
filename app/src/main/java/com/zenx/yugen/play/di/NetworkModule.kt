@@ -126,7 +126,7 @@ object NetworkModule {
             .connectionPool(ConnectionPool(64, 5, TimeUnit.MINUTES))
             .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
             .addInterceptor(JunkBytesInterceptor())
-            .connectTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)

@@ -12,13 +12,15 @@ class GetEpisodesUseCase @Inject constructor(
         animeUrlOrTitle: String? = null,
         title: String,
         providerName: String,
-        anilistId: Int? = null
+        anilistId: Int? = null,
+        details: com.zenx.yugen.play.domain.AnimeDetails? = null
     ): Resource<List<Episode>> {
         return episodeRepository.getEpisodes(
             anilistId = anilistId,
             targetUrl = animeUrlOrTitle,
             title = title,
-            providerName = providerName
+            providerName = providerName,
+            details = details
         )
     }
 }

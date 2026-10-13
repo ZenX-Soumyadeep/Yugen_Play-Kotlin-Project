@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         CachedAnimeDetailsEntity::class,
         Mp4DownloadEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {

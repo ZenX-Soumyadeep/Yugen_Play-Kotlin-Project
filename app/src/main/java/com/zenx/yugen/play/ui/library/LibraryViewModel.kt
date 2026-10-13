@@ -62,9 +62,20 @@ class LibraryViewModel @Inject constructor(
 
     val watchHistory: StateFlow<List<WatchHistoryEntity>> = watchHistoryDao.getAllHistory()
         .map { list ->
-            list.filter { item ->
+            val valid = list.filter { item ->
                 item.progressMs > 0L && (item.durationMs <= 0L || (item.progressMs.toFloat() / item.durationMs.toFloat()) < 0.85f)
             }
+            val groupedByAnime = valid.groupBy { item ->
+                item.anilistId?.let { "anilist_$it" }
+                    ?: "title_${com.zenx.yugen.play.util.StringUtils.normalizeTitleForComparison(item.animeTitle)}"
+            }
+            groupedByAnime.values.mapNotNull { group ->
+                group.maxWithOrNull(
+                    compareBy<WatchHistoryEntity> {
+                        com.zenx.yugen.play.domain.EpisodeId.parse(it.episodeId).episodeNumber
+                    }.thenBy { it.lastWatchedAt }
+                )
+            }.sortedByDescending { it.lastWatchedAt }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

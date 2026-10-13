@@ -59,6 +59,7 @@ fun TvDetailScreen(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
     onExtensionsClick: () -> Unit = {},
+    onAnimeClick: (id: String, title: String, posterUrl: String) -> Unit = { _, _, _ -> },
     viewModel: DetailViewModel = hiltViewModel()
 ) {
     BackHandler { onBackClick() }
@@ -76,11 +77,15 @@ fun TvDetailScreen(
     var showSourceDialog by remember { mutableStateOf(false) }
     var showAnilistDialog by remember { mutableStateOf(false) }
 
+    var selectedTab by rememberSaveable { mutableStateOf(DetailTab.OVERVIEW) }
+
     val playFocusRequester = remember { FocusRequester() }
     val backFocusRequester = remember { FocusRequester() }
     val providerFocusRequester = remember { FocusRequester() }
     val favFocusRequester = remember { FocusRequester() }
     val fixTitleFocusRequester = remember { FocusRequester() }
+    val overviewTabFocusRequester = remember { FocusRequester() }
+    val episodesTabFocusRequester = remember { FocusRequester() }
     val chunkRowFocusRequester = remember { FocusRequester() }
     val firstEpisodeFocusRequester = remember { FocusRequester() }
 
@@ -407,6 +412,7 @@ fun TvDetailScreen(
                                             .focusProperties {
                                                 up = backFocusRequester
                                                 right = favFocusRequester
+                                                down = overviewTabFocusRequester
                                             }
                                             .tvButtonFocusable(
                                                 onClick = {
@@ -459,6 +465,7 @@ fun TvDetailScreen(
                                                 up = backFocusRequester
                                                 left = playFocusRequester
                                                 right = fixTitleFocusRequester
+                                                down = overviewTabFocusRequester
                                             }
                                             .tvButtonFocusable(
                                                 onClick = {
@@ -508,6 +515,7 @@ fun TvDetailScreen(
                                             .focusProperties {
                                                 up = providerFocusRequester
                                                 left = favFocusRequester
+                                                down = episodesTabFocusRequester
                                             }
                                             .tvButtonFocusable(
                                                 onClick = {
@@ -546,120 +554,312 @@ fun TvDetailScreen(
                         }
                     }
 
-                    // --- EPISODES SECTION HEADER & CHUNKS ---
-                    item(key = "episodes_header") {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                    // --- TV SEGMENTED TABS (OVERVIEW vs EPISODES) ---
+                    item(key = "tv_tabs_row") {
+                        Row(
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .focusRequester(overviewTabFocusRequester)
+                                    .focusProperties {
+                                        up = playFocusRequester
+                                        right = episodesTabFocusRequester
+                                    }
+                                    .tvButtonFocusable(
+                                        onClick = { selectedTab = DetailTab.OVERVIEW },
+                                        shape = RoundedCornerShape(10.dp),
+                                        focusedBackgroundColor = YugenPurple,
+                                        unfocusedBackgroundColor = if (selectedTab == DetailTab.OVERVIEW) YugenPurple.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f),
+                                        focusedBorderColor = Color.White,
+                                        unfocusedBorderColor = if (selectedTab == DetailTab.OVERVIEW) YugenPurple else Color.White.copy(alpha = 0.12f)
+                                    )
+                                    .padding(horizontal = 22.dp, vertical = 9.dp)
                             ) {
                                 Text(
-                                    text = "Episodes (${allEpisodes.size})",
+                                    text = "Overview",
                                     color = Color.White,
-                                    style = TvType.detailSectionHeader
+                                    style = TvType.detailButtonLabel,
+                                    fontWeight = if (selectedTab == DetailTab.OVERVIEW) FontWeight.Bold else FontWeight.Medium
                                 )
+                            }
 
-                                if (state.isEpisodesLoading) {
-                                    CircularProgressIndicator(
-                                        color = YugenPurple,
-                                        modifier = Modifier.size(18.dp),
-                                        strokeWidth = 2.dp
+                            Box(
+                                modifier = Modifier
+                                    .focusRequester(episodesTabFocusRequester)
+                                    .focusProperties {
+                                        up = fixTitleFocusRequester
+                                        left = overviewTabFocusRequester
+                                    }
+                                    .tvButtonFocusable(
+                                        onClick = { selectedTab = DetailTab.EPISODES },
+                                        shape = RoundedCornerShape(10.dp),
+                                        focusedBackgroundColor = YugenPurple,
+                                        unfocusedBackgroundColor = if (selectedTab == DetailTab.EPISODES) YugenPurple.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f),
+                                        focusedBorderColor = Color.White,
+                                        unfocusedBorderColor = if (selectedTab == DetailTab.EPISODES) YugenPurple else Color.White.copy(alpha = 0.12f)
+                                    )
+                                    .padding(horizontal = 22.dp, vertical = 9.dp)
+                            ) {
+                                Text(
+                                    text = if (state.episodeCount > 0) "Episodes (${state.episodeCount})" else "Episodes",
+                                    color = Color.White,
+                                    style = TvType.detailButtonLabel,
+                                    fontWeight = if (selectedTab == DetailTab.EPISODES) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    if (selectedTab == DetailTab.OVERVIEW) {
+                        // Trailer
+                        state.trailer?.let { tr ->
+                            item(key = "overview_trailer") {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("Trailer", color = Color.White, style = TvType.detailSectionHeader)
+                                    TvTrailerCard(
+                                        trailer = tr,
+                                        fallbackBanner = state.bannerUrl.ifEmpty { state.posterUrl },
+                                        onClick = {
+                                            val trailerUrl = when {
+                                                tr.site.equals("youtube", ignoreCase = true) -> "https://www.youtube.com/watch?v=${tr.id}"
+                                                tr.site.equals("dailymotion", ignoreCase = true) -> "https://www.dailymotion.com/video/${tr.id}"
+                                                else -> tr.id
+                                            }
+                                            try {
+                                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(trailerUrl))
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {}
+                                        }
                                     )
                                 }
                             }
+                        }
 
-                            // Episode Chunks Selector using smooth horizontal LazyRow
-                            if (episodeChunks.size > 1) {
-                                LazyRow(
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    items(episodeChunks.indices.toList()) { index ->
-                                        val isSelected = index == selectedChunkIndex
-                                        val startNum = (index * 25) + 1
-                                        val endNum = ((index + 1) * 25).coerceAtMost(allEpisodes.size.takeIf { it > 0 } ?: ((index + 1) * 25))
-
-                                        val chunkModifier = if (index == 0) {
-                                            Modifier.focusRequester(chunkRowFocusRequester)
-                                        } else {
-                                            Modifier
-                                        }
-
-                                        Box(
-                                            modifier = Modifier
-                                                .widthIn(min = 76.dp)
-                                                .then(chunkModifier)
-                                                .tvButtonFocusable(
-                                                    onClick = { selectedChunkIndex = index },
-                                                    shape = com.zenx.yugen.play.ui.theme.YugenShape.pill,
-                                                    focusedBackgroundColor = YugenPurple,
-                                                    unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight,
-                                                    focusedBorderColor = YugenAccentViolet,
-                                                    unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.12f)
-                                                )
-                                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = "$startNum - $endNum",
-                                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f),
-                                                fontSize = 12.5.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        // Seasons & Related
+                        if (state.relations.isNotEmpty()) {
+                            item(key = "overview_relations") {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("Seasons & Related Anime", color = Color.White, style = TvType.detailSectionHeader)
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        contentPadding = PaddingValues(vertical = 4.dp)
+                                    ) {
+                                        items(state.relations, key = { "${it.relationType}_${it.id}" }) { rel ->
+                                            TvRelationCard(
+                                                relation = rel,
+                                                onClick = { onAnimeClick(rel.id.toString(), rel.title, rel.posterUrl) }
                                             )
                                         }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    // --- EPISODES HORIZONTAL CAROUSEL ---
-                    item(key = "episodes_carousel") {
-                        if (currentChunk.isNotEmpty()) {
-                            LazyRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                contentPadding = PaddingValues(vertical = 6.dp)
-                            ) {
-                                items(currentChunk, key = { it.id }) { ep ->
-                                    val isFirst = currentChunk.firstOrNull()?.id == ep.id
-                                    val cardFocusModifier = if (isFirst) {
-                                        Modifier.focusRequester(firstEpisodeFocusRequester)
-                                    } else {
-                                        Modifier
+                        // Cast
+                        if (state.characters.isNotEmpty()) {
+                            item(key = "overview_characters") {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("Characters & Voice Cast", color = Color.White, style = TvType.detailSectionHeader)
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        contentPadding = PaddingValues(vertical = 4.dp)
+                                    ) {
+                                        items(state.characters, key = { "${it.id}_${it.name}" }) { char ->
+                                            TvCharacterCard(character = char)
+                                        }
                                     }
-
-                                    TvEpisodeCard(
-                                        episode = ep,
-                                        fallbackImageUrl = state.bannerUrl.ifEmpty { state.posterUrl },
-                                        onClick = {
-                                            onEpisodeClick(ep.id, state.animeUrl, state.activeProvider, viewModel.animeTitle, state.posterUrl, null, state.id, ep.number.toIntOrNull() ?: 1)
-                                        },
-                                        cardModifier = cardFocusModifier
-                                    )
                                 }
                             }
-                        } else if (!state.isEpisodesLoading) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Info,
-                                    contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(18.dp)
+                        }
+
+                        // Staff & Studios
+                        if (state.studios.isNotEmpty() || state.staff.isNotEmpty()) {
+                            item(key = "overview_staff") {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("Staff & Studios", color = Color.White, style = TvType.detailSectionHeader)
+                                    if (state.studios.isNotEmpty()) {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("Studio:", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+                                            state.studios.forEach { studio ->
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(YugenPurple.copy(alpha = 0.25f))
+                                                        .border(1.dp, YugenPurple.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                ) {
+                                                    Text(studio, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (state.staff.isNotEmpty()) {
+                                        LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            contentPadding = PaddingValues(vertical = 2.dp)
+                                        ) {
+                                            items(state.staff, key = { "${it.id}_${it.role}" }) { staff ->
+                                                StaffChip(staff = staff)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Recommendations
+                        if (state.recommendations.isNotEmpty()) {
+                            item(key = "overview_recommendations") {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("Recommended For You", color = Color.White, style = TvType.detailSectionHeader)
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        contentPadding = PaddingValues(vertical = 4.dp)
+                                    ) {
+                                        items(state.recommendations, key = { it.id }) { rec ->
+                                            TvRecommendationCard(
+                                                recommendation = rec,
+                                                onClick = { onAnimeClick(rec.id.toString(), rec.title, rec.posterUrl) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Episodes Tab
+                        if (state.relations.any { it.relationType in listOf("PREQUEL", "SEQUEL", "SIDE_STORY", "ALTERNATIVE", "PARENT") && it.type.equals("ANIME", ignoreCase = true) }) {
+                            item(key = "episodes_season_switcher") {
+                                TvSeasonSwitcher(
+                                    relations = state.relations,
+                                    currentAnimeTitle = state.title,
+                                    onAnimeClick = onAnimeClick
                                 )
-                                Text(
-                                    text = state.episodeError ?: "No episodes available for this title.",
-                                    color = Color.White.copy(alpha = 0.6f),
-                                    style = TvType.detailBodySmall
-                                )
+                            }
+                        }
+
+                        // --- EPISODES SECTION HEADER & CHUNKS ---
+                        item(key = "episodes_header") {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Episodes (${allEpisodes.size})",
+                                        color = Color.White,
+                                        style = TvType.detailSectionHeader
+                                    )
+
+                                    if (state.isEpisodesLoading) {
+                                        CircularProgressIndicator(
+                                            color = YugenPurple,
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    }
+                                }
+
+                                // Episode Chunks Selector using smooth horizontal LazyRow
+                                if (episodeChunks.size > 1) {
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        items(episodeChunks.indices.toList()) { index ->
+                                            val isSelected = index == selectedChunkIndex
+                                            val chunk = episodeChunks.getOrNull(index) ?: emptyList()
+                                            val startNum = chunk.firstOrNull()?.number ?: "${(index * 24) + 1}"
+                                            val endNum = chunk.lastOrNull()?.number ?: "${(index + 1) * 24}"
+
+                                            val chunkModifier = if (index == 0) {
+                                                Modifier.focusRequester(chunkRowFocusRequester)
+                                            } else {
+                                                Modifier
+                                            }
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .widthIn(min = 76.dp)
+                                                    .then(chunkModifier)
+                                                    .tvButtonFocusable(
+                                                        onClick = { selectedChunkIndex = index },
+                                                        shape = com.zenx.yugen.play.ui.theme.YugenShape.pill,
+                                                        focusedBackgroundColor = YugenPurple,
+                                                        unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight,
+                                                        focusedBorderColor = YugenAccentViolet,
+                                                        unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.12f)
+                                                    )
+                                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "$startNum - $endNum",
+                                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f),
+                                                    fontSize = 12.5.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // --- EPISODES HORIZONTAL CAROUSEL ---
+                        item(key = "episodes_carousel") {
+                            if (currentChunk.isNotEmpty()) {
+                                LazyRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    contentPadding = PaddingValues(vertical = 6.dp)
+                                ) {
+                                    items(currentChunk, key = { it.id }) { ep ->
+                                        val isFirst = currentChunk.firstOrNull()?.id == ep.id
+                                        val cardFocusModifier = if (isFirst) {
+                                            Modifier.focusRequester(firstEpisodeFocusRequester)
+                                        } else {
+                                            Modifier
+                                        }
+
+                                        TvEpisodeCard(
+                                            episode = ep,
+                                            fallbackImageUrl = state.bannerUrl.ifEmpty { state.posterUrl },
+                                            onClick = {
+                                                onEpisodeClick(ep.id, state.animeUrl, state.activeProvider, viewModel.animeTitle, state.posterUrl, null, state.id, ep.number.toIntOrNull() ?: 1)
+                                            },
+                                            cardModifier = cardFocusModifier
+                                        )
+                                    }
+                                }
+                            } else if (!state.isEpisodesLoading) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Info,
+                                        contentDescription = null,
+                                        tint = Color.White.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = state.episodeError ?: "No episodes available for this title.",
+                                        color = Color.White.copy(alpha = 0.6f),
+                                        style = TvType.detailBodySmall
+                                    )
+                                }
                             }
                         }
                     }

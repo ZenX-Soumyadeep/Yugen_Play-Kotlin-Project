@@ -34,3 +34,4 @@ Thumbs.db
 *.keystore
 google-services.json
 secrets.properties
+file.md

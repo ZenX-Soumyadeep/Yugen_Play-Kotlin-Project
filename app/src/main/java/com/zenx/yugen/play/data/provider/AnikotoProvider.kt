@@ -201,6 +201,7 @@ class AnikotoProvider(
 
             val epsDoc = Jsoup.parse(finalHtml)
             val elements = epsDoc.select("div.episodes ul > li > a").ifEmpty { epsDoc.select("a[data-num]") }
+            val hasDubDoc = epsDoc.select(".servers-dub li, [data-type='dub'] li, [data-type='hdub'] li").isNotEmpty()
 
             elements.mapNotNull { element ->
                 val epNum = element.attr("data-num")
@@ -230,11 +231,24 @@ class AnikotoProvider(
                     episodeNumber = epNum.toFloatOrNull() ?: 1f
                 )
 
+                val dataDubAttr = element.attr("data-dub").trim()
+                val dataTypeAttr = element.attr("data-type").trim()
+                val hasDub = when {
+                    dataDubAttr == "1" || dataDubAttr.equals("true", ignoreCase = true) -> true
+                    dataDubAttr == "0" || dataDubAttr.equals("false", ignoreCase = true) -> false
+                    dataTypeAttr.equals("dub", ignoreCase = true) || dataTypeAttr.equals("hdub", ignoreCase = true) -> true
+                    dataTypeAttr.equals("sub", ignoreCase = true) || dataTypeAttr.equals("hsub", ignoreCase = true) -> false
+                    element.hasClass("dub") || element.parent()?.hasClass("dub") == true -> true
+                    hasDubDoc -> true
+                    else -> false
+                }
+
                 Episode(
                     id = generatedId,
                     number = epNum.toFloatOrNull() ?: 1f,
                     title = displayTitle,
-                    thumbnail = null
+                    thumbnail = null,
+                    hasDub = hasDub
                 )
             }.reversed()
         } catch (e: Exception) {

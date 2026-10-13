@@ -73,6 +73,7 @@ import androidx.media3.ui.PlayerView
 import androidx.media3.ui.SubtitleView
 import com.zenx.yugen.play.domain.Episode
 import com.zenx.yugen.play.domain.SkipInterval
+import com.zenx.yugen.play.domain.audioTrackType
 import com.zenx.yugen.play.ui.theme.TextPrimary
 import com.zenx.yugen.play.ui.theme.TextSecondary
 import com.zenx.yugen.play.ui.theme.YugenAccentViolet
@@ -398,16 +399,15 @@ fun PlayerScreen(
                         enter = fadeIn(),
                         exit = fadeOut()
                     ) {
-                        val cleanServerName = state.activeStream?.quality
-                            ?.replace(Regex("\\[?(sub|dub)]?", RegexOption.IGNORE_CASE), "")
-                            ?.trim() ?: "Unknown Server"
+                        val audioBadge = state.activeStream?.audioTrackType()?.badge ?: "SUB"
+                        val displaySource = if (state.providerName.isNotBlank()) "${state.providerName} • $audioBadge" else audioBadge
 
                         val currentQuality = if (state.selectedQualityHeight == -1) "Auto" else "${state.selectedQualityHeight}p"
 
                         PlayerControlsOverlay(
                             animeTitle = state.animeTitle,
                             episodeTitle = state.episodeTitle,
-                            serverName = cleanServerName,
+                            serverName = displaySource,
                             quality = currentQuality,
                             isLocked = isLocked,
                             isPlaying = state.isPlaying,

@@ -30,6 +30,7 @@ import com.zenx.yugen.play.domain.AudioTrackType
 import com.zenx.yugen.play.domain.VideoStream
 import com.zenx.yugen.play.domain.audioTrackType
 import com.zenx.yugen.play.domain.cleanServerName
+import com.zenx.yugen.play.domain.priorityScore
 import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.player.PlayerUiState
 import com.zenx.yugen.play.ui.player.PlayerViewModel
@@ -143,72 +144,10 @@ private fun SubtitlePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel
 
     PanelHeader("Subtitles", icon = Icons.Rounded.Subtitles) { viewModel.setSubtitleSheetVisibility(false) }
 
-    val activeStream = state.activeStream
-    val audioOptions = remember(state.streams, activeStream) {
-        if (activeStream != null) {
-            val currentClean = activeStream.cleanServerName()
-            val currentServerStreams = state.streams.filter { s ->
-                s.cleanServerName().equals(currentClean, ignoreCase = true)
-            }
-            currentServerStreams.groupBy { it.audioTrackType() }
-        } else {
-            emptyMap()
-        }
-    }
-
     LazyColumn(
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // --- Audio Track Selection ---
-        if (activeStream != null) {
-            if (audioOptions.size > 1 || audioOptions.keys.firstOrNull() != null) {
-                item {
-                    Text(
-                        "AUDIO TRACKS",
-                        color = TextSecondary,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
-                        modifier = Modifier.padding(bottom = 2.dp)
-                    )
-                }
-
-                val currentCategory = activeStream.audioTrackType()
-
-                audioOptions.forEach { (type, streams) ->
-                    item {
-                        PanelItem(
-                            title = type.label,
-                            isSelected = type == currentCategory,
-                            onClick = {
-                                if (type != currentCategory) {
-                                    val matchingStream = if (state.selectedQualityHeight > 0) {
-                                        streams.find { s ->
-                                            val h = s.resolution?.filter { it.isDigit() }?.toIntOrNull()
-                                                ?: Regex("(\\d{3,4})p?").find(s.quality)?.groupValues?.get(1)?.toIntOrNull()
-                                            h == state.selectedQualityHeight
-                                        }
-                                    } else null
-
-                                    val chosenStream = matchingStream
-                                        ?: streams.maxByOrNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() ?: 0 }
-                                        ?: streams.first()
-
-                                    viewModel.selectStream(chosenStream)
-                                }
-                            }
-                        )
-                    }
-                }
-
-                item {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    HorizontalDivider(color = YugenOverlayMedium, modifier = Modifier.padding(vertical = 4.dp))
-                }
-            }
-        }
-
         // --- Subtitle Track Selection ---
         item {
             Text(
@@ -372,91 +311,143 @@ private fun SpeedPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
     }
 }
 
-private data class ServerGroupItem(
-    val serverName: String,
-    val badgeText: String,
-    val streams: List<VideoStream>,
-    val maxResolution: String?
-)
-
 @Composable
 private fun ServerPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
-    PanelHeader("Switch Server", icon = Icons.Rounded.CloudQueue) { viewModel.setServerSheetVisibility(false) }
+    PanelHeader("Sources", icon = Icons.Rounded.CloudQueue) { viewModel.setServerSheetVisibility(false) }
 
-    val serverGroups = remember(state.streams) {
-        state.streams.groupBy { stream ->
-            stream.cleanServerName().ifBlank { "Server" }
-        }.map { (cleanName, groupStreams) ->
-            val trackTypes = groupStreams.map { it.audioTrackType() }.toSet()
+    val activeStream = state.activeStream
+    val currentProvider = remember(activeStream, state.providerName) {
+        activeStream?.providerName?.takeIf { it.isNotBlank() } ?: state.providerName.ifBlank { "Anikoto" }
+    }
+    val currentAudio = activeStream?.audioTrackType() ?: AudioTrackType.SUB
+    val currentIsDub = currentAudio == AudioTrackType.DUB || currentAudio == AudioTrackType.HDUB
 
-            val validBadges = mutableListOf<String>()
-            if (AudioTrackType.SUB in trackTypes) validBadges.add(AudioTrackType.SUB.badge)
-            if (AudioTrackType.DUB in trackTypes) validBadges.add(AudioTrackType.DUB.badge)
-            if (AudioTrackType.HSUB in trackTypes) validBadges.add(AudioTrackType.HSUB.badge)
-            if (AudioTrackType.HDUB in trackTypes) validBadges.add(AudioTrackType.HDUB.badge)
-
-            val badge = if (validBadges.size > 1) "Multi" else validBadges.firstOrNull() ?: "SUB"
-
-            ServerGroupItem(
-                serverName = cleanName,
-                badgeText = badge,
-                streams = groupStreams,
-                maxResolution = null
-            )
+    val tracks = viewModel.player.currentTracks
+    val hasEmbeddedEngAudio = remember(tracks) {
+        tracks.groups.any { g ->
+            g.type == androidx.media3.common.C.TRACK_TYPE_AUDIO && (0 until g.length).any { i ->
+                val fmt = g.getTrackFormat(i)
+                fmt.language?.contains("en", ignoreCase = true) == true ||
+                fmt.label?.contains("eng", ignoreCase = true) == true ||
+                fmt.label?.contains("dub", ignoreCase = true) == true
+            }
         }
     }
 
-    val selectedGroupIndex = remember(serverGroups, state.activeStream) {
-        val currentStream = state.activeStream ?: return@remember -1
-        val byRef = serverGroups.indexOfFirst { group ->
-            group.streams.any { it === currentStream }
+    data class ServerCardModel(
+        val providerName: String,
+        val isDub: Boolean,
+        val badge: String,
+        val subtitleText: String,
+        val isSelected: Boolean,
+        val targetStream: VideoStream?
+    )
+
+    val serverCards = remember(state.streams, activeStream, currentProvider, currentIsDub, hasEmbeddedEngAudio) {
+        val cards = mutableListOf<ServerCardModel>()
+
+        // Group streams by provider
+        val providerGroups = state.streams.groupBy { s ->
+            s.providerName?.takeIf { it.isNotBlank() } ?: currentProvider
         }
-        if (byRef != -1) return@remember byRef
 
-        val byUrl = serverGroups.indexOfFirst { group ->
-            group.streams.any { it.url == currentStream.url }
-        }
-        if (byUrl != -1) return@remember byUrl
+        val allProviders = if (providerGroups.isEmpty()) listOf(currentProvider) else providerGroups.keys.toList()
 
-        val currentClean = currentStream.cleanServerName()
+        allProviders.forEach { prov ->
+            val provStreams = providerGroups[prov] ?: emptyList()
 
-        serverGroups.indexOfFirst { group ->
-            group.serverName.equals(currentClean, ignoreCase = true)
-        }
-    }
+            val subStreams = provStreams.filter { it.audioTrackType() == AudioTrackType.SUB || it.audioTrackType() == AudioTrackType.HSUB }
+            val dubStreams = provStreams.filter { it.audioTrackType() == AudioTrackType.DUB || it.audioTrackType() == AudioTrackType.HDUB }
 
-    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        itemsIndexed(serverGroups) { index, group ->
-            val subtitleText = when {
-                group.streams.any { it.format.equals("HLS", ignoreCase = true) } -> "Adaptive Resolution"
-                group.maxResolution != null -> "Up to ${group.maxResolution}"
-                else -> "Standard Stream"
+            // 1. SUB Card for this provider
+            val subCandidates = if (subStreams.isNotEmpty()) subStreams else if (dubStreams.isEmpty()) provStreams else emptyList()
+            if (subCandidates.isNotEmpty() || provStreams.isEmpty()) {
+                val subSubs = subCandidates.flatMap { it.subtitles }
+                    .map { it.label.trim() }
+                    .filter { it.isNotBlank() && !it.equals("off", ignoreCase = true) }
+                    .distinct()
+                val subLangSummary = if (subSubs.isNotEmpty()) {
+                    subSubs.take(4).joinToString(", ") + if (subSubs.size > 4) "..." else ""
+                } else {
+                    "Original Audio"
+                }
+                val isSubSelected = prov.equals(currentProvider, ignoreCase = true) && !currentIsDub
+
+                cards.add(
+                    ServerCardModel(
+                        providerName = prov,
+                        isDub = false,
+                        badge = "SUB",
+                        subtitleText = "Subtitled • $subLangSummary",
+                        isSelected = isSubSelected,
+                        targetStream = subCandidates.maxByOrNull { it.priorityScore() }
+                    )
+                )
             }
 
-            val isSelected = (index == selectedGroupIndex)
+            // 2. DUB Card for this provider (if available via streams or embedded tracks)
+            if (dubStreams.isNotEmpty() || (prov.equals(currentProvider, ignoreCase = true) && hasEmbeddedEngAudio)) {
+                val dubSubs = dubStreams.flatMap { it.subtitles }
+                    .map { it.label.trim() }
+                    .filter { it.isNotBlank() && !it.equals("off", ignoreCase = true) }
+                    .distinct()
+                val dubLangSummary = if (dubSubs.isNotEmpty()) {
+                    dubSubs.take(4).joinToString(", ") + if (dubSubs.size > 4) "..." else ""
+                } else {
+                    "English"
+                }
+                val isDubSelected = prov.equals(currentProvider, ignoreCase = true) && currentIsDub
 
+                cards.add(
+                    ServerCardModel(
+                        providerName = prov,
+                        isDub = true,
+                        badge = "DUB",
+                        subtitleText = "Dubbed • $dubLangSummary",
+                        isSelected = isDubSelected,
+                        targetStream = dubStreams.maxByOrNull { it.priorityScore() }
+                            ?: activeStream?.takeIf { prov.equals(currentProvider, ignoreCase = true) }
+                            ?: provStreams.firstOrNull()
+                    )
+                )
+            }
+        }
+
+        cards
+    }
+
+    LazyColumn(
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Text(
+                text = "SERVER",
+                color = TextSecondary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp)
+            )
+        }
+
+        items(serverCards) { card ->
             PanelItem(
-                title = group.serverName,
-                subtitle = subtitleText,
-                badge = group.badgeText,
-                isSelected = isSelected,
+                title = card.providerName,
+                subtitle = card.subtitleText,
+                badge = card.badge,
+                isSelected = card.isSelected,
                 onClick = {
-                    val matchingStream = if (state.selectedQualityHeight > 0) {
-                        group.streams.find { s ->
-                            val h = s.resolution?.filter { it.isDigit() }?.toIntOrNull()
-                                ?: Regex("(\\d{3,4})p?").find(s.quality)?.groupValues?.get(1)?.toIntOrNull()
-                            h == state.selectedQualityHeight
-                        }
-                    } else null
-
-                    val currentCategory = state.activeStream?.audioTrackType() ?: AudioTrackType.SUB
-
-                    val chosenStream = matchingStream
-                        ?: group.streams.find { it.audioTrackType() == currentCategory }
-                        ?: group.streams.maxByOrNull { it.resolution?.filter { c -> c.isDigit() }?.toIntOrNull() ?: 0 }
-                        ?: group.streams.first()
-
-                    viewModel.selectStream(chosenStream)
+                    val target = card.targetStream
+                    if (target != null && target.url != activeStream?.url) {
+                        viewModel.selectStream(target)
+                    } else {
+                        val targetType = target?.audioTrackType()?.takeIf { t ->
+                            if (card.isDub) t == AudioTrackType.DUB || t == AudioTrackType.HDUB
+                            else t == AudioTrackType.SUB || t == AudioTrackType.HSUB
+                        } ?: if (card.isDub) AudioTrackType.DUB else AudioTrackType.SUB
+                        viewModel.selectAudioTrack(targetType)
+                    }
                 }
             )
         }
@@ -629,6 +620,21 @@ private fun EpisodePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel)
                             contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(4.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color.Black.copy(alpha = 0.75f))
+                                .padding(horizontal = 4.dp, vertical = 1.5.dp)
+                        ) {
+                            Text(
+                                text = "Ep ${ep.formattedNumber}",
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                         if (isSelected) {
                             Box(
                                 modifier = Modifier
@@ -643,19 +649,46 @@ private fun EpisodePanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel)
                 }
 
                 Column(modifier = Modifier.weight(1f)) {
+                    val displayEpNum = ep.formattedNumber
+                    val cleanTitle = run {
+                        val raw = ep.title.trim()
+                        if (raw.isBlank() || raw.equals("null", ignoreCase = true) || Regex("""^(Episode|Ep\.?|EP)?\s*\d+(\.0+)?$""", RegexOption.IGNORE_CASE).matches(raw)) {
+                            ""
+                        } else {
+                            raw.replace(Regex("""^(Episode|Ep\.?|EP)\s*\d+(\.0+)?\s*[:\-.•]\s*""", RegexOption.IGNORE_CASE), "")
+                                .replace(Regex("""^\d+(\.0+)?\s*[:\-.•]\s*"""), "")
+                                .replace(Regex("""^#\d+\s*[:\-.•]?\s*"""), "")
+                                .trim()
+                        }
+                    }
+
+                    val finalTitle = if (cleanTitle.isNotBlank() && !cleanTitle.equals("null", ignoreCase = true) && !Regex("""^(Episode|Ep\.?|EP)?\s*\d+(\.0+)?$""", RegexOption.IGNORE_CASE).matches(cleanTitle)) {
+                        cleanTitle
+                    } else {
+                        "Episode $displayEpNum"
+                    }
+
+                    val metaText = if (finalTitle != "Episode $displayEpNum") {
+                        "Episode $displayEpNum • SUB" + if (ep.hasDub) " • DUB" else ""
+                    } else {
+                        "SUB" + if (ep.hasDub) " • DUB" else ""
+                    }
+
                     Text(
-                        text = "Episode ${ep.formattedNumber}",
-                        color = if (isSelected) YugenPurple else TextSecondary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        text = finalTitle,
+                        color = textColor,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(3.dp))
                     Text(
-                        text = ep.title.ifBlank { "Episode ${ep.formattedNumber}" },
-                        color = textColor,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
+                        text = metaText,
+                        color = if (isSelected) YugenPurple else TextSecondary,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }

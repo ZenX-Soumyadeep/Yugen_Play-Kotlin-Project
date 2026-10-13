@@ -180,8 +180,7 @@ object DownloadModule {
         databaseProvider: DatabaseProvider,
         @DownloadCache cache: Cache,
         downloadTracker: DownloadTracker,
-        @DownloadClient downloadOkHttpClient: OkHttpClient,
-        playerPreferences: PlayerPreferences
+        @DownloadClient downloadOkHttpClient: OkHttpClient
     ): DownloadManager {
 
         if (CookieHandler.getDefault() == null) {
@@ -279,19 +278,13 @@ object DownloadModule {
 
         val downloadIndex = DefaultDownloadIndex(databaseProvider)
 
-        val initialParallel = runCatching {
-            runBlocking(Dispatchers.IO) {
-                playerPreferences.maxParallelDownloads.first()
-            }
-        }.getOrDefault(1).coerceIn(1, 5)
-
         val manager = DownloadManager(
             context,
             downloadIndex,
             downloaderFactory
         ).apply {
-            maxParallelDownloads = initialParallel
-            minRetryCount = 5
+            maxParallelDownloads = 1
+            minRetryCount = 8
         }
 
         downloadTracker.initialize(manager)

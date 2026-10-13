@@ -51,13 +51,13 @@ private fun buildTvPlayerRoute(
     mediaId: String = "",
     episodeNumber: Int? = null
 ): String {
-    val epId = Uri.encode(episodeId)
-    val aUrl = Uri.encode(animeUrl)
-    val t = Uri.encode(title)
-    val p = Uri.encode(poster)
-    val prv = Uri.encode(provider)
-    val s = streamUrl?.takeIf { it.isNotBlank() }?.let { Uri.encode(it) } ?: ""
-    val mId = Uri.encode(mediaId)
+    val epId = Uri.encode(episodeId.takeIf { !it.equals("null", ignoreCase = true) } ?: "")
+    val aUrl = Uri.encode(animeUrl.takeIf { !it.equals("null", ignoreCase = true) } ?: "")
+    val t = Uri.encode(title.takeIf { !it.equals("null", ignoreCase = true) } ?: "")
+    val p = Uri.encode(poster.takeIf { !it.equals("null", ignoreCase = true) } ?: "")
+    val prv = Uri.encode(provider.takeIf { !it.equals("null", ignoreCase = true) } ?: "")
+    val s = streamUrl?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }?.let { Uri.encode(it) } ?: ""
+    val mId = Uri.encode(mediaId.takeIf { !it.equals("null", ignoreCase = true) } ?: "")
     val epNumStr = episodeNumber?.toString() ?: ""
     return "player/$epId?animeUrl=$aUrl&title=$t&poster=$p&provider=$prv&streamUrl=$s&mediaId=$mId&episodeNumber=$epNumStr"
 }
@@ -283,7 +283,10 @@ fun TvMainScreen(
                                 )
                             )
                         },
-                        onBackClick = { navController.popBackStack() }
+                        onBackClick = { navController.popBackStack() },
+                        onAnimeClick = { id, title, poster ->
+                            navController.navigate("detail?id=${Uri.encode(id)}&url=&title=${Uri.encode(title)}&poster=${Uri.encode(poster)}")
+                        }
                     )
                 }
 

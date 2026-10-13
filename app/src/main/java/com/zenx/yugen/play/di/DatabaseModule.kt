@@ -125,6 +125,21 @@ object DatabaseModule {
         }
     }
 
+    private val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            addColumnIfNotExists(db, "cached_anime_details", "studiosJson", "TEXT NOT NULL DEFAULT '[]'")
+            addColumnIfNotExists(db, "cached_anime_details", "trailerJson", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfNotExists(db, "cached_anime_details", "relationsJson", "TEXT NOT NULL DEFAULT '[]'")
+            addColumnIfNotExists(db, "cached_anime_details", "recommendationsJson", "TEXT NOT NULL DEFAULT '[]'")
+            addColumnIfNotExists(db, "cached_anime_details", "charactersJson", "TEXT NOT NULL DEFAULT '[]'")
+            addColumnIfNotExists(db, "cached_anime_details", "staffJson", "TEXT NOT NULL DEFAULT '[]'")
+            addColumnIfNotExists(db, "cached_anime_details", "synonymsJson", "TEXT NOT NULL DEFAULT '[]'")
+            addColumnIfNotExists(db, "cached_anime_details", "nativeTitle", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfNotExists(db, "cached_anime_details", "userPreferredTitle", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfNotExists(db, "cached_anime_details", "seasonYear", "INTEGER DEFAULT NULL")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -133,7 +148,7 @@ object DatabaseModule {
             AppDatabase::class.java,
             AppDatabase.DATABASE_NAME
         )
-        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_1_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_1_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
         .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
         .build()
     }

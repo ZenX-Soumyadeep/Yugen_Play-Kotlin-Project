@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -523,6 +524,8 @@ fun BatchDownloadBottomSheet(
     var showProviderPopup by remember { mutableStateOf(false) }
     var showRangeDialog by remember { mutableStateOf(false) }
 
+    val listState = rememberLazyListState()
+
     var hasInitializedSelection by remember(preselectedEpId, state.activeProvider) { mutableStateOf(false) }
 
     var selectedIds by remember(preselectedEpId, state.activeProvider) {
@@ -535,13 +538,19 @@ fun BatchDownloadBottomSheet(
         mutableStateOf(initial)
     }
 
-    // Synchronize initial selection when episodes finish loading or active provider updates
+    // Synchronize initial selection and auto-scroll when episodes finish loading or active provider updates
     LaunchedEffect(preselectedEpId, allEpisodes, state.activeProvider) {
         if (!hasInitializedSelection && allEpisodes.isNotEmpty()) {
             hasInitializedSelection = true
             if (preselectedEpId != null) {
-                val target = allEpisodes.find { it.id == preselectedEpId }
-                selectedIds = if (target != null && target.downloadState != DownloadState.COMPLETED) setOf(target.id) else emptySet()
+                val targetIndex = allEpisodes.indexOfFirst { it.id == preselectedEpId }
+                if (targetIndex != -1) {
+                    val target = allEpisodes[targetIndex]
+                    selectedIds = if (target.downloadState != DownloadState.COMPLETED) setOf(target.id) else emptySet()
+                    // 4 section items precede the episode items in LazyColumn
+                    val scrollTarget = (4 + targetIndex).coerceAtLeast(0)
+                    listState.scrollToItem(scrollTarget)
+                }
             } else {
                 val downloadable = allEpisodes.filter { it.downloadState != DownloadState.COMPLETED }
                 selectedIds = downloadable.map { it.id }.toSet()
@@ -983,6 +992,7 @@ fun BatchDownloadBottomSheet(
 
             // Scrollable Options and Episode List
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
