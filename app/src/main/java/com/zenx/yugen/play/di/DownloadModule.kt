@@ -195,10 +195,10 @@ object DownloadModule {
         // CDN per-IP burst throttling, TCP socket stalls, and SQLite cache lock contention
         val downloadExecutor = Executors.newFixedThreadPool(6)
 
-        // 512 KB buffer size drastically reduces disk write syscalls and flash write thrashing
+        // 256 KB buffer size provides continuous, steady streaming disk writes without bursting or stalls
         val cacheWriteDataSinkFactory = CacheDataSink.Factory()
             .setCache(cache)
-            .setBufferSize(512 * 1024)
+            .setBufferSize(256 * 1024)
             .setFragmentSize(CacheDataSink.DEFAULT_FRAGMENT_SIZE)
 
         // Dedicated DownloaderFactory that binds each download's specific headers (extracted from persistent request.data)
@@ -260,6 +260,7 @@ object DownloadModule {
                 dynamicHeaders["Origin"] = origin
                 dynamicHeaders["User-Agent"] = userAgent
                 dynamicHeaders["Accept"] = "*/*"
+                dynamicHeaders["Connection"] = "keep-alive"
 
                 dataSpec.buildUpon()
                     .setUri(cleanUriStr.toUri())

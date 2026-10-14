@@ -64,6 +64,7 @@ private data class CachedDownloadMetadata(
 class DownloadsViewModel @Inject constructor(
     private val downloadManager: DownloadManager,
     private val downloadTracker: DownloadTracker,
+    private val downloadQueueOrchestrator: com.zenx.yugen.play.service.DownloadQueueOrchestrator,
     private val mp4DownloadDao: Mp4DownloadDao,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -88,7 +89,9 @@ class DownloadsViewModel @Inject constructor(
     }
 
     val downloadsFlow = combine(downloadTracker.downloads, mp4DownloadDao.getAllDownloads()) { downloadMap, mp4List ->
-        val exoList = downloadMap.values.map { download ->
+        val exoList = downloadMap.values
+            .filter { it.state != Download.STATE_REMOVING && it.state != Download.STATE_RESTARTING }
+            .map { download ->
             val meta = getOrParseMetadata(download.request.id, download.request.data)
             val currentSpeed = downloadTracker.getDownloadSpeed(download.request.id)
             val state = mapExoDownloadState(download.state)
@@ -264,13 +267,24 @@ class DownloadsViewModel @Inject constructor(
 
     fun cancelDownload(id: String) {
         metaCache.remove(id)
+        downloadTracker.removeDownloadOptimistically(id)
+        downloadQueueOrchestrator.cancel(id)
+
         viewModelScope.launch(Dispatchers.IO) {
             val mp4 = mp4DownloadDao.getDownloadById(id)
             if (mp4 != null) {
                 try { File(mp4.localFilePath).delete() } catch (_: Exception) {}
                 mp4DownloadDao.deleteDownload(id)
+                try {
+                    androidx.work.WorkManager.getInstance(context).cancelAllWorkByTag(id)
+                } catch (_: Exception) {}
             } else {
-                DownloadService.sendRemoveDownload(context, VideoDownloadService::class.java, id, false)
+                try {
+                    // Direct manager removal immediately cancels active downloading and cleans cache
+                    downloadManager.removeDownload(id)
+                } catch (_: Exception) {
+                    DownloadService.sendRemoveDownload(context, VideoDownloadService::class.java, id, false)
+                }
             }
         }
     }

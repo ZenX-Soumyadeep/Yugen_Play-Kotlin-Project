@@ -33,17 +33,22 @@ class EpisodeSyncEngine @Inject constructor() {
             }
         }
 
-        // Index scraped episodes by episode number
+        // Strictly sort scraped episodes ascending to prevent reverse-order alignment bugs
+        val sortedScraped = scrapedEpisodes.sortedBy { it.number }
+
+        // Index scraped episodes by both int and float episode numbers
         val scrapedByNum = mutableMapOf<Int, Episode>()
-        scrapedEpisodes.forEach { ep ->
+        val scrapedByFloatNum = mutableMapOf<Float, Episode>()
+        sortedScraped.forEach { ep ->
             scrapedByNum.putIfAbsent(ep.numberInt, ep)
+            scrapedByFloatNum.putIfAbsent(ep.number, ep)
         }
 
-        val maxScrapedNum = scrapedEpisodes.map { it.numberInt }.maxOrNull() ?: 0
+        val maxScrapedNum = sortedScraped.map { it.numberInt }.maxOrNull() ?: 0
 
         // Detect seasonal or split-cour numbering offset
         // e.g., provider has episodes 14..26 while AniList indexes 1..13
-        val minScraped = scrapedEpisodes.map { it.numberInt }.minOrNull() ?: 1
+        val minScraped = sortedScraped.map { it.numberInt }.minOrNull() ?: 1
         val detectedOffset = if (minScraped > 1 && scrapedByNum[1] == null) {
             minScraped - 1
         } else null
@@ -55,9 +60,8 @@ class EpisodeSyncEngine @Inject constructor() {
         }
 
         // Determine the canonical released/aired episode count
-        // CRITICAL FIX: For airing anime, details.totalEpisodes is the FUTURE planned episode count!
-        // We MUST cap airing anime strictly to released episodes (nextAiringEpisode - 1 or normalizedMaxScraped)
-        // to prevent phantom/cloned episodes for unreleased content.
+        // For airing anime, details.totalEpisodes is the FUTURE planned episode count.
+        // Cap airing anime strictly to released episodes to prevent phantom episodes.
         val totalCount = if (details.nextAiringEpisode != null) {
             val airedCount = maxOf(0, details.nextAiringEpisode - 1)
             maxOf(airedCount, normalizedMaxScraped)
@@ -69,27 +73,29 @@ class EpisodeSyncEngine @Inject constructor() {
             maxOf(anilistEpCount, normalizedMaxScraped)
         }
 
-        if (totalCount <= 0 && scrapedEpisodes.isEmpty()) {
+        if (totalCount <= 0 && sortedScraped.isEmpty()) {
             return emptyList()
         }
 
         val mediaId = details.id.toIntOrNull() ?: 0
+        val usedIds = mutableSetOf<String>()
 
         // Build the canonical episode list (1..totalCount)
         return (1..totalCount).map { epNum ->
             val meta = externalMeta[epNum]
 
             // Multi-layer episode reconciliation:
-            // 1. Direct match by AniList episode number
+            // 1. Direct match by exact episode number (int or float)
             // 2. Match by AniZip provider/TVDB episode number (e.g. 14 for Bleach Part 2)
             // 3. Match by AniZip absolute episode number (e.g. 380)
             // 4. Match by detected split-cour offset (epNum + offset)
-            // 5. Match by exact index alignment if counts match
+            // 5. Strictly aligned index match on sorted list if counts match
             val scrapedEp = scrapedByNum[epNum]
-                ?: meta?.providerEpisodeNumber?.let { scrapedByNum[it] }
-                ?: meta?.absoluteEpisodeNumber?.let { scrapedByNum[it] }
-                ?: detectedOffset?.let { scrapedByNum[epNum + it] }
-                ?: (if (scrapedEpisodes.size == totalCount) scrapedEpisodes.getOrNull(epNum - 1) else null)
+                ?: scrapedByFloatNum[epNum.toFloat()]
+                ?: meta?.providerEpisodeNumber?.let { scrapedByNum[it] ?: scrapedByFloatNum[it.toFloat()] }
+                ?: meta?.absoluteEpisodeNumber?.let { scrapedByNum[it] ?: scrapedByFloatNum[it.toFloat()] }
+                ?: detectedOffset?.let { scrapedByNum[epNum + it] ?: scrapedByFloatNum[(epNum + it).toFloat()] }
+                ?: (if (sortedScraped.size == totalCount && epNum <= sortedScraped.size) sortedScraped[epNum - 1] else null)
 
             val aniListEp = aniListByEpNum[epNum.toFloat()]
                 ?: (if (aniListByEpNum.isEmpty() && details.streamingEpisodes.size >= epNum) details.streamingEpisodes.getOrNull(epNum - 1) else null)
@@ -117,7 +123,9 @@ class EpisodeSyncEngine @Inject constructor() {
             val finalDesc = meta?.description?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
                 ?: "Episode description preview not available."
 
-            val concreteId = scrapedEp?.id ?: com.zenx.yugen.play.domain.EpisodeId.buildCloudSync(mediaId, epNum)
+            val baseId = scrapedEp?.id ?: com.zenx.yugen.play.domain.EpisodeId.buildCloudSync(mediaId, epNum)
+            // Guarantee 100% collision-free IDs across Compose LazyColumn items
+            val concreteId = if (usedIds.add(baseId)) baseId else "${baseId}__ep$epNum"
 
             EpisodeUiModel(
                 id = concreteId,

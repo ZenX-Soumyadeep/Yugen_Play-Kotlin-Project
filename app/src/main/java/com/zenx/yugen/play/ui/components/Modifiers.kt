@@ -25,6 +25,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawBehind
@@ -34,7 +35,78 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+/**
+ * 120Hz Tap-and-hold repeating clickable modifier with adaptive acceleration.
+ * Fires once immediately upon press down, and if held continuously, auto-repeats with ramping speed.
+ */
+fun Modifier.repeatingClickable(
+    enabled: Boolean = true,
+    initialDelayMillis: Long = 300L,
+    minIntervalMillis: Long = 25L,
+    maxIntervalMillis: Long = 90L,
+    scaleDown: Float = 0.90f,
+    onAction: () -> Unit
+): Modifier = composed {
+    val currentOnAction by rememberUpdatedState(onAction)
+    val animatable = remember { Animatable(1f) }
+    val scope = rememberCoroutineScope()
+
+    if (!enabled) return@composed this
+
+    this
+        .graphicsLayer {
+            scaleX = animatable.value
+            scaleY = animatable.value
+        }
+        .pointerInput(enabled) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                scope.launch {
+                    animatable.animateTo(
+                        targetValue = scaleDown,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
+                }
+
+                currentOnAction()
+
+                val repeatJob = scope.launch {
+                    kotlinx.coroutines.delay(initialDelayMillis)
+                    var currentInterval = maxIntervalMillis
+                    var count = 0
+                    while (isActive) {
+                        currentOnAction()
+                        count++
+                        if (count > 25) {
+                            currentInterval = minIntervalMillis
+                        } else if (count > 10) {
+                            currentInterval = 50L
+                        }
+                        kotlinx.coroutines.delay(currentInterval)
+                    }
+                }
+
+                waitForUpOrCancellation()
+                repeatJob.cancel()
+
+                scope.launch {
+                    animatable.animateTo(
+                        targetValue = 1f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
+                }
+            }
+        }
+}
 
 /**
  * 120Hz Optimized Bounce Click

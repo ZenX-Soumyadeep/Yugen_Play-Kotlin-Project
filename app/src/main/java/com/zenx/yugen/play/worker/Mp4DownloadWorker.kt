@@ -51,7 +51,7 @@ class Mp4DownloadWorker @AssistedInject constructor(
         val downloadId = inputData.getString(KEY_ID) ?: return@withContext Result.failure()
         val episodeId = inputData.getString(KEY_EPISODE_ID) ?: downloadId
         val animeTitle = inputData.getString(KEY_ANIME_TITLE) ?: "Anime"
-        val episodeNumber = inputData.getFloat(KEY_EPISODE_NUMBER, 1f)
+        val episodeNumber = inputData.getString(KEY_EPISODE_NUMBER)?.toFloatOrNull() ?: inputData.getFloat(KEY_EPISODE_NUMBER, 1f)
         val posterUrl = inputData.getString(KEY_POSTER_URL) ?: ""
         val videoUrl = inputData.getString(KEY_VIDEO_URL) ?: return@withContext Result.failure()
         val headersJson = inputData.getString(KEY_HEADERS_JSON)

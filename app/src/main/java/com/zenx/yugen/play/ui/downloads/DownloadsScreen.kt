@@ -391,8 +391,9 @@ private fun AnimeDownloadGroupItem(
             text = { Text("Are you sure you want to delete this episode?", color = TextSecondary) },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.cancelDownload(ep.id)
+                    val targetId = ep.id
                     episodeToDelete = null
+                    viewModel.cancelDownload(targetId)
                 }) {
                     Text("Delete", color = YugenRed, fontWeight = FontWeight.Bold)
                 }
@@ -516,45 +517,47 @@ private fun AnimeDownloadGroupItem(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 group.episodes.forEach { item ->
-                    val isCompleted = item.state == DownloadState.COMPLETED
-                    val dismissState = rememberSwipeToDismissBoxState(
-                        confirmValueChange = { dismissValue ->
-                            if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
-                                episodeToDelete = item
-                                false
-                            } else false
-                        }
-                    )
-
-                    SwipeToDismissBox(
-                        state = dismissState,
-                        enableDismissFromStartToEnd = false,
-                        backgroundContent = {
-                            val color by animateColorAsState(
-                                targetValue = if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) YugenRed.copy(alpha = 0.85f) else Color.Transparent,
-                                label = "SwipeColor"
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(YugenShape.sm)
-                                    .background(color)
-                                    .padding(horizontal = 24.dp),
-                                contentAlignment = Alignment.CenterEnd
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
+                    key(item.id) {
+                        val isCompleted = item.state == DownloadState.COMPLETED
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = { dismissValue ->
+                                if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
+                                    episodeToDelete = item
+                                    false
+                                } else false
                             }
-                        }
-                    ) {
-                        DownloadCard(
-                            item = item,
-                            isCompleted = isCompleted,
-                            onPlayClick = { onPlayClick(item.id, "", item.animeTitle, item.posterUrl) },
-                            onPauseClick = { viewModel.pauseDownload(item.id) },
-                            onResumeClick = { viewModel.resumeDownload(item.id) },
-                            onRetryClick = { viewModel.retryDownload(item.id) },
-                            onCancelClick = { viewModel.cancelDownload(item.id) }
                         )
+
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            enableDismissFromStartToEnd = false,
+                            backgroundContent = {
+                                val color by animateColorAsState(
+                                    targetValue = if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) YugenRed.copy(alpha = 0.85f) else Color.Transparent,
+                                    label = "SwipeColor"
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(YugenShape.sm)
+                                        .background(color)
+                                        .padding(horizontal = 24.dp),
+                                    contentAlignment = Alignment.CenterEnd
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
+                                }
+                            }
+                        ) {
+                            DownloadCard(
+                                item = item,
+                                isCompleted = isCompleted,
+                                onPlayClick = { onPlayClick(item.id, "", item.animeTitle, item.posterUrl) },
+                                onPauseClick = { viewModel.pauseDownload(item.id) },
+                                onResumeClick = { viewModel.resumeDownload(item.id) },
+                                onRetryClick = { viewModel.retryDownload(item.id) },
+                                onCancelClick = { viewModel.cancelDownload(item.id) }
+                            )
+                        }
                     }
                 }
             }

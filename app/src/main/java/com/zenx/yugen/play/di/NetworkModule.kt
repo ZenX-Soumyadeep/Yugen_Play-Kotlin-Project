@@ -124,6 +124,8 @@ object NetworkModule {
                 maxRequestsPerHost = 64
             })
             .connectionPool(ConnectionPool(64, 5, TimeUnit.MINUTES))
+            // HTTP/1.1 enforces dedicated TCP connections across the thread pool, preventing HTTP/2
+            // single-socket head-of-line blocking and CDN stream window exhaustion that causes periodic stalls
             .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
             .addInterceptor(JunkBytesInterceptor())
             .connectTimeout(30, TimeUnit.SECONDS)

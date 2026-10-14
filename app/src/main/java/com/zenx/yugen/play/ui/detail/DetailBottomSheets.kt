@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.zenx.yugen.play.ui.components.bounceClick
+import com.zenx.yugen.play.ui.components.repeatingClickable
 import com.zenx.yugen.play.ui.theme.*
 import java.util.Locale
 
@@ -526,9 +527,10 @@ fun BatchDownloadBottomSheet(
 
     val listState = rememberLazyListState()
 
-    var hasInitializedSelection by remember(preselectedEpId, state.activeProvider) { mutableStateOf(false) }
+    val sessionKey = "${preselectedEpId ?: "batch"}_${state.activeProvider}"
+    var initializedSessionKey by remember { mutableStateOf<String?>(null) }
 
-    var selectedIds by remember(preselectedEpId, state.activeProvider) {
+    var selectedIds by remember(sessionKey) {
         val initial = if (preselectedEpId != null) {
             val target = allEpisodes.find { it.id == preselectedEpId }
             if (target != null && target.downloadState != DownloadState.COMPLETED) setOf(target.id) else emptySet()
@@ -538,10 +540,11 @@ fun BatchDownloadBottomSheet(
         mutableStateOf(initial)
     }
 
-    // Synchronize initial selection and auto-scroll when episodes finish loading or active provider updates
-    LaunchedEffect(preselectedEpId, allEpisodes, state.activeProvider) {
-        if (!hasInitializedSelection && allEpisodes.isNotEmpty()) {
-            hasInitializedSelection = true
+    // Synchronize initial selection and auto-scroll when episodes finish loading or active provider updates.
+    // Keyed to (sessionKey, allEpisodes.isEmpty()) so background download progress ticks do NOT reset manual selections.
+    LaunchedEffect(sessionKey, allEpisodes.isEmpty()) {
+        if (initializedSessionKey != sessionKey && allEpisodes.isNotEmpty()) {
+            initializedSessionKey = sessionKey
             if (preselectedEpId != null) {
                 val targetIndex = allEpisodes.indexOfFirst { it.id == preselectedEpId }
                 if (targetIndex != -1) {
@@ -550,6 +553,8 @@ fun BatchDownloadBottomSheet(
                     // 4 section items precede the episode items in LazyColumn
                     val scrollTarget = (4 + targetIndex).coerceAtLeast(0)
                     listState.scrollToItem(scrollTarget)
+                } else {
+                    selectedIds = setOf(preselectedEpId!!)
                 }
             } else {
                 val downloadable = allEpisodes.filter { it.downloadState != DownloadState.COMPLETED }
@@ -798,10 +803,17 @@ fun BatchDownloadBottomSheet(
                                     .clip(CircleShape)
                                     .background(YugenCardSurface)
                                     .border(1.dp, YugenCardBorder, CircleShape)
-                                    .bounceClick { if (startEp > 1) startEp-- },
+                                    .repeatingClickable(enabled = startEp > 1) {
+                                        if (startEp > 1) startEp--
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Rounded.Remove, contentDescription = "Decrease", tint = TextPrimary, modifier = Modifier.size(16.dp))
+                                Icon(
+                                    Icons.Rounded.Remove,
+                                    contentDescription = "Decrease",
+                                    tint = if (startEp > 1) TextPrimary else TextMuted.copy(alpha = 0.35f),
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
                             Text(
                                 text = "EP $startEp",
@@ -817,10 +829,17 @@ fun BatchDownloadBottomSheet(
                                     .clip(CircleShape)
                                     .background(YugenCardSurface)
                                     .border(1.dp, YugenCardBorder, CircleShape)
-                                    .bounceClick { if (startEp < endEp) startEp++ },
+                                    .repeatingClickable(enabled = startEp < endEp) {
+                                        if (startEp < endEp) startEp++
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Rounded.Add, contentDescription = "Increase", tint = TextPrimary, modifier = Modifier.size(16.dp))
+                                Icon(
+                                    Icons.Rounded.Add,
+                                    contentDescription = "Increase",
+                                    tint = if (startEp < endEp) TextPrimary else TextMuted.copy(alpha = 0.35f),
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
                         }
                     }
@@ -843,10 +862,17 @@ fun BatchDownloadBottomSheet(
                                     .clip(CircleShape)
                                     .background(YugenCardSurface)
                                     .border(1.dp, YugenCardBorder, CircleShape)
-                                    .bounceClick { if (endEp > startEp) endEp-- },
+                                    .repeatingClickable(enabled = endEp > startEp) {
+                                        if (endEp > startEp) endEp--
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Rounded.Remove, contentDescription = "Decrease", tint = TextPrimary, modifier = Modifier.size(16.dp))
+                                Icon(
+                                    Icons.Rounded.Remove,
+                                    contentDescription = "Decrease",
+                                    tint = if (endEp > startEp) TextPrimary else TextMuted.copy(alpha = 0.35f),
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
                             Text(
                                 text = "EP $endEp",
@@ -862,15 +888,38 @@ fun BatchDownloadBottomSheet(
                                     .clip(CircleShape)
                                     .background(YugenCardSurface)
                                     .border(1.dp, YugenCardBorder, CircleShape)
-                                    .bounceClick { if (endEp < allEpisodes.size) endEp++ },
+                                    .repeatingClickable(enabled = endEp < allEpisodes.size) {
+                                        if (endEp < allEpisodes.size) endEp++
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Rounded.Add, contentDescription = "Increase", tint = TextPrimary, modifier = Modifier.size(16.dp))
+                                Icon(
+                                    Icons.Rounded.Add,
+                                    contentDescription = "Increase",
+                                    tint = if (endEp < allEpisodes.size) TextPrimary else TextMuted.copy(alpha = 0.35f),
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    val previewCount = remember(startEp, endEp, allEpisodes) {
+                        allEpisodes.count { ep ->
+                            val num = ep.number.toFloatOrNull() ?: ep.number.toIntOrNull()?.toFloat() ?: 0f
+                            num >= startEp.toFloat() && num <= endEp.toFloat() && ep.downloadState != DownloadState.COMPLETED
+                        }
+                    }
+
+                    Text(
+                        text = "Will select $previewCount downloadable episode(s)",
+                        color = YugenPurple,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     // Action buttons
                     Row(
@@ -888,8 +937,8 @@ fun BatchDownloadBottomSheet(
                         Button(
                             onClick = {
                                 val inRange = allEpisodes.filter { ep ->
-                                    val num = ep.number.toFloatOrNull()?.toInt() ?: ep.number.toIntOrNull() ?: 0
-                                    num in startEp..endEp && ep.downloadState != DownloadState.COMPLETED
+                                    val num = ep.number.toFloatOrNull() ?: ep.number.toIntOrNull()?.toFloat() ?: 0f
+                                    num >= startEp.toFloat() && num <= endEp.toFloat() && ep.downloadState != DownloadState.COMPLETED
                                 }
                                 selectedIds = inRange.map { it.id }.toSet()
                                 showRangeDialog = false
@@ -1334,8 +1383,9 @@ fun BatchDownloadBottomSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
+                                val epNumLabel = ep.number.toFloatOrNull()?.let { if (it % 1f == 0f) it.toInt().toString() else it.toString() } ?: ep.number
                                 Text(
-                                    text = "Episode ${ep.number.toInt()}",
+                                    text = "Episode $epNumLabel",
                                     color = if (isDownloaded) TextMuted else TextPrimary,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold

@@ -5,18 +5,19 @@ import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
+import com.zenx.yugen.play.data.local.PlayerPreferences
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import java.io.Closeable
+import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Duration.Companion.milliseconds
-
-import com.zenx.yugen.play.data.local.PlayerPreferences
 
 @OptIn(UnstableApi::class)
 @Singleton
@@ -25,9 +26,7 @@ class DownloadTracker @Inject constructor(
     private val playerPreferences: PlayerPreferences
 ) : DownloadManager.Listener, Closeable {
 
-    // Hack/Fix: Wraps the map to forcefully break Compose's structural equality check.
-    // Because ExoPlayer mutates the internal DownloadProgress of the same object instance,
-    // Compose will ignore updates unless we generate a unique tick.
+    // Generates a unique tick to break Compose's structural equality checks on mutated Download objects
     private class ProgressMap(
         private val innerMap: Map<String, Download>,
         private val tick: Long = System.currentTimeMillis()
@@ -48,10 +47,14 @@ class DownloadTracker @Inject constructor(
     val downloads: SharedFlow<Map<String, Download>> = _downloads.asSharedFlow()
 
     private val currentMap = ConcurrentHashMap<String, Download>()
-    private val byteSamples = ConcurrentHashMap<String, Pair<Long, Long>>() // ID -> (Timestamp, Bytes)
-    private val speedMap = ConcurrentHashMap<String, Long>() // ID -> Bytes/sec
 
-    private val stateLock = Any()
+    // Sliding time window sample tracking (3000ms window) for steady throughput readouts
+    private data class ByteSample(val timeMs: Long, val bytes: Long)
+    private val sampleHistory = ConcurrentHashMap<String, ArrayDeque<ByteSample>>()
+    private val speedMap = ConcurrentHashMap<String, Long>() // ID -> Bytes/sec
+    private val lastBytesChangeMap = ConcurrentHashMap<String, Long>() // ID -> Timestamp of last byte increment
+
+    private val isLoopRunning = AtomicBoolean(false)
     private var downloadManager: DownloadManager? = null
     private var progressJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -68,6 +71,14 @@ class DownloadTracker @Inject constructor(
         return speedMap[id] ?: 0L
     }
 
+    fun removeDownloadOptimistically(id: String) {
+        currentMap.remove(id)
+        speedMap.remove(id)
+        sampleHistory.remove(id)
+        lastBytesChangeMap.remove(id)
+        _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
+    }
+
     private fun loadInitialDownloads(manager: DownloadManager) {
         scope.launch {
             try {
@@ -75,16 +86,15 @@ class DownloadTracker @Inject constructor(
                 manager.downloadIndex.getDownloads().use { cursor ->
                     while (cursor.moveToNext()) {
                         val dl = cursor.download
-                        initial[dl.request.id] = dl
+                        if (dl.state != Download.STATE_REMOVING) {
+                            initial[dl.request.id] = dl
+                        }
                     }
                 }
-                synchronized(stateLock) {
-                    currentMap.putAll(initial)
-                    _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
-                }
+                currentMap.putAll(initial)
+                _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
                 checkProgressLoop()
-            } catch (_: Exception) {
-            }
+            } catch (_: Exception) {}
         }
     }
 
@@ -94,104 +104,145 @@ class DownloadTracker @Inject constructor(
         finalException: Exception?
     ) {
         if (download.state == Download.STATE_FAILED) {
-            android.util.Log.e("DownloadTracker", "Download ${download.request.id} FAILED! Reason code: ${download.failureReason}, Exception: ${finalException?.message}", finalException)
+            android.util.Log.e(
+                "DownloadTracker",
+                "Download ${download.request.id} FAILED! Reason: ${download.failureReason}, Message: ${finalException?.message}",
+                finalException
+            )
         }
-        synchronized(stateLock) {
+
+        if (download.state == Download.STATE_REMOVING) {
+            currentMap.remove(download.request.id)
+            speedMap.remove(download.request.id)
+            sampleHistory.remove(download.request.id)
+            lastBytesChangeMap.remove(download.request.id)
+        } else {
             currentMap[download.request.id] = download
             if (download.state != Download.STATE_DOWNLOADING) {
                 speedMap[download.request.id] = 0L
-                byteSamples.remove(download.request.id)
+                sampleHistory.remove(download.request.id)
+                lastBytesChangeMap.remove(download.request.id)
             }
-            _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
         }
+        _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
         checkProgressLoop()
     }
 
     override fun onDownloadRemoved(downloadManager: DownloadManager, download: Download) {
-        synchronized(stateLock) {
-            currentMap.remove(download.request.id)
-            byteSamples.remove(download.request.id)
-            speedMap.remove(download.request.id)
-            _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
-        }
+        currentMap.remove(download.request.id)
+        sampleHistory.remove(download.request.id)
+        speedMap.remove(download.request.id)
+        lastBytesChangeMap.remove(download.request.id)
+        _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
         checkProgressLoop()
     }
 
-    private fun checkProgressLoop() = synchronized(stateLock) {
+    private fun checkProgressLoop() {
         val hasActiveDownloads = currentMap.values.any {
             it.state == Download.STATE_DOWNLOADING || it.state == Download.STATE_QUEUED
         }
 
-        if (hasActiveDownloads && progressJob?.isActive != true) {
+        if (hasActiveDownloads && isLoopRunning.compareAndSet(false, true)) {
             progressJob = scope.launch {
-                while (isActive) {
-                    val now = System.currentTimeMillis()
-                    val manager = downloadManager ?: break
+                try {
+                    while (isActive) {
+                        val now = System.currentTimeMillis()
+                        val manager = downloadManager ?: break
 
-                    var stillActive = false
-                    synchronized(stateLock) {
                         val currentActiveDownloads = manager.currentDownloads
                         for (dl in currentActiveDownloads) {
                             val id = dl.request.id
-
-                            if (currentMap.containsKey(id) && dl.state != Download.STATE_REMOVING) {
+                            if (dl.state == Download.STATE_REMOVING) {
+                                currentMap.remove(id)
+                                speedMap.remove(id)
+                                sampleHistory.remove(id)
+                                lastBytesChangeMap.remove(id)
+                            } else if (currentMap.containsKey(id)) {
                                 currentMap[id] = dl
 
                                 if (dl.state == Download.STATE_DOWNLOADING) {
-                                    val previousSample = byteSamples[id]
-                                    if (previousSample != null) {
-                                        val timeDelta = now - previousSample.first
-                                        val bytesDelta = dl.bytesDownloaded - previousSample.second
-                                        if (timeDelta >= 250 && bytesDelta >= 0) {
-                                            val instantSpeed = (bytesDelta * 1000L) / timeDelta
-                                            val prevSpeed = speedMap[id] ?: 0L
-
-                                            // Smooth network jitter with EMA, responsive to high-speed throughput
-                                            val smoothedSpeed = if (prevSpeed > 0L) {
-                                                (0.65f * instantSpeed + 0.35f * prevSpeed).toLong()
-                                            } else {
-                                                instantSpeed
-                                            }
-                                            speedMap[id] = smoothedSpeed
-                                            byteSamples[id] = Pair(now, dl.bytesDownloaded)
+                                    val history = sampleHistory.getOrPut(id) { ArrayDeque() }
+                                    synchronized(history) {
+                                        history.addLast(ByteSample(now, dl.bytesDownloaded))
+                                        // Maintain samples across 3000ms sliding time window.
+                                        // Bridges ExoPlayer's discrete 1.0s-1.5s ProgressNotifier update intervals.
+                                        while (history.size > 1 && now - history.first().timeMs > 3000L) {
+                                            history.removeFirst()
                                         }
-                                    } else {
-                                        byteSamples[id] = Pair(now, dl.bytesDownloaded)
-                                        speedMap[id] = 0L
+
+                                        if (history.size >= 2) {
+                                            val oldest = history.first()
+                                            val newest = history.last()
+                                            val timeDelta = newest.timeMs - oldest.timeMs
+                                            val bytesDelta = newest.bytes - oldest.bytes
+
+                                            if (timeDelta >= 400L) {
+                                                if (bytesDelta > 0L) {
+                                                    lastBytesChangeMap[id] = now
+                                                    val windowSpeed = (bytesDelta * 1000L) / timeDelta
+                                                    val prevSpeed = speedMap[id] ?: 0L
+
+                                                    // Smooth speed calculations using 3000ms sliding window EMA
+                                                    val smoothedSpeed = if (prevSpeed > 0L) {
+                                                        (0.35f * windowSpeed + 0.65f * prevSpeed).toLong()
+                                                    } else {
+                                                        windowSpeed
+                                                    }
+                                                    speedMap[id] = smoothedSpeed
+                                                } else {
+                                                    // Between Media3 segment writes, bytesDownloaded steps discretely.
+                                                    // Hold previous speed steady during chunk transfers rather than dropping to 0.
+                                                    val lastChange = lastBytesChangeMap[id] ?: now
+                                                    val stallDuration = now - lastChange
+                                                    if (stallDuration > 3000L) {
+                                                        // Genuine network stall (> 3s without any bytes): decay towards 0
+                                                        val prevSpeed = speedMap[id] ?: 0L
+                                                        speedMap[id] = (prevSpeed * 0.70f).toLong()
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 } else {
                                     speedMap[id] = 0L
-                                    byteSamples.remove(id)
+                                    sampleHistory.remove(id)
+                                    lastBytesChangeMap.remove(id)
                                 }
                             }
                         }
 
                         _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
 
-                        stillActive = currentMap.values.any {
+                        val stillActive = currentMap.values.any {
                             it.state == Download.STATE_DOWNLOADING || it.state == Download.STATE_QUEUED
                         }
-                    }
 
-                    if (!stillActive) {
-                        speedMap.clear()
-                        _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
-                        break
+                        if (!stillActive) {
+                            speedMap.clear()
+                            sampleHistory.clear()
+                            lastBytesChangeMap.clear()
+                            _downloads.tryEmit(ProgressMap(HashMap(currentMap)))
+                            break
+                        }
+
+                        // 350ms polling rate ensures responsive UI and smooth continuous speed readout
+                        delay(350L.milliseconds)
                     }
-                    delay(250L.milliseconds)
+                } finally {
+                    isLoopRunning.set(false)
                 }
             }
         }
     }
 
     override fun close() {
-        synchronized(stateLock) {
-            progressJob?.cancel()
-            progressJob = null
-            currentMap.clear()
-            byteSamples.clear()
-            speedMap.clear()
-        }
+        progressJob?.cancel()
+        progressJob = null
+        isLoopRunning.set(false)
+        currentMap.clear()
+        sampleHistory.clear()
+        speedMap.clear()
+        lastBytesChangeMap.clear()
         scope.cancel()
         downloadManager?.removeListener(this)
         downloadManager = null

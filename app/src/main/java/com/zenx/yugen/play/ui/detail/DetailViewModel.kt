@@ -51,6 +51,9 @@ import com.zenx.yugen.play.domain.VideoStream
 import com.zenx.yugen.play.domain.usecase.GetAnimeDetailsUseCase
 import com.zenx.yugen.play.domain.usecase.GetEpisodesUseCase
 import com.zenx.yugen.play.domain.usecase.GetVideoStreamsUseCase
+import com.zenx.yugen.play.domain.EpisodeId
+import com.zenx.yugen.play.service.DownloadQueueOrchestrator
+import com.zenx.yugen.play.service.DownloadQueueItem
 import com.zenx.yugen.play.service.DownloadTracker
 import com.zenx.yugen.play.service.VideoDownloadService
 import com.zenx.yugen.play.di.ApplicationScope
@@ -136,7 +139,6 @@ data class EpisodeUiModel(
 private data class EpisodeData(val episodes: List<Episode>, val provider: String, val isMapped: Boolean, val isLoading: Boolean, val error: String?, val resolvedUrl: String)
 private data class UserData(val favorites: List<FavoriteEntity>, val anilistEntry: UserListEntry?)
 private data class PlaybackData(val historyMap: Map<String, WatchHistoryEntity>, val dlStates: Map<String, DownloadState>, val dlProgresses: Map<String, Float>, val preparing: Set<String>)
-private data class MetadataPayloadResult(val data: ByteArray, val wasSubtitlesTruncated: Boolean)
 
 @OptIn(UnstableApi::class)
 @HiltViewModel
@@ -161,6 +163,7 @@ class DetailViewModel @Inject constructor(
     private val streamResolverEngine: com.zenx.yugen.play.domain.usecase.StreamResolverEngine,
     private val streamDataCache: StreamDataCache,
     private val mp4DownloadDao: Mp4DownloadDao,
+    private val downloadQueueOrchestrator: DownloadQueueOrchestrator,
     @ApplicationScope private val externalScope: CoroutineScope,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -188,8 +191,6 @@ class DetailViewModel @Inject constructor(
 
     var isDownloadMode by mutableStateOf(false)
         private set
-
-    private val _preparingDownloads = MutableStateFlow<Set<String>>(emptySet())
 
     private val _isMappingSheetVisible = MutableStateFlow(false)
     val isMappingSheetVisible = _isMappingSheetVisible.asStateFlow()
@@ -250,6 +251,8 @@ class DetailViewModel @Inject constructor(
     }
 
     fun confirmDeleteDownload(episode: EpisodeUiModel) {
+        downloadQueueOrchestrator.cancel(episode.id)
+        downloadTracker.removeDownloadOptimistically(episode.id)
         DownloadService.sendRemoveDownload(context, VideoDownloadService::class.java, episode.id, false)
         dismissIsland()
     }
@@ -502,7 +505,7 @@ class DetailViewModel @Inject constructor(
 
             // Flow 3: FAST playback and download mapping
             launch {
-                val pbFlow = combine(watchHistoryDao.getAllHistory(), downloadTracker.downloads, mp4DownloadDao.getAllDownloads(), _preparingDownloads) { history, downloadsMap, mp4List, preparing ->
+                val pbFlow = combine(watchHistoryDao.getAllHistory(), downloadTracker.downloads, mp4DownloadDao.getAllDownloads(), downloadQueueOrchestrator.preparingIds) { history, downloadsMap, mp4List, preparing ->
                     // Convert History List to O(1) Map to kill the N^2 bottleneck
                     val historyMap = history.associateBy { it.episodeId }
                     val dlStates = HashMap<String, DownloadState>()
@@ -590,265 +593,17 @@ class DetailViewModel @Inject constructor(
         }
     }
 
-    private fun hashEpisodeId(episodeId: String): String {
-        val bytes = MessageDigest.getInstance("SHA-256").digest(episodeId.toByteArray(Charsets.UTF_8))
-        return bytes.take(8).joinToString("") { "%02x".format(it) }
-    }
-
-    private suspend fun downloadSubtitleLocally(url: String, episodeId: String, label: String, headers: Map<String, String>): String {
-        return withContext(Dispatchers.IO) {
-            try {
-                val safeId = hashEpisodeId(episodeId)
-                val safeLabel = label.replace(Regex("[^a-zA-Z0-9]"), "")
-                val file = File(context.filesDir, "sub_${safeId}_${safeLabel}.vtt")
-
-                val requestBuilder = Request.Builder().url(url)
-                headers.forEach { (key, value) -> requestBuilder.addHeader(key, value) }
-                if (!headers.containsKey("User-Agent") && !headers.containsKey("user-agent")) requestBuilder.addHeader("User-Agent", "Mozilla/5.0")
-
-                okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
-                    if (!response.isSuccessful) return@withContext url
-                    file.writeText(String(response.body.bytes(), Charsets.UTF_8))
-                    "file://${file.absolutePath}"
-                }
-            } catch (_: Exception) { url }
-        }
-    }
-
-    private fun buildOptimizedMetadataPayload(
-        animeTitle: String,
-        episodeNumber: String,
-        episodeTitle: String,
-        posterUrl: String,
-        subtitles: List<JSONObject>,
-        headers: JSONObject,
-        skipIntervals: List<JSONObject>,
-        audioTrackType: String = "",
-        serverName: String = ""
-    ): MetadataPayloadResult {
-        val fullJson = JSONObject().apply {
-            put("animeTitle", animeTitle)
-            put("episodeNumber", episodeNumber)
-            put("episodeTitle", episodeTitle)
-            put("posterUrl", posterUrl)
-            put("subtitles", JSONArray(subtitles))
-            put("headers", headers)
-            put("skipIntervals", JSONArray(skipIntervals))
-            if (audioTrackType.isNotBlank()) put("audioTrackType", audioTrackType)
-            if (serverName.isNotBlank()) put("serverName", serverName)
-        }
-
-        var bytes = fullJson.toString().toByteArray(Charsets.UTF_8)
-        if (bytes.size <= 3800) return MetadataPayloadResult(bytes, wasSubtitlesTruncated = false)
-
-        val keysToRemove = listOf("posterUrl", "skipIntervals", "episodeTitle")
-        for (key in keysToRemove) {
-            fullJson.remove(key)
-            bytes = fullJson.toString().toByteArray(Charsets.UTF_8)
-            if (bytes.size <= 3800) return MetadataPayloadResult(bytes, wasSubtitlesTruncated = false)
-        }
-
-        var wasTruncated = false
-        if (subtitles.isNotEmpty()) {
-            val sortedSubs = subtitles.sortedByDescending {
-                it.optBoolean("isDefault", false) || it.optString("label").contains("English", ignoreCase = true)
-            }
-            val prunedSubs = JSONArray()
-            fullJson.put("subtitles", prunedSubs)
-
-            for (sub in sortedSubs) {
-                prunedSubs.put(sub)
-                if (fullJson.toString().toByteArray(Charsets.UTF_8).size > 3800) {
-                    prunedSubs.remove(prunedSubs.length() - 1)
-                    wasTruncated = true
-                    break
-                }
-            }
-
-            if (prunedSubs.length() == 0 && sortedSubs.isNotEmpty()) {
-                prunedSubs.put(sortedSubs.first())
-                wasTruncated = true
-            }
-            bytes = fullJson.toString().toByteArray(Charsets.UTF_8)
-        }
-
-        return MetadataPayloadResult(bytes, wasSubtitlesTruncated = wasTruncated)
-    }
-
     fun enqueueDownload(episode: EpisodeUiModel, stream: VideoStream) {
-        externalScope.launch(Dispatchers.IO) {
-            val quality = stream.quality.ifBlank { "Best" }
-            performEnqueueDownload(episode, stream, quality)
-        }
-    }
-
-    private suspend fun performEnqueueDownload(
-        episode: EpisodeUiModel,
-        stream: VideoStream,
-        preferredQuality: String = "Best"
-    ) = withContext(Dispatchers.IO) {
-        if (stream.url.isBlank() || stream.url.contains("/watch/")) return@withContext
-        if (context.filesDir.usableSpace < 500L * 1024 * 1024) {
-            withContext(Dispatchers.Main) { Toast.makeText(context, "Not enough storage.", Toast.LENGTH_LONG).show() }
-            return@withContext
-        }
-
-        _preparingDownloads.update { it + episode.id }
-
-        try {
-            val downloadedSubs = mutableListOf<JSONObject>()
-            // Pre-download only primary/English subtitle to avoid blocking queue with dozens of HTTP calls
-            val candidateSubs = stream.subtitles.filter { sub ->
-                sub.url.isNotBlank() && (sub.isDefault || sub.label.contains("English", ignoreCase = true))
-            }.ifEmpty { stream.subtitles.filter { it.url.isNotBlank() }.take(1) }
-
-            candidateSubs.forEach { sub ->
-                val localPath = downloadSubtitleLocally(sub.url, episode.id, sub.label, stream.headers)
-                downloadedSubs.add(
-                    JSONObject().apply {
-                        put("url", localPath)
-                        put("label", sub.label)
-                        put("isDefault", sub.isDefault)
-                    }
-                )
-            }
-
-            val headersObj = JSONObject().apply { stream.headers.forEach { (k, v) -> put(k, v) } }
-            val skipObjs = stream.skipIntervals.map { skip ->
-                JSONObject().apply {
-                    put("startTime", skip.startTime)
-                    put("endTime", skip.endTime)
-                    put("type", skip.type)
-                }
-            }
-
-            val payloadResult = buildOptimizedMetadataPayload(
-                animeTitle = animeTitle,
-                episodeNumber = episode.number,
-                episodeTitle = episode.title,
-                posterUrl = navPosterUrl,
-                subtitles = downloadedSubs,
-                headers = headersObj,
-                skipIntervals = skipObjs,
-                audioTrackType = stream.audioTrackType().name,
-                serverName = stream.serverName ?: stream.quality
-            )
-
-            if (payloadResult.wasSubtitlesTruncated) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Secondary subtitles truncated to fit download limits.", Toast.LENGTH_SHORT).show()
-                }
-            }
-
-            val isM3u8 = stream.isM3U8 || stream.url.contains(".m3u8", ignoreCase = true)
-            if (isM3u8) {
-                val referer = stream.headers["Referer"] ?: "https://megaplay.buzz/"
-                val origin = stream.headers["Origin"] ?: referer
-                val host = Uri.parse(stream.url).host.orEmpty()
-                com.zenx.yugen.play.di.DownloadModule.registerDownloadHeaders(host, referer, origin)
-
-                val secureStreamUrl = "${stream.url}${if(stream.url.contains("?")) "&" else "?"}y_ref=${Uri.encode(referer)}&y_ori=${Uri.encode(origin)}"
-
-                val streamKeys = resolveStreamKeysForQuality(stream.url, stream.headers, preferredQuality)
-
-                val requestBuilder = DownloadRequest.Builder(episode.id, secureStreamUrl.toUri())
-                    .setMimeType(MimeTypes.APPLICATION_M3U8)
-                    .setData(payloadResult.data)
-
-                if (streamKeys.isNotEmpty()) {
-                    requestBuilder.setStreamKeys(streamKeys)
-                }
-
-                val request = requestBuilder.build()
-
-                DownloadService.sendAddDownload(context, VideoDownloadService::class.java, request, false)
-            } else {
-                val headersJson = JSONObject().apply {
-                    stream.headers.forEach { (k, v) -> put(k, v) }
-                }.toString()
-
-                val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.zenx.yugen.play.worker.Mp4DownloadWorker>()
-                    .setInputData(
-                        androidx.work.workDataOf(
-                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_ID to episode.id,
-                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_EPISODE_ID to episode.id,
-                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_ANIME_TITLE to animeTitle,
-                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_EPISODE_NUMBER to episode.number,
-                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_POSTER_URL to navPosterUrl,
-                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_VIDEO_URL to stream.url,
-                            com.zenx.yugen.play.worker.Mp4DownloadWorker.KEY_HEADERS_JSON to headersJson
-                        )
-                    )
-                    .build()
-                androidx.work.WorkManager.getInstance(context).enqueue(workRequest)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Queued MP4 download: Episode ${episode.number}", Toast.LENGTH_SHORT).show()
-                }
-            }
-        } finally {
-            _preparingDownloads.update { it - episode.id }
-        }
-    }
-
-    private suspend fun resolveStreamKeysForQuality(
-        masterUrl: String,
-        headers: Map<String, String>,
-        preferredQuality: String
-    ): List<StreamKey> = withContext(Dispatchers.IO) {
-        try {
-            val reqBuilder = okhttp3.Request.Builder().url(masterUrl)
-            headers.forEach { (k, v) ->
-                if (k.isNotBlank() && v.isNotBlank()) reqBuilder.addHeader(k, v)
-            }
-            if (!headers.containsKey("User-Agent")) {
-                reqBuilder.addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            }
-            val req = reqBuilder.build()
-
-            okHttpClient.newCall(req).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
-                val byteStream = response.body?.byteStream() ?: return@withContext emptyList()
-                val playlist = HlsPlaylistParser().parse(Uri.parse(masterUrl), byteStream)
-                if (playlist !is HlsMultivariantPlaylist || playlist.variants.isEmpty()) {
-                    return@withContext emptyList()
-                }
-
-                val targetHeight = when {
-                    preferredQuality.contains("1080") -> 1080
-                    preferredQuality.contains("720") -> 720
-                    preferredQuality.contains("480") -> 480
-                    preferredQuality.contains("360") -> 360
-                    else -> -1 // "Best", "Auto", etc.
-                }
-
-                val chosenVariant = if (targetHeight > 0) {
-                    playlist.variants.find { it.format.height == targetHeight }
-                        ?: playlist.variants.filter { it.format.height <= targetHeight }.maxByOrNull { it.format.height }
-                        ?: playlist.variants.maxByOrNull { it.format.height }
-                        ?: playlist.variants.first()
-                } else {
-                    playlist.variants.maxByOrNull { it.format.height } ?: playlist.variants.first()
-                }
-
-                val vIndex = playlist.variants.indexOf(chosenVariant).takeIf { it != -1 } ?: 0
-                val keys = mutableListOf<StreamKey>()
-                keys.add(StreamKey(HlsMultivariantPlaylist.GROUP_INDEX_VARIANT, vIndex))
-
-                // Include ALL audio tracks so dual-audio / multi-track is preserved
-                for (aIdx in playlist.audios.indices) {
-                    keys.add(StreamKey(HlsMultivariantPlaylist.GROUP_INDEX_AUDIO, aIdx))
-                }
-
-                // Include all subtitle tracks
-                for (sIdx in playlist.subtitles.indices) {
-                    keys.add(StreamKey(HlsMultivariantPlaylist.GROUP_INDEX_SUBTITLE, sIdx))
-                }
-
-                keys
-            }
-        } catch (_: Exception) {
-            emptyList()
-        }
+        val quality = stream.quality.ifBlank { "Best" }
+        downloadQueueOrchestrator.enqueueResolvedStream(
+            episodeId = episode.id,
+            episodeNumber = episode.number,
+            episodeTitle = episode.title,
+            animeTitle = animeTitle,
+            posterUrl = navPosterUrl,
+            stream = stream,
+            preferredQuality = quality
+        )
     }
 
     fun showBatchDownloadSheet(preselectedEpisodeId: String? = null) {
@@ -869,65 +624,35 @@ class DetailViewModel @Inject constructor(
         if (episodes.isEmpty()) return
         hideBatchDownloadSheet()
 
-        externalScope.launch {
-            val toDownload = episodes.filter {
-                it.downloadState != DownloadState.COMPLETED &&
-                        it.downloadState != DownloadState.DOWNLOADING &&
-                        !it.isPreparing
-            }
-
-            if (toDownload.isEmpty()) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Selected episodes are already downloaded or queued.", Toast.LENGTH_SHORT).show()
-                }
-                return@launch
-            }
-
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Adding ${toDownload.size} episode(s) to download queue...", Toast.LENGTH_SHORT).show()
-            }
-
-            var queuedCount = 0
-            val sortedToDownload = toDownload.sortedBy { it.number.toFloatOrNull() ?: 0f }
-
-            for (ep in sortedToDownload) {
-                withContext(Dispatchers.IO) {
-                    val cached = streamDataCache.get(ep.id)
-                    val streams = if (cached != null) {
-                        cached
-                    } else {
-                        val res = getVideoStreamsUseCase(ep.id)
-                        if (res is Resource.Success) {
-                            res.data?.also { streamDataCache.set(ep.id, it) } ?: emptyList()
-                        } else emptyList()
-                    }
-
-                    if (streams.isNotEmpty()) {
-                        val resolved = streamResolverEngine.resolve(
-                            streams = streams,
-                            providerName = _activeProvider.value,
-                            preferDub = preferDub,
-                            preferredQuality = preferredQuality
-                        )
-
-                        if (resolved != null) {
-                            performEnqueueDownload(ep, resolved.primaryStream, preferredQuality)
-                            queuedCount++
-                            delay(400)
-                        }
-                    }
-                }
-            }
-
-            withContext(Dispatchers.Main) {
-                if (queuedCount > 0) {
-                    val countText = if (queuedCount == toDownload.size) "$queuedCount episode(s)" else "$queuedCount of ${toDownload.size} episode(s)"
-                    Toast.makeText(context, "Added $countText to download queue.", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "Failed to resolve streams for selected episodes.", Toast.LENGTH_SHORT).show()
-                }
-            }
+        val toDownload = episodes.filter {
+            it.downloadState != DownloadState.COMPLETED &&
+                    it.downloadState != DownloadState.DOWNLOADING &&
+                    !it.isPreparing
         }
+
+        if (toDownload.isEmpty()) {
+            Toast.makeText(context, "Selected episodes are already downloaded or queued.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Toast.makeText(context, "Adding ${toDownload.size} episode(s) to download queue...", Toast.LENGTH_SHORT).show()
+
+        val items = toDownload.map { ep ->
+            val parsedId = EpisodeId.parse(ep.id)
+            DownloadQueueItem(
+                mediaId = currentMediaId ?: animeId.toIntOrNull() ?: parsedId.cloudSyncMediaId,
+                episodeId = ep.id,
+                exactEpisodeNumber = ep.number.toFloatOrNull() ?: parsedId.episodeNumber,
+                exactSourceUrl = parsedId.sourceUrl,
+                animeTitle = animeTitle,
+                episodeTitle = ep.title,
+                posterUrl = navPosterUrl,
+                preferDub = preferDub,
+                preferredQuality = preferredQuality
+            )
+        }
+
+        downloadQueueOrchestrator.enqueueBatch(items, _activeProvider.value)
     }
 
     fun toggleFavorite() {
