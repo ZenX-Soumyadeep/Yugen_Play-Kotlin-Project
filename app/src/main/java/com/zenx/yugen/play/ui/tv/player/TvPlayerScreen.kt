@@ -21,6 +21,10 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.animateContentSize
@@ -1407,6 +1411,87 @@ private fun TvServerSidePanel(
                             }
                         }
                     }
+
+                    if (state.streams.size > 1) {
+                        item {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "SELECT SERVER MANUALLY",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp,
+                                modifier = Modifier.padding(bottom = 6.dp)
+                            )
+                        }
+
+                        items(state.streams) { stream ->
+                            val isSelected = stream.url == activeStream?.url
+                            val trackType = stream.audioTrackType()
+                            val serverLabel = stream.cleanServerName().ifBlank { stream.serverName ?: "Server" }
+                            val subtitle = buildString {
+                                append(trackType.label)
+                                if (stream.format.isNotBlank()) append(" • ").append(stream.format)
+                                if (stream.quality.isNotBlank()) append(" • ").append(stream.quality)
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .tvButtonFocusable(
+                                        onClick = {
+                                            if (stream.url != activeStream?.url) {
+                                                onSelectStream(stream)
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        focusedBackgroundColor = YugenPurple,
+                                        unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
+                                        focusedBorderColor = Color.White
+                                    )
+                                    .padding(horizontal = 16.dp, vertical = 13.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = serverLabel,
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(if (isSelected) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = trackType.badge,
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = subtitle,
+                                        color = Color.White.copy(alpha = 0.6f),
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                if (isSelected) {
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1965,14 +2050,20 @@ private fun TvEpisodeSidePanel(
     val panelFocusRequester = remember { FocusRequester() }
     val playingFocusRequester = remember { FocusRequester() }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    var isGridView by remember { mutableStateOf(true) }
     
     val playingIndex = remember(state.currentEpisodeId, state.episodes) {
         state.episodes.indexOfFirst { it.id == state.currentEpisodeId }.coerceAtLeast(0)
     }
 
-    LaunchedEffect(playingIndex) {
+    LaunchedEffect(playingIndex, isGridView) {
         if (playingIndex > 0) {
-            listState.scrollToItem((playingIndex - 1).coerceAtLeast(0))
+            if (isGridView) {
+                gridState.scrollToItem((playingIndex - 4).coerceAtLeast(0))
+            } else {
+                listState.scrollToItem((playingIndex - 1).coerceAtLeast(0))
+            }
         }
         delay(120)
         try {
@@ -2019,163 +2110,216 @@ private fun TvEpisodeSidePanel(
                         Text("${state.episodes.size}", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
-                Box(
-                    modifier = Modifier
-                        .focusRequester(panelFocusRequester)
-                        .tvButtonFocusable(
-                            onClick = onClose,
-                            shape = CircleShape,
-                            focusedBackgroundColor = YugenPurple,
-                            unfocusedBackgroundColor = Color.White.copy(alpha = 0.15f),
-                            focusedBorderColor = Color.White
-                        )
-                        .size(44.dp),
-                    contentAlignment = Alignment.Center
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
+                    // View Mode Switcher: Grid vs List
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(YugenOverlayLight)
+                            .padding(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .tvButtonFocusable(
+                                    onClick = { isGridView = true },
+                                    shape = RoundedCornerShape(6.dp),
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = if (isGridView) YugenPurple.copy(alpha = 0.45f) else Color.Transparent,
+                                    focusedBorderColor = Color.White,
+                                    unfocusedBorderColor = if (isGridView) YugenPurple else Color.Transparent
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.GridView,
+                                contentDescription = "Grid View",
+                                tint = if (isGridView) Color.White else Color.White.copy(alpha = 0.6f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .tvButtonFocusable(
+                                    onClick = { isGridView = false },
+                                    shape = RoundedCornerShape(6.dp),
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = if (!isGridView) YugenPurple.copy(alpha = 0.45f) else Color.Transparent,
+                                    focusedBorderColor = Color.White,
+                                    unfocusedBorderColor = if (!isGridView) YugenPurple else Color.Transparent
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.List,
+                                contentDescription = "List View",
+                                tint = if (!isGridView) Color.White else Color.White.copy(alpha = 0.6f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    // Close Button
+                    Box(
+                        modifier = Modifier
+                            .focusRequester(panelFocusRequester)
+                            .tvButtonFocusable(
+                                onClick = onClose,
+                                shape = CircleShape,
+                                focusedBackgroundColor = YugenPurple,
+                                unfocusedBackgroundColor = Color.White.copy(alpha = 0.15f),
+                                focusedBorderColor = Color.White
+                            )
+                            .size(38.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                itemsIndexed(state.episodes, key = { _, ep -> ep.id }) { index, ep ->
-                    val isSelected = ep.id == state.currentEpisodeId
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(if (isSelected) Modifier.focusRequester(playingFocusRequester) else Modifier)
-                            .tvButtonFocusable(
-                                onClick = { onSelectEpisode(ep) },
-                                shape = RoundedCornerShape(12.dp),
-                                focusedBackgroundColor = YugenPurple,
-                                unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.22f) else YugenGlassSurfaceLight,
-                                focusedBorderColor = Color.White
-                            )
-                            .padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        val imageUrl = ep.thumbnail
+            if (isGridView) {
+                // --- GRID VIEW (DEFAULT) ---
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(4),
+                    state = gridState,
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    gridItemsIndexed(state.episodes, key = { _, ep -> ep.id }) { index, ep ->
+                        val isSelected = ep.id == state.currentEpisodeId
                         Box(
                             modifier = Modifier
-                                .size(width = 100.dp, height = 58.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(YugenCardSurface)
-                        ) {
-                            if (!imageUrl.isNullOrBlank()) {
-                                coil.compose.AsyncImage(
-                                    model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                                        .data(imageUrl)
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = "Thumbnail",
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .then(if (isSelected) Modifier.focusRequester(playingFocusRequester) else Modifier)
+                                .tvButtonFocusable(
+                                    onClick = { onSelectEpisode(ep) },
+                                    shape = RoundedCornerShape(10.dp),
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.32f) else YugenGlassSurfaceLight,
+                                    focusedBorderColor = Color.White,
+                                    unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.7f) else Color.Transparent
                                 )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            Brush.linearGradient(
-                                                listOf(Color(0xFF2E1065), YugenIndigoDark)
-                                            )
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        Icons.Rounded.PlayArrow,
-                                        contentDescription = null,
-                                        tint = Color.White.copy(alpha = 0.45f),
-                                        modifier = Modifier.size(22.dp)
+                                .padding(horizontal = 4.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                if (isSelected) {
+                                    Text(
+                                        text = "PLAYING",
+                                        color = YugenAccentViolet,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Black,
+                                        letterSpacing = 0.5.sp
                                     )
                                 }
-                            }
-                            
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(4.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color.Black.copy(alpha = 0.75f))
-                                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
-                            ) {
                                 Text(
                                     text = "EP ${ep.formattedNumber}",
-                                    color = Color.White,
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Bold
+                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.92f),
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold
                                 )
                             }
-
-                            if (isSelected) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(YugenPurple.copy(alpha = 0.45f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
-                                }
-                            }
                         }
-
+                    }
+                }
+            } else {
+                // --- LIST VIEW ---
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(state.episodes, key = { _, ep -> ep.id }) { index, ep ->
+                        val isSelected = ep.id == state.currentEpisodeId
                         val subtitle = com.zenx.yugen.play.ui.player.components.shared.EpisodeTitleFormatter.extractSubtitle(
                             number = ep.number,
                             rawTitle = ep.title
                         )
 
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(if (isSelected) Modifier.focusRequester(playingFocusRequester) else Modifier)
+                                .tvButtonFocusable(
+                                    onClick = { onSelectEpisode(ep) },
+                                    shape = RoundedCornerShape(10.dp),
+                                    focusedBackgroundColor = YugenPurple,
+                                    unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.22f) else YugenGlassSurfaceLight,
+                                    focusedBorderColor = Color.White,
+                                    unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.6f) else Color.Transparent
+                                )
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Row(
+                                modifier = Modifier.weight(1f),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isSelected) YugenPurple else YugenOverlayMedium)
+                                        .padding(horizontal = 7.dp, vertical = 2.5.dp)
+                                ) {
+                                    Text(
+                                        text = "EP ${ep.formattedNumber}",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                if (subtitle != null) {
+                                    Text(
+                                        text = subtitle,
+                                        color = if (isSelected) Color.White else Color.White.copy(alpha = 0.88f),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            if (isSelected) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(4.dp))
                                             .background(YugenPurple)
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            .padding(horizontal = 5.dp, vertical = 2.dp)
                                     ) {
                                         Text(
                                             text = "PLAYING",
                                             color = Color.White,
-                                            fontSize = 9.sp,
+                                            fontSize = 8.5.sp,
                                             fontWeight = FontWeight.ExtraBold,
                                             letterSpacing = 0.5.sp
                                         )
                                     }
+                                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                                 }
-                                Text(
-                                    text = "Episode ${ep.formattedNumber}",
-                                    color = if (isSelected) Color.White else if (subtitle != null) Color.White.copy(alpha = 0.65f) else Color.White,
-                                    fontSize = if (subtitle != null) 12.sp else 14.sp,
-                                    fontWeight = if (subtitle != null) FontWeight.Medium else FontWeight.Bold
-                                )
                             }
-
-                            if (subtitle != null) {
-                                Text(
-                                    text = subtitle,
-                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.92f),
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-
-                        if (isSelected) {
-                            Icon(Icons.Rounded.CheckCircle, contentDescription = "Current", tint = YugenPurple, modifier = Modifier.size(20.dp))
                         }
                     }
                 }

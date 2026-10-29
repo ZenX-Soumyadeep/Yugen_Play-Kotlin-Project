@@ -6,14 +6,14 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.zenx.yugen.play.ui.theme.YugenBackground
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -114,47 +114,17 @@ fun TvMainScreen(
     // Hide rail on full-screen media detail and player
     val showRail = currentRoute?.startsWith("detail") != true && currentRoute?.startsWith("player") != true
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(YugenBackground)
     ) {
-        // Left Docked Collapsing Navigation Rail
-        AnimatedVisibility(
-            visible = showRail,
-            enter = fadeIn(tween(200)),
-            exit = fadeOut(tween(150))
-        ) {
-            TvNavigationRail(
-                selectedRoute = activeRailRoute,
-                onSelectRoute = { route ->
-                    if (activeRailRoute != route) {
-                        navController.navigate(route) {
-                            popUpTo("home") {
-                                saveState = true
-                            }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    }
-                },
-                userAvatarUrl = if (authState.isAuthenticated) authState.avatarUrl else null,
-                userName = if (authState.isAuthenticated) authState.username else null,
-                onProfileClick = {
-                    if (activeRailRoute != "profile") {
-                        navController.navigate("profile") {
-                            launchSingleTop = true
-                        }
-                    }
-                }
-            )
-        }
-
-        // TV Main Content Area
+        // TV Main Content Area with stable width (rail collapsed width is 68dp)
+        val contentPaddingStart = if (showRail) 68.dp else 0.dp
         Box(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
+                .fillMaxSize()
+                .padding(start = contentPaddingStart)
         ) {
             NavHost(
                 navController = navController,
@@ -319,6 +289,54 @@ fun TvMainScreen(
                     )
                 }
             }
+        }
+
+        // Left Docked Collapsing Navigation Rail (Overlays over margin on focus)
+        AnimatedVisibility(
+            visible = showRail,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(150)),
+            modifier = Modifier.align(Alignment.CenterStart)
+        ) {
+            TvNavigationRail(
+                selectedRoute = activeRailRoute,
+                onSelectRoute = { route ->
+                    if (activeRailRoute != route) {
+                        if (route == TvNavItem.Home.route) {
+                            if (!navController.popBackStack(TvNavItem.Home.route, inclusive = false)) {
+                                navController.navigate(route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        } else {
+                            navController.navigate(route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    }
+                },
+                userAvatarUrl = if (authState.isAuthenticated) authState.avatarUrl else null,
+                userName = if (authState.isAuthenticated) authState.username else null,
+                onProfileClick = {
+                    if (activeRailRoute != "profile") {
+                        navController.navigate("profile") {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                }
+            )
         }
     }
 

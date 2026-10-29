@@ -1,13 +1,13 @@
 package com.zenx.yugen.play.data.remote
 
 import android.util.Log
+import android.util.LruCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,8 +31,9 @@ private const val ANIZIP_BASE_URL = "https://api.ani.zip/mappings?anilist_id="
 class EpisodeMetadataService @Inject constructor(
     private val okHttpClient: OkHttpClient
 ) {
-    private val cache = ConcurrentHashMap<Int, Map<Int, ExternalEpisodeMeta>>()
-    private val aliasTitlesCache = ConcurrentHashMap<Int, List<String>>()
+    private val cache = object : LruCache<Int, Map<Int, ExternalEpisodeMeta>>(100) {}
+    private val aliasTitlesCache = object : LruCache<Int, List<String>>(100) {}
+    private val cacheLock = Any()
 
     private val metadataClient by lazy {
         okHttpClient.newBuilder()
@@ -54,7 +55,7 @@ class EpisodeMetadataService @Inject constructor(
                 val result = metadataClient.newCall(request).execute().use { response ->
                     if (response.code == 404) return null
                     if (!response.isSuccessful) return@use null
-                    response.body.string()
+                    response.body?.string()
                 }
 
                 if (!result.isNullOrBlank()) return result
@@ -124,7 +125,7 @@ class EpisodeMetadataService @Inject constructor(
     }
 
     suspend fun getMetadata(anilistId: Int): Map<Int, ExternalEpisodeMeta> = withContext(Dispatchers.IO) {
-        val cached = cache[anilistId]
+        val cached = synchronized(cacheLock) { cache.get(anilistId) }
         if (!cached.isNullOrEmpty()) {
             return@withContext cached
         }
@@ -143,7 +144,9 @@ class EpisodeMetadataService @Inject constructor(
                 titlesObj.optString("en").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }?.let { aliases.add(it) }
                 titlesObj.optString("ja").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }?.let { aliases.add(it) }
                 if (aliases.isNotEmpty()) {
-                    aliasTitlesCache[anilistId] = aliases.distinct()
+                    synchronized(cacheLock) {
+                        aliasTitlesCache.put(anilistId, aliases.distinct())
+                    }
                 }
             }
 
@@ -181,7 +184,9 @@ class EpisodeMetadataService @Inject constructor(
             }
 
             if (result.isNotEmpty()) {
-                cache[anilistId] = result
+                synchronized(cacheLock) {
+                    cache.put(anilistId, result)
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed parsing AniZip metadata response for ID: $anilistId", e)
@@ -191,12 +196,13 @@ class EpisodeMetadataService @Inject constructor(
     }
 
     fun getCachedAliasTitles(anilistId: Int): List<String> {
-        return aliasTitlesCache[anilistId].orEmpty()
+        return synchronized(cacheLock) { aliasTitlesCache.get(anilistId) }.orEmpty()
     }
 
     suspend fun getAliasTitles(anilistId: Int): List<String> = withContext(Dispatchers.IO) {
-        aliasTitlesCache[anilistId]?.let { return@withContext it }
+        val cached = synchronized(cacheLock) { aliasTitlesCache.get(anilistId) }
+        if (!cached.isNullOrEmpty()) return@withContext cached
         getMetadata(anilistId)
-        return@withContext aliasTitlesCache[anilistId].orEmpty()
+        return@withContext synchronized(cacheLock) { aliasTitlesCache.get(anilistId) }.orEmpty()
     }
 }

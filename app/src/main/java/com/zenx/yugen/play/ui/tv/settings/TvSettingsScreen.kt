@@ -405,6 +405,7 @@ fun TvSettingsScreen(
                                         Box(
                                             modifier = Modifier
                                                 .weight(1f)
+                                                .defaultMinSize(minHeight = 40.dp)
                                                 .tvButtonFocusable(
                                                     onClick = { viewModel.setSeekDuration(seconds) },
                                                     shape = YugenShape.sm,
@@ -480,6 +481,7 @@ fun TvSettingsScreen(
                                             Box(
                                                 modifier = Modifier
                                                     .weight(1f)
+                                                    .defaultMinSize(minHeight = 40.dp)
                                                     .tvButtonFocusable(
                                                         onClick = { viewModel.setSubtitleSize(size) },
                                                         shape = YugenShape.sm,
@@ -536,6 +538,7 @@ fun TvSettingsScreen(
                                             Box(
                                                 modifier = Modifier
                                                     .weight(1f)
+                                                    .defaultMinSize(minHeight = 40.dp)
                                                     .tvButtonFocusable(
                                                         onClick = { viewModel.setSubtitleBgOpacity(opacity) },
                                                         shape = YugenShape.sm,

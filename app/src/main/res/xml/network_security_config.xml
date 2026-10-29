@@ -5,6 +5,4 @@
         <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="false">localhost</domain>
     </domain-config>
-
-    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

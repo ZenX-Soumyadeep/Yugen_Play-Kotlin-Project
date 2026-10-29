@@ -11,6 +11,8 @@ import androidx.media3.exoplayer.offline.DownloadService
 import com.zenx.yugen.play.data.local.AuthPreferences
 import com.zenx.yugen.play.data.local.FavoriteDao
 import com.zenx.yugen.play.data.local.FavoriteEntity
+import com.zenx.yugen.play.data.local.Mp4DownloadDao
+import com.zenx.yugen.play.data.local.PlayerPreferences
 import com.zenx.yugen.play.data.local.WatchHistoryDao
 import com.zenx.yugen.play.data.local.WatchHistoryEntity
 import com.zenx.yugen.play.data.remote.AnilistService
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -51,7 +54,9 @@ class LibraryViewModel @Inject constructor(
     private val watchHistoryDao: WatchHistoryDao,
     private val authPreferences: AuthPreferences,
     private val downloadTracker: DownloadTracker,
+    private val mp4DownloadDao: Mp4DownloadDao,
     private val anilistService: AnilistService,
+    private val playerPreferences: PlayerPreferences,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -60,23 +65,36 @@ class LibraryViewModel @Inject constructor(
     val favorites: StateFlow<List<FavoriteEntity>> = favoriteDao.getAllFavorites()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val watchHistory: StateFlow<List<WatchHistoryEntity>> = watchHistoryDao.getAllHistory()
-        .map { list ->
-            val valid = list.filter { item ->
-                item.progressMs > 0L && (item.durationMs <= 0L || (item.progressMs.toFloat() / item.durationMs.toFloat()) < 0.85f)
+    val watchHistory: StateFlow<List<WatchHistoryEntity>> = combine(
+        watchHistoryDao.getAllHistory(),
+        playerPreferences.dismissedContinueWatchingSeries
+    ) { list, dismissedSeries ->
+        val valid = list.filter { item ->
+            val hasProgress = item.progressMs > 0L && (item.durationMs <= 0L || (item.progressMs.toFloat() / item.durationMs.toFloat()) < 0.85f)
+            if (!hasProgress) return@filter false
+
+            val anilistKey = item.anilistId?.let { "anilist_$it" }
+            val titleKey = "title_${com.zenx.yugen.play.util.StringUtils.normalizeSeasonKey(item.animeTitle)}"
+
+            val isDismissed = if (anilistKey != null) {
+                anilistKey in dismissedSeries
+            } else {
+                titleKey in dismissedSeries
             }
-            val groupedByAnime = valid.groupBy { item ->
-                item.anilistId?.let { "anilist_$it" }
-                    ?: "title_${com.zenx.yugen.play.util.StringUtils.normalizeTitleForComparison(item.animeTitle)}"
-            }
-            groupedByAnime.values.mapNotNull { group ->
-                group.maxWithOrNull(
-                    compareBy<WatchHistoryEntity> {
-                        com.zenx.yugen.play.domain.EpisodeId.parse(it.episodeId).episodeNumber
-                    }.thenBy { it.lastWatchedAt }
-                )
-            }.sortedByDescending { it.lastWatchedAt }
+            !isDismissed
         }
+        val groupedByAnime = valid.groupBy { item ->
+            item.anilistId?.let { "anilist_$it" }
+                ?: "title_${com.zenx.yugen.play.util.StringUtils.normalizeSeasonKey(item.animeTitle)}"
+        }
+        groupedByAnime.values.mapNotNull { group ->
+            group.maxWithOrNull(
+                compareBy<WatchHistoryEntity> {
+                    com.zenx.yugen.play.domain.EpisodeId.parse(it.episodeId).episodeNumber
+                }.thenBy { it.lastWatchedAt }
+            )
+        }.sortedByDescending { it.lastWatchedAt }
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _anilistData = MutableStateFlow<Map<String, List<AnilistListEntry>>>(emptyMap())
@@ -104,12 +122,12 @@ class LibraryViewModel @Inject constructor(
         observeDownloads()
     }
 
-    // L-12: Reactive subscription to DownloadTracker.downloads instead of duplicate DownloadManager.Listener
+    // Reactive subscription to both HLS (DownloadTracker) and MP4 downloads
     private fun observeDownloads() {
         viewModelScope.launch(Dispatchers.Default) {
-            downloadTracker.downloads.collect { downloadsMap ->
+            combine(downloadTracker.downloads, mp4DownloadDao.getAllDownloads()) { downloadsMap, mp4List ->
                 pendingDeletionIds.retainAll(downloadsMap.keys)
-                val completedList = downloadsMap.values
+                val hlsList = downloadsMap.values
                     .filter { it.state == Download.STATE_COMPLETED && it.request.id !in pendingDeletionIds }
                     .mapNotNull { dl ->
                         try {
@@ -127,7 +145,24 @@ class LibraryViewModel @Inject constructor(
                             null
                         }
                     }
-                _downloads.value = completedList
+
+                val mp4Completed = mp4List
+                    .filter { it.state == "COMPLETED" && it.id !in pendingDeletionIds }
+                    .map { mp4 ->
+                        val epNumStr = if (mp4.episodeNumber % 1f == 0f) mp4.episodeNumber.toInt().toString() else mp4.episodeNumber.toString()
+                        OfflineEpisode(
+                            id = mp4.id,
+                            animeTitle = mp4.animeTitle,
+                            episodeTitle = "Episode $epNumStr",
+                            episodeNumber = epNumStr,
+                            posterUrl = mp4.posterUrl,
+                            sizeMb = mp4.bytesDownloaded / (1024 * 1024)
+                        )
+                    }
+
+                (hlsList + mp4Completed).distinctBy { it.id }
+            }.collect { combinedList ->
+                _downloads.value = combinedList
             }
         }
     }
@@ -173,11 +208,38 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun deleteHistoryItem(episodeId: String) {
-        viewModelScope.launch { watchHistoryDao.deleteHistoryItem(episodeId) }
+        viewModelScope.launch(Dispatchers.IO) {
+            if (episodeId.startsWith("CLOUD_SYNC_")) {
+                val mediaId = episodeId.split("_").getOrNull(2)
+                if (mediaId != null) {
+                    playerPreferences.addDismissedContinueWatchingSeries(listOf("anilist_$mediaId"))
+                }
+            } else {
+                val item = watchHistoryDao.getProgressForEpisode(episodeId)
+                if (item != null) {
+                    // Delete all episodes for this anime/season so lower episodes don't loop or resurrect
+                    if (item.anilistId != null) {
+                        watchHistoryDao.deleteHistoryForAnilistId(item.anilistId)
+                        playerPreferences.addDismissedContinueWatchingSeries(listOf("anilist_${item.anilistId}"))
+                    } else {
+                        watchHistoryDao.deleteHistoryForAnime(item.animeTitle)
+                        playerPreferences.addDismissedContinueWatchingSeries(
+                            listOf("title_${com.zenx.yugen.play.util.StringUtils.normalizeSeasonKey(item.animeTitle)}")
+                        )
+                    }
+                    watchHistoryDao.deleteHistoryItem(episodeId)
+                } else {
+                    watchHistoryDao.deleteHistoryItem(episodeId)
+                }
+            }
+        }
     }
 
     fun clearAllHistory() {
-        viewModelScope.launch { watchHistoryDao.clearAllHistory() }
+        viewModelScope.launch(Dispatchers.IO) {
+            watchHistoryDao.clearAllHistory()
+            playerPreferences.clearDismissedContinueWatchingSeries()
+        }
     }
 
     fun deleteDownload(episodeId: String) {

@@ -8,10 +8,12 @@ import java.io.InputStream
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
+import java.net.URI
 import java.net.URL
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -191,8 +193,7 @@ object CastProxy {
                 val targetUrl = URLDecoder.decode(path.substringAfter("url="), "UTF-8")
                 val out = safeClient.getOutputStream()
 
-                val hostLower = targetUrl.lowercase()
-                if (hostLower.startsWith("http://127.") || hostLower.startsWith("http://localhost") || hostLower.startsWith("http://192.168.") || hostLower.startsWith("http://10.")) {
+                if (isBlockedHost(targetUrl)) {
                     out.write("HTTP/1.1 403 Forbidden\r\n\r\n".toByteArray())
                     out.flush()
                     return
@@ -201,10 +202,12 @@ object CastProxy {
                 if (targetUrl.startsWith("file://") || targetUrl.startsWith("file:")) {
                     val rawPath = targetUrl.removePrefix("file://").removePrefix("file:")
                     val file = File(rawPath).canonicalFile
+                    val isSubtitleFile = (file.name.endsWith(".vtt", ignoreCase = true) || file.name.endsWith(".ass", ignoreCase = true))
                     val isForbidden = file.path.contains("/databases/") ||
                             file.path.contains("/shared_prefs/") ||
                             file.name.endsWith(".db", ignoreCase = true) ||
-                            file.name.endsWith(".xml", ignoreCase = true)
+                            file.name.endsWith(".xml", ignoreCase = true) ||
+                            !isSubtitleFile
 
                     if (!isForbidden && file.exists() && file.isFile && file.length() <= MAX_PAYLOAD_SIZE) {
                         val bytes = file.readBytes()
@@ -377,5 +380,24 @@ object CastProxy {
             }
         } catch (_: Exception) {}
         return null
+    }
+
+    private fun isBlockedHost(targetUrl: String): Boolean {
+        if (targetUrl.startsWith("file://", ignoreCase = true) || targetUrl.startsWith("file:", ignoreCase = true)) {
+            return false
+        }
+        return try {
+            val uri = URI(targetUrl)
+            val host = uri.host ?: return true
+            if (host.equals("localhost", ignoreCase = true)) return true
+            val address = InetAddress.getByName(host)
+            address.isLoopbackAddress ||
+                    address.isSiteLocalAddress ||
+                    address.isLinkLocalAddress ||
+                    address.isAnyLocalAddress ||
+                    address.isMulticastAddress
+        } catch (_: Exception) {
+            true
+        }
     }
 }

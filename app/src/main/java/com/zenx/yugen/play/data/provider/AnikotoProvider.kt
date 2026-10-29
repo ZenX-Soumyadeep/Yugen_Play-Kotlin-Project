@@ -73,7 +73,8 @@ class AnikotoProvider(
 
                 return client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) return@use emptyList<SearchResult>()
-                    val html = response.body.string()
+                    val html = response.body?.string().orEmpty()
+                    if (html.isBlank()) return@use emptyList<SearchResult>()
                     val doc = Jsoup.parse(html)
 
                     doc.select("div.ani.items > div.item").mapNotNull { element ->
@@ -130,7 +131,8 @@ class AnikotoProvider(
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@use emptyList<Episode>()
-                val html = response.body.string()
+                val html = response.body?.string().orEmpty()
+                if (html.isBlank()) return@use emptyList<Episode>()
                 val doc = Jsoup.parse(html)
 
                 title = doc.selectFirst(".name")?.text().orEmpty()
@@ -174,7 +176,7 @@ class AnikotoProvider(
                 try {
                     client.newCall(epsRequest).execute().use { response ->
                         if (!response.isSuccessful) return@use
-                        val jsonStr = response.body.string()
+                        val jsonStr = response.body?.string().orEmpty()
                         if (jsonStr.isBlank()) return@use
 
                         try {
@@ -304,7 +306,8 @@ class AnikotoProvider(
 
             client.newCall(req).execute().use { response ->
                 if (response.isSuccessful) {
-                    val jsonStr = response.body.string()
+                    val jsonStr = response.body?.string().orEmpty()
+                    if (jsonStr.isBlank()) return@use
                     val htmlContent = try {
                         val jsonNative = JSONObject(jsonStr)
                         jsonNative.optString("result").ifEmpty { jsonNative.optString("html") }
@@ -382,7 +385,8 @@ class AnikotoProvider(
 
                 client.newCall(req).execute().use { response ->
                     if (response.isSuccessful) {
-                        val jsonStr = response.body.string()
+                        val jsonStr = response.body?.string().orEmpty()
+                        if (jsonStr.isBlank()) return@use
                         val mapperObj = json.parseToJsonElement(jsonStr).jsonObject
 
                         mapperObj.keys.filter { !it.equals("status", true) }.forEach { key ->

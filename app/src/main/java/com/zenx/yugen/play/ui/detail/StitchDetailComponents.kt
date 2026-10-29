@@ -45,6 +45,8 @@ import com.zenx.yugen.play.domain.CharacterCast
 import com.zenx.yugen.play.domain.MediaRecommendation
 import com.zenx.yugen.play.domain.MediaRelation
 import com.zenx.yugen.play.domain.MediaTrailer
+import com.zenx.yugen.play.domain.SeasonCategory
+import com.zenx.yugen.play.domain.SeasonEntry
 import com.zenx.yugen.play.ui.components.bounceClick
 import com.zenx.yugen.play.ui.player.components.shared.EpisodeTitleFormatter
 import kotlinx.coroutines.Dispatchers
@@ -1139,6 +1141,11 @@ fun StitchEpisodesTab(
     onDownloadsClick: () -> Unit,
     onEpisodeClick: (EpisodeUiModel) -> Unit,
     onDownloadClick: (EpisodeUiModel) -> Unit,
+    seasons: List<SeasonEntry> = emptyList(),
+    selectedSeason: SeasonEntry? = null,
+    selectedCategory: SeasonCategory = SeasonCategory.MAIN_SEASON,
+    onSeasonSelected: (SeasonEntry) -> Unit = {},
+    onCategorySelected: (SeasonCategory) -> Unit = {},
     onRetry: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -1156,7 +1163,77 @@ fun StitchEpisodesTab(
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Episode Range Chunks (Season/Chunk Selector)
+        // 1. Franchise Category & Season Selectors
+        val availableCategories = remember(seasons) {
+            seasons.map { it.category }.distinct()
+        }
+        val currentCategorySeasons = remember(seasons, selectedCategory) {
+            seasons.filter { it.category == selectedCategory }
+        }
+
+        // Category Tabs (Seasons, Specials & OVAs, Movies)
+        if (availableCategories.size > 1) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(horizontal = 2.dp)
+            ) {
+                items(availableCategories) { cat ->
+                    val isCatSelected = cat == selectedCategory
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isCatSelected) dynamicColors.primaryAccent.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.05f))
+                            .border(
+                                width = 1.dp,
+                                color = if (isCatSelected) dynamicColors.primaryAccent else StitchTheme.TwilightBorder,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .bounceClick { onCategorySelected(cat) }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        Text(
+                            text = cat.displayName,
+                            color = if (isCatSelected) dynamicColors.primaryAccent else StitchTheme.TextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+
+        // Season Selector Chips ("Season 1", "Season 2 Part 1", "Season 2 Part 2", "Season 3", etc.)
+        if (currentCategorySeasons.size > 1) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(horizontal = 2.dp)
+            ) {
+                items(currentCategorySeasons, key = { it.id }) { seasonEntry ->
+                    val isSelected = seasonEntry.id == selectedSeason?.id
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(if (isSelected) dynamicColors.primaryAccent.copy(alpha = 0.25f) else Color.Transparent)
+                            .border(
+                                width = if (isSelected) 1.5.dp else 1.dp,
+                                color = if (isSelected) dynamicColors.primaryAccent else StitchTheme.TwilightBorder,
+                                shape = RoundedCornerShape(22.dp)
+                            )
+                            .bounceClick { onSeasonSelected(seasonEntry) }
+                            .padding(horizontal = 20.dp, vertical = 9.dp)
+                    ) {
+                        Text(
+                            text = seasonEntry.title,
+                            color = if (isSelected) dynamicColors.primaryAccent else StitchTheme.TextSecondary,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+
+        // Episode Range Chunks (for long seasons > 25 episodes)
         if (episodeChunks.size > 1) {
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1170,20 +1247,20 @@ fun StitchEpisodesTab(
 
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(Color.Transparent)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (isSelected) dynamicColors.primaryAccent.copy(alpha = 0.15f) else Color.Transparent)
                             .border(
                                 width = if (isSelected) 1.5.dp else 1.dp,
-                                color = if (isSelected) dynamicColors.primaryAccent else StitchTheme.TwilightBorder,
-                                shape = RoundedCornerShape(22.dp)
+                                color = if (isSelected) dynamicColors.primaryAccent else StitchTheme.TwilightBorder.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(16.dp)
                             )
                             .bounceClick { onChunkSelected(index) }
-                            .padding(horizontal = 22.dp, vertical = 9.dp)
+                            .padding(horizontal = 16.dp, vertical = 7.dp)
                     ) {
                         Text(
                             text = "$startNum - $endNum",
                             color = if (isSelected) dynamicColors.primaryAccent else StitchTheme.TextSecondary,
-                            fontSize = 12.5.sp,
+                            fontSize = 12.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                         )
                     }

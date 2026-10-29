@@ -3,6 +3,7 @@ package com.zenx.yugen.play.worker
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -23,6 +24,7 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 
 @HiltWorker
 class Mp4DownloadWorker @AssistedInject constructor(
@@ -64,6 +66,11 @@ class Mp4DownloadWorker @AssistedInject constructor(
         val tempFile = File(downloadDir, "EP_$epInt.mp4.tmp")
 
         createNotificationChannel()
+        try {
+            setForeground(createForegroundInfo("Downloading $animeTitle", "Episode $episodeNumber", 0, 0))
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to set foreground service: ${e.message}")
+        }
 
         var entity = mp4DownloadDao.getDownloadById(downloadId)
         if (entity == null) {
@@ -94,13 +101,20 @@ class Mp4DownloadWorker @AssistedInject constructor(
             } else null
         }
 
+        val existingBytes = if (tempFile.exists()) tempFile.length() else 0L
+
         try {
             val requestBuilder = Request.Builder().url(videoUrl)
+            if (existingBytes > 0L) {
+                requestBuilder.addHeader("Range", "bytes=$existingBytes-")
+            }
             if (!effectiveHeadersJson.isNullOrBlank()) {
                 try {
                     val jsonObj = JSONObject(effectiveHeadersJson)
                     jsonObj.keys().forEach { key ->
-                        requestBuilder.addHeader(key, jsonObj.getString(key))
+                        if (!key.equals("Range", ignoreCase = true)) {
+                            requestBuilder.addHeader(key, jsonObj.getString(key))
+                        }
                     }
                 } catch (_: Exception) {}
             }
@@ -113,13 +127,20 @@ class Mp4DownloadWorker @AssistedInject constructor(
                 return@withContext Result.retry()
             }
 
-            val body = response.body
-
-            val totalBytes = body.contentLength()
-            var downloadedBytes = 0L
+            val body = response.body ?: throw IOException("Empty response body from $videoUrl")
+            val isPartial = response.code == 206
+            val contentLength = body.contentLength()
+            val totalBytes = if (isPartial && contentLength > 0L) {
+                existingBytes + contentLength
+            } else if (contentLength > 0L) {
+                contentLength
+            } else {
+                entity.totalBytes
+            }
+            var downloadedBytes = if (isPartial) existingBytes else 0L
 
             body.byteStream().use { input ->
-                java.io.BufferedOutputStream(FileOutputStream(tempFile), 512 * 1024).use { output ->
+                java.io.BufferedOutputStream(FileOutputStream(tempFile, isPartial), 512 * 1024).use { output ->
                     val buffer = ByteArray(512 * 1024)
                     var read: Int
                     var lastUpdate = System.currentTimeMillis()
@@ -127,9 +148,8 @@ class Mp4DownloadWorker @AssistedInject constructor(
                     while (input.read(buffer).also { read = it } != -1) {
                         if (isStopped) {
                             output.flush()
-                            tempFile.delete()
                             mp4DownloadDao.updateProgress(downloadId, downloadedBytes, totalBytes, "PAUSED")
-                            return@withContext Result.success()
+                            return@withContext Result.retry()
                         }
 
                         output.write(buffer, 0, read)
@@ -158,10 +178,35 @@ class Mp4DownloadWorker @AssistedInject constructor(
             Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "Error downloading MP4: ${e.message}", e)
-            tempFile.delete()
-            mp4DownloadDao.updateProgress(downloadId, 0L, 0L, "FAILED")
+            if (!isStopped) {
+                tempFile.delete()
+                mp4DownloadDao.updateProgress(downloadId, 0L, 0L, "FAILED")
+            }
             clearNotification()
             Result.retry()
+        }
+    }
+
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        return createForegroundInfo("Downloading MP4", "Starting download...", 0, 0)
+    }
+
+    private fun createForegroundInfo(title: String, message: String, downloaded: Long, total: Long): ForegroundInfo {
+        createNotificationChannel()
+        val percent = if (total > 0) ((downloaded * 100) / total).toInt() else 0
+        val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setProgress(100, percent, total <= 0)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .build()
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(NOTIFICATION_ID, notification)
         }
     }
 

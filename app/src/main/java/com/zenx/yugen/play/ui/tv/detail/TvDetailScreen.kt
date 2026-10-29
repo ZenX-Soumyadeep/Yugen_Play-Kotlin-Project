@@ -38,7 +38,8 @@ import coil.request.ImageRequest
 import com.zenx.yugen.play.ui.components.premiumShimmerEffect
 import com.zenx.yugen.play.ui.detail.DetailViewModel
 import com.zenx.yugen.play.ui.detail.DetailsUiState
-import com.zenx.yugen.play.ui.detail.EpisodeUiModel
+import com.zenx.yugen.play.domain.SeasonCategory
+import com.zenx.yugen.play.domain.SeasonEntry
 import com.zenx.yugen.play.ui.tv.components.TvEpisodeCard
 import com.zenx.yugen.play.ui.tv.components.tvButtonFocusable
 import com.zenx.yugen.play.ui.tv.components.tvCardFocusable
@@ -66,6 +67,9 @@ fun TvDetailScreen(
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val episodeChunks by viewModel.episodes.collectAsStateWithLifecycle()
+    val seasons by viewModel.seasons.collectAsStateWithLifecycle()
+    val selectedSeason by viewModel.selectedSeason.collectAsStateWithLifecycle()
+    val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val resumeEpisode by viewModel.resumeEpisode.collectAsStateWithLifecycle()
     val defaultPreferDub by viewModel.defaultPreferDub.collectAsStateWithLifecycle(initialValue = false)
     val mappingSearchResults by viewModel.mappingSearchResults.collectAsStateWithLifecycle()
@@ -417,7 +421,7 @@ fun TvDetailScreen(
                                             .tvButtonFocusable(
                                                 onClick = {
                                                     targetEp?.let { ep ->
-                                                        onEpisodeClick(ep.id, state.animeUrl, state.activeProvider, viewModel.animeTitle, state.posterUrl, null, state.id, ep.number.toIntOrNull() ?: 1)
+                                                        onEpisodeClick(ep.id, state.animeUrl, state.activeProvider, viewModel.effectiveAnimeTitle, viewModel.effectivePosterUrl, null, viewModel.effectiveMediaId, ep.number.toIntOrNull() ?: 1)
                                                     }
                                                 },
                                                 shape = com.zenx.yugen.play.ui.theme.YugenShape.button,
@@ -767,11 +771,90 @@ fun TvDetailScreen(
                                     }
                                 }
 
-                                // Episode Chunks Selector using smooth horizontal LazyRow
+                                val availableCategories = remember(seasons) {
+                                    seasons.map { it.category }.distinct()
+                                }
+                                val currentCategorySeasons = remember(seasons, selectedCategory) {
+                                    seasons.filter { it.category == selectedCategory }
+                                }
+
+                                // 1. Franchise Categories (Seasons, Specials & OVAs, Movies)
+                                if (availableCategories.size > 1) {
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        items(availableCategories) { cat ->
+                                            val isCatSelected = cat == selectedCategory
+                                            Box(
+                                                modifier = Modifier
+                                                    .tvButtonFocusable(
+                                                        onClick = {
+                                                            viewModel.selectCategory(cat)
+                                                            selectedChunkIndex = 0
+                                                        },
+                                                        shape = com.zenx.yugen.play.ui.theme.YugenShape.md,
+                                                        focusedBackgroundColor = YugenPurple,
+                                                        unfocusedBackgroundColor = if (isCatSelected) YugenPurple.copy(alpha = 0.35f) else com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight,
+                                                        focusedBorderColor = YugenAccentViolet,
+                                                        unfocusedBorderColor = if (isCatSelected) YugenPurple else Color.White.copy(alpha = 0.12f)
+                                                    )
+                                                    .padding(horizontal = 16.dp, vertical = 7.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = cat.displayName,
+                                                    color = if (isCatSelected) Color.White else Color.White.copy(alpha = 0.7f),
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Medium
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 2. Seasons Row ("Season 1", "Season 2 Part 1", "Season 2 Part 2", "Season 3", etc.)
+                                if (currentCategorySeasons.size > 1) {
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        items(currentCategorySeasons, key = { it.id }) { seasonEntry ->
+                                            val isSelected = seasonEntry.id == selectedSeason?.id
+                                            Box(
+                                                modifier = Modifier
+                                                    .tvButtonFocusable(
+                                                        onClick = {
+                                                            viewModel.selectSeason(seasonEntry)
+                                                            selectedChunkIndex = 0
+                                                        },
+                                                        shape = com.zenx.yugen.play.ui.theme.YugenShape.pill,
+                                                        focusedBackgroundColor = YugenPurple,
+                                                        unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.35f) else com.zenx.yugen.play.ui.theme.YugenGlassSurfaceLight,
+                                                        focusedBorderColor = YugenAccentViolet,
+                                                        unfocusedBorderColor = if (isSelected) YugenPurple else Color.White.copy(alpha = 0.12f)
+                                                    )
+                                                    .padding(horizontal = 18.dp, vertical = 8.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = seasonEntry.title,
+                                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f),
+                                                    fontSize = 13.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 3. Episode Chunks Selector (for long seasons > 24 episodes)
                                 if (episodeChunks.size > 1) {
                                     LazyRow(
                                         horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+                                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         items(episodeChunks.indices.toList()) { index ->
@@ -798,13 +881,13 @@ fun TvDetailScreen(
                                                         focusedBorderColor = YugenAccentViolet,
                                                         unfocusedBorderColor = if (isSelected) YugenPurple.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.12f)
                                                     )
-                                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                                    .padding(horizontal = 16.dp, vertical = 7.dp),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
                                                     text = "$startNum - $endNum",
                                                     color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f),
-                                                    fontSize = 12.5.sp,
+                                                    fontSize = 12.sp,
                                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                                 )
                                             }
@@ -834,7 +917,7 @@ fun TvDetailScreen(
                                             episode = ep,
                                             fallbackImageUrl = state.bannerUrl.ifEmpty { state.posterUrl },
                                             onClick = {
-                                                onEpisodeClick(ep.id, state.animeUrl, state.activeProvider, viewModel.animeTitle, state.posterUrl, null, state.id, ep.number.toIntOrNull() ?: 1)
+                                                onEpisodeClick(ep.id, state.animeUrl, state.activeProvider, viewModel.effectiveAnimeTitle, viewModel.effectivePosterUrl, null, viewModel.effectiveMediaId, ep.number.toIntOrNull() ?: 1)
                                             },
                                             cardModifier = cardFocusModifier
                                         )

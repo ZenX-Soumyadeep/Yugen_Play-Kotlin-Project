@@ -80,30 +80,46 @@ class EpisodeSyncEngine @Inject constructor() {
         val mediaId = details.id.toIntOrNull() ?: 0
         val usedIds = mutableSetOf<String>()
 
-        // Build the canonical episode list (1..totalCount)
-        return (1..totalCount).map { epNum ->
-            val meta = externalMeta[epNum]
+        val canonicalNumbers: List<Float> = buildSet {
+            if (totalCount > 0) {
+                for (i in 1..totalCount) {
+                    add(i.toFloat())
+                }
+            }
+            // Include episode 0 and fractional/special episodes present in scraped data (e.g. 0f, 0.5f, 12.5f)
+            scrapedByFloatNum.keys.forEach { num ->
+                if (num >= 0f && (num % 1f != 0f || num == 0f || (num.toInt() in 1..totalCount))) {
+                    add(num)
+                }
+            }
+        }.sorted()
+
+        return canonicalNumbers.map { epFloat ->
+            val isWhole = epFloat % 1f == 0f
+            val epNum = epFloat.toInt()
+            val displayNum = if (isWhole) epNum.toString() else epFloat.toString()
+            val meta = if (isWhole) externalMeta[epNum] else null
 
             // Multi-layer episode reconciliation:
-            // 1. Direct match by exact episode number (int or float)
+            // 1. Direct match by exact episode number (float or int)
             // 2. Match by AniZip provider/TVDB episode number (e.g. 14 for Bleach Part 2)
             // 3. Match by AniZip absolute episode number (e.g. 380)
             // 4. Match by detected split-cour offset (epNum + offset)
             // 5. Strictly aligned index match on sorted list if counts match
-            val scrapedEp = scrapedByNum[epNum]
-                ?: scrapedByFloatNum[epNum.toFloat()]
+            val scrapedEp = scrapedByFloatNum[epFloat]
+                ?: (if (isWhole) scrapedByNum[epNum] else null)
                 ?: meta?.providerEpisodeNumber?.let { scrapedByNum[it] ?: scrapedByFloatNum[it.toFloat()] }
                 ?: meta?.absoluteEpisodeNumber?.let { scrapedByNum[it] ?: scrapedByFloatNum[it.toFloat()] }
                 ?: detectedOffset?.let { scrapedByNum[epNum + it] ?: scrapedByFloatNum[(epNum + it).toFloat()] }
-                ?: (if (sortedScraped.size == totalCount && epNum <= sortedScraped.size) sortedScraped[epNum - 1] else null)
+                ?: (if (sortedScraped.size == totalCount && epNum in 1..sortedScraped.size) sortedScraped[epNum - 1] else null)
 
-            val aniListEp = aniListByEpNum[epNum.toFloat()]
-                ?: (if (aniListByEpNum.isEmpty() && details.streamingEpisodes.size >= epNum) details.streamingEpisodes.getOrNull(epNum - 1) else null)
+            val aniListEp = aniListByEpNum[epFloat]
+                ?: (if (isWhole && aniListByEpNum.isEmpty() && details.streamingEpisodes.size >= epNum) details.streamingEpisodes.getOrNull(epNum - 1) else null)
 
             var rawTitle = meta?.title?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
                 ?: scrapedEp?.title?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) && !it.matches(fallbackEpisodeRegex) }
                 ?: aniListEp?.title?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-                ?: "Episode $epNum"
+                ?: "Episode $displayNum"
 
             rawTitle = rawTitle
                 .replace(episodePrefixRegex, "")
@@ -111,7 +127,7 @@ class EpisodeSyncEngine @Inject constructor() {
                 .trim()
 
             if (rawTitle.isBlank() || rawTitle.equals("Episode", ignoreCase = true) || rawTitle.equals("null", ignoreCase = true)) {
-                rawTitle = "Episode $epNum"
+                rawTitle = "Episode $displayNum"
             }
 
             val finalThumb = meta?.image?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
@@ -125,11 +141,11 @@ class EpisodeSyncEngine @Inject constructor() {
 
             val baseId = scrapedEp?.id ?: com.zenx.yugen.play.domain.EpisodeId.buildCloudSync(mediaId, epNum)
             // Guarantee 100% collision-free IDs across Compose LazyColumn items
-            val concreteId = if (usedIds.add(baseId)) baseId else "${baseId}__ep$epNum"
+            val concreteId = if (usedIds.add(baseId)) baseId else "${baseId}__ep$displayNum"
 
             EpisodeUiModel(
                 id = concreteId,
-                number = epNum.toString(),
+                number = displayNum,
                 title = rawTitle,
                 description = finalDesc,
                 thumbnailUrl = finalThumb,

@@ -35,3 +35,6 @@ Thumbs.db
 google-services.json
 secrets.properties
 file.md
+
+# AI Session Documentation (local only)
+.docs/

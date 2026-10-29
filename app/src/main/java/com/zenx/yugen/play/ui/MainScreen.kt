@@ -280,7 +280,9 @@ fun MainScreen(
                     },
                     onBackClick = { navController.popBackStack() },
                     onDownloadsClick = {
-                        navController.navigate(BottomNavItem.Downloads.route)
+                        navController.navigate(BottomNavItem.Downloads.route) {
+                            launchSingleTop = true
+                        }
                     },
                     onGenreClick = { genre ->
                         navController.navigate("search?genre=${Uri.encode(genre)}")
@@ -349,10 +351,20 @@ fun MainScreen(
                     currentRoute = activeTabRoute,
                     onItemClick = { route ->
                         if (activeTabRoute != route) {
-                            navController.navigate(route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
+                            if (route == BottomNavItem.Home.route) {
+                                val popped = navController.popBackStack(navController.graph.findStartDestination().id, inclusive = false)
+                                if (!popped) {
+                                    navController.navigate(route) {
+                                        popUpTo(navController.graph.findStartDestination().id) { inclusive = false }
+                                        launchSingleTop = true
+                                    }
+                                }
+                            } else {
+                                navController.navigate(route) {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
                             }
                         }
                     }

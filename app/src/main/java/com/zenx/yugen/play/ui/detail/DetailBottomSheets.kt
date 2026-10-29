@@ -524,6 +524,9 @@ fun BatchDownloadBottomSheet(
     var selectedQuality by remember { mutableStateOf("1080p") } // Best, 1080p, 720p, 480p, 360p
     var showProviderPopup by remember { mutableStateOf(false) }
     var showRangeDialog by remember { mutableStateOf(false) }
+    var selectedManualServer by remember { mutableStateOf("Auto (Recommended)") }
+    var showServerPopup by remember { mutableStateOf(false) }
+    val availableServers = remember(state.activeProvider) { viewModel.getAvailableServers() }
 
     val listState = rememberLazyListState()
 
@@ -955,6 +958,130 @@ fun BatchDownloadBottomSheet(
         }
     }
 
+    if (showServerPopup) {
+        Dialog(
+            onDismissRequest = { showServerPopup = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .clickable { showServerPopup = false },
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .clip(YugenShape.dialog)
+                        .background(YugenDialogSurface)
+                        .border(1.dp, YugenCardBorder, YugenShape.dialog)
+                        .clickable(enabled = false) {}
+                        .padding(20.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Select Download Server",
+                                color = TextPrimary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Choose stream server manually for downloads",
+                                color = TextMuted,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(YugenOverlayLight)
+                                .bounceClick { showServerPopup = false },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.Close,
+                                contentDescription = "Close",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(availableServers, key = { it }) { server ->
+                            val isSelected = selectedManualServer.equals(server, ignoreCase = true)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(YugenShape.card)
+                                    .background(if (isSelected) YugenPurple.copy(alpha = 0.15f) else YugenCardSurface)
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) YugenPurple.copy(alpha = 0.7f) else YugenCardBorder,
+                                        YugenShape.card
+                                    )
+                                    .bounceClick {
+                                        selectedManualServer = server
+                                        showServerPopup = false
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Dns,
+                                        contentDescription = null,
+                                        tint = if (isSelected) YugenPurple else TextSecondary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Column {
+                                        Text(
+                                            text = server,
+                                            color = if (isSelected) Color.White else TextPrimary,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            fontSize = 14.sp
+                                        )
+                                        if (server.contains("Auto", ignoreCase = true)) {
+                                            Text(
+                                                text = "Highest reliability score chosen automatically",
+                                                color = TextMuted,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+                                }
+                                if (isSelected) {
+                                    Icon(
+                                        Icons.Rounded.CheckCircle,
+                                        contentDescription = null,
+                                        tint = YugenPurple,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = { viewModel.hideBatchDownloadSheet() },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -1118,6 +1245,82 @@ fun BatchDownloadBottomSheet(
                                     Icons.Rounded.ChevronRight,
                                     contentDescription = null,
                                     tint = YugenPurple,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
+                        // Small "Select Server Manually" Option
+                        val isManual = !selectedManualServer.equals("Auto (Recommended)", ignoreCase = true) && !selectedManualServer.equals("Auto", ignoreCase = true)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(YugenShape.card)
+                                .background(if (isManual) YugenPurple.copy(alpha = 0.12f) else YugenCardSurface)
+                                .border(1.dp, if (isManual) YugenPurple.copy(alpha = 0.45f) else YugenCardBorder, YugenShape.card)
+                                .bounceClick { showServerPopup = true }
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isManual) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Dns,
+                                        contentDescription = null,
+                                        tint = if (isManual) YugenAccentViolet else TextSecondary,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        text = "Select Server Manually",
+                                        color = TextPrimary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = selectedManualServer,
+                                        color = if (isManual) YugenAccentViolet else TextMuted,
+                                        fontSize = 11.5.sp
+                                    )
+                                }
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (isManual) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(26.dp)
+                                            .clip(CircleShape)
+                                            .background(YugenOverlayLight)
+                                            .bounceClick { selectedManualServer = "Auto (Recommended)" },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.Close,
+                                            contentDescription = "Reset to Auto",
+                                            tint = TextMuted,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                    }
+                                }
+                                Icon(
+                                    Icons.Rounded.ChevronRight,
+                                    contentDescription = null,
+                                    tint = if (isManual) YugenAccentViolet else TextMuted,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -1614,7 +1817,8 @@ fun BatchDownloadBottomSheet(
                         viewModel.batchDownloadEpisodes(
                             episodes = selectedEpisodes,
                             preferDub = preferDub,
-                            preferredQuality = selectedQuality
+                            preferredQuality = selectedQuality,
+                            selectedServer = selectedManualServer.takeIf { !it.contains("Auto", ignoreCase = true) }
                         )
                     },
                     enabled = count > 0,

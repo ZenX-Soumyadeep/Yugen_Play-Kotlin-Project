@@ -20,6 +20,8 @@ class TvAuthServer(
     var serverPort: Int = 8765
         private set
 
+    val pairingPin: String = String.format(java.util.Locale.US, "%04d", java.util.Random().nextInt(10000))
+
     companion object {
         fun getLocalIpAddress(): String? {
             try {
@@ -42,6 +44,11 @@ class TvAuthServer(
     }
 
     fun getServerUrl(): String? {
+        val ip = getLocalIpAddress() ?: return null
+        return "http://$ip:$serverPort/?pin=$pairingPin"
+    }
+
+    fun getBaseServerUrl(): String? {
         val ip = getLocalIpAddress() ?: return null
         return "http://$ip:$serverPort"
     }
@@ -107,6 +114,8 @@ class TvAuthServer(
                 if (method.equals("GET", ignoreCase = true) && (path == "/" || path.startsWith("/?"))) {
                     sendHtmlResponse(writer)
                 } else if (method.equals("POST", ignoreCase = true) && path.startsWith("/submit-token")) {
+                    val queryPin = if (path.contains("pin=")) path.substringAfter("pin=").substringBefore("&").trim() else ""
+
                     if (contentLength !in 1..16384) {
                         sendJsonResponse(writer, 400, """{"success":false,"error":"Invalid payload size"}""")
                         return
@@ -121,6 +130,13 @@ class TvAuthServer(
                     val body = String(bodyBuilder, 0, read)
                     val rawToken = parseTokenFromBody(body)
                     val cleanToken = cleanTokenString(rawToken)
+                    val bodyPin = parsePinFromBody(body)
+                    val submittedPin = queryPin.ifBlank { bodyPin }
+
+                    if (submittedPin != pairingPin) {
+                        sendJsonResponse(writer, 401, """{"success":false,"error":"Invalid or missing pairing PIN. Please rescan the QR code on your TV."}""")
+                        return
+                    }
 
                     if (cleanToken.isNotBlank()) {
                         sendJsonResponse(writer, 200, """{"success":true,"message":"Token received"}""")
@@ -132,6 +148,15 @@ class TvAuthServer(
                     send404Response(writer)
                 }
             } catch (_: Exception) {}
+        }
+    }
+
+    private fun parsePinFromBody(body: String): String {
+        return try {
+            val json = JSONObject(body)
+            json.optString("pin", "").trim()
+        } catch (_: Exception) {
+            ""
         }
     }
 
@@ -298,6 +323,11 @@ class TvAuthServer(
                         </a>
                     </div>
 
+                    <div class="step-card" id="pinCard" style="display: none;">
+                        <div class="step-header">Pairing PIN</div>
+                        <input id="pinBox" type="text" maxlength="6" placeholder="Enter PIN shown on TV" style="width: 100%; box-sizing: border-box; padding: 12px; border-radius: 10px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: white; font-size: 15px; font-weight: 600; text-align: center; letter-spacing: 2px;" />
+                    </div>
+
                     <div class="step-card">
                         <div class="step-header">Step 2: Paste Token & Send</div>
                         <textarea id="tokenBox" rows="3" placeholder="Paste the token or redirected web address here..."></textarea>
@@ -308,10 +338,24 @@ class TvAuthServer(
                 </div>
 
                 <script>
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const queryPin = urlParams.get('pin') || '';
+                    if (!queryPin) {
+                        document.getElementById('pinCard').style.display = 'block';
+                    }
+
                     function submitToken() {
                         const input = document.getElementById('tokenBox').value.trim();
+                        const pinInput = document.getElementById('pinBox');
+                        const pinVal = queryPin || (pinInput ? pinInput.value.trim() : '');
                         const statusDiv = document.getElementById('status');
                         const sendBtn = document.getElementById('sendBtn');
+
+                        if (!pinVal) {
+                            statusDiv.className = 'status-error';
+                            statusDiv.textContent = 'Please enter the pairing PIN shown on your TV screen.';
+                            return;
+                        }
 
                         if (!input) {
                             statusDiv.className = 'status-error';
@@ -322,10 +366,10 @@ class TvAuthServer(
                         sendBtn.disabled = true;
                         sendBtn.textContent = 'Sending...';
 
-                        fetch('/submit-token', {
+                        fetch('/submit-token?pin=' + encodeURIComponent(pinVal), {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ token: input })
+                            body: JSON.stringify({ token: input, pin: pinVal })
                         })
                         .then(res => res.json())
                         .then(data => {

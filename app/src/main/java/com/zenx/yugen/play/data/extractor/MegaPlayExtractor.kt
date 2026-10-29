@@ -84,8 +84,14 @@ class MegaPlayExtractor @Inject constructor(
             }
 
             val sourcesJson = json.parseToJsonElement(sourcesBody).jsonObject
-            val encData = sourcesJson["enc"]?.jsonPrimitive?.content
-            val rawSource = sourcesJson["sources"]?.jsonPrimitive?.content
+            val encData = sourcesJson["enc"]?.let { if (it is JsonPrimitive) it.content else null }
+            val sourcesEl = sourcesJson["sources"]
+            val rawSource = when (sourcesEl) {
+                is JsonArray -> sourcesEl.firstOrNull()?.jsonObject?.get("file")?.jsonPrimitive?.content
+                is JsonPrimitive -> sourcesEl.content
+                is JsonObject -> sourcesEl["file"]?.jsonPrimitive?.content
+                else -> null
+            }
 
             val m3u8 = processMegaPlaySource(encData, rawSource)
                 ?: throw Exception("Failed to decrypt/find MegaPlay source")

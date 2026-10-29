@@ -22,7 +22,6 @@ class GetVideoStreamsUseCase @Inject constructor(
 
                 // Route to the provider that generated this specific episode ID
                 val primaryProvider = providerRegistry.getProvider(parsed.providerPayload)
-                    ?: providerRegistry.getProvider(parsed.animeTitle)
                     ?: providerRegistry.getAllProviders().firstOrNull { p ->
                         p.baseUrl.isNotBlank() && (
                             sourceUrl.startsWith(p.baseUrl, ignoreCase = true) ||

@@ -11,12 +11,12 @@ interface FavoriteDao {
     @Query("SELECT * FROM favorites ORDER BY addedAt DESC")
     fun getAllFavorites(): Flow<List<FavoriteEntity>>
 
-    @Query("SELECT EXISTS(SELECT 1 FROM favorites WHERE title = :title)")
+    @Query("SELECT EXISTS(SELECT 1 FROM favorites WHERE LOWER(TRIM(title)) = LOWER(TRIM(:title)))")
     fun isFavorite(title: String): Flow<Boolean>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun addFavorite(favorite: FavoriteEntity)
 
-    @Query("DELETE FROM favorites WHERE title = :title")
+    @Query("DELETE FROM favorites WHERE LOWER(TRIM(title)) = LOWER(TRIM(:title))")
     suspend fun removeFavorite(title: String)
 }

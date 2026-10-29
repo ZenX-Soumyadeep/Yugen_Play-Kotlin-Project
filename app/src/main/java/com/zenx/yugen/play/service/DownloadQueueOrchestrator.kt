@@ -21,6 +21,7 @@ import com.zenx.yugen.play.domain.ProviderRegistry
 import com.zenx.yugen.play.domain.Resource
 import com.zenx.yugen.play.domain.VideoStream
 import com.zenx.yugen.play.domain.audioTrackType
+import com.zenx.yugen.play.domain.cleanServerName
 import com.zenx.yugen.play.domain.usecase.GetVideoStreamsUseCase
 import com.zenx.yugen.play.domain.usecase.StreamResolverEngine
 import com.zenx.yugen.play.ui.detail.StreamDataCache
@@ -58,7 +59,8 @@ data class DownloadQueueItem(
     val episodeTitle: String,
     val posterUrl: String,
     val preferDub: Boolean,
-    val preferredQuality: String
+    val preferredQuality: String,
+    val preferredServer: String? = null
 )
 
 private data class MetadataPayloadResult(val data: ByteArray, val wasSubtitlesTruncated: Boolean)
@@ -199,8 +201,18 @@ class DownloadQueueOrchestrator @Inject constructor(
                 return
             }
 
+            val candidateStreams = if (!item.preferredServer.isNullOrBlank() && !item.preferredServer.equals("Auto", ignoreCase = true)) {
+                val matching = streams.filter {
+                    it.cleanServerName().contains(item.preferredServer, ignoreCase = true) ||
+                            (it.serverName ?: "").contains(item.preferredServer, ignoreCase = true)
+                }
+                matching.ifEmpty { streams }
+            } else {
+                streams
+            }
+
             val resolved = streamResolverEngine.resolve(
-                streams = streams,
+                streams = candidateStreams,
                 providerName = activeProvider,
                 preferDub = item.preferDub,
                 preferredQuality = item.preferredQuality

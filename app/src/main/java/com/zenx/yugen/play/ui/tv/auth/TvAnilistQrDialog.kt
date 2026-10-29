@@ -48,6 +48,7 @@ fun TvAnilistQrDialog(
 ) {
     val coroutineScope = rememberCoroutineScope()
     var serverUrl by remember { mutableStateOf<String?>(null) }
+    var pairingPin by remember { mutableStateOf<String?>(null) }
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     DisposableEffect(Unit) {
@@ -56,6 +57,7 @@ fun TvAnilistQrDialog(
         })
         val url = server.start(coroutineScope)
         serverUrl = url
+        pairingPin = server.pairingPin
 
         if (url != null) {
             try {
@@ -201,6 +203,16 @@ fun TvAnilistQrDialog(
                                 ) {
                                     Text("ANILIST SYNC", color = Color(0xFF3DB4F2), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
+                                if (pairingPin != null) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF8B5CF6).copy(alpha = 0.2f))
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    ) {
+                                        Text("PIN: $pairingPin", color = Color(0xFFA78BFA), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Rounded.Wifi, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
@@ -222,8 +234,9 @@ fun TvAnilistQrDialog(
                             }
 
                             if (serverUrl != null) {
+                                val displayUrl = serverUrl?.substringBefore("/?") ?: serverUrl.orEmpty()
                                 Text(
-                                    text = "Or type in phone browser: $serverUrl",
+                                    text = "Or type in phone browser: $displayUrl${if (pairingPin != null) " (PIN: $pairingPin)" else ""}",
                                     color = Color.White.copy(alpha = 0.5f),
                                     fontSize = 11.5.sp
                                 )

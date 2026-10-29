@@ -68,14 +68,25 @@ class PlayerEngine @Inject constructor(
                     .build()
             }
             
-        // Attach Loudness Enhancer for VLC-like volume boost capability
+        // Attach Loudness Enhancer for optional volume boost capability (default disabled/0dB)
         try {
             loudnessEnhancer = LoudnessEnhancer(exoPlayer.audioSessionId).apply {
-                setTargetGain(1500) // 15dB boost (similar to VLC's 200%)
-                enabled = true
+                setTargetGain(0)
+                enabled = false
             }
         } catch (e: Exception) {
             Log.e("PlayerEngine", "Failed to initialize LoudnessEnhancer", e)
+        }
+    }
+
+    fun setVolumeBoostGain(gainMb: Int) {
+        try {
+            loudnessEnhancer?.apply {
+                setTargetGain(gainMb.coerceIn(0, 1500))
+                enabled = gainMb > 0
+            }
+        } catch (e: Exception) {
+            Log.w("PlayerEngine", "Failed to set volume boost: ${e.message}")
         }
     }
 

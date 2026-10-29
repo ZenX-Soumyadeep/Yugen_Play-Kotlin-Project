@@ -26,6 +26,12 @@ interface WatchHistoryDao {
     @Query("DELETE FROM watch_history WHERE episodeId = :episodeId")
     suspend fun deleteHistoryItem(episodeId: String)
 
+    @Query("DELETE FROM watch_history WHERE anilistId = :anilistId")
+    suspend fun deleteHistoryForAnilistId(anilistId: Int)
+
+    @Query("DELETE FROM watch_history WHERE animeTitle = :animeTitle")
+    suspend fun deleteHistoryForAnime(animeTitle: String)
+
     @Query("DELETE FROM watch_history")
     suspend fun clearAllHistory()
 }

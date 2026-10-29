@@ -81,13 +81,13 @@ class AnilistService @Inject constructor(
 
     private suspend fun executeWithRetry(request: Request): Response {
         var tryCount = 0
-        while (tryCount < 2) {
+        while (tryCount < 3) {
             try {
                 val response = okHttpClient.newCall(request).await()
                 if (response.code == 429) {
                     tryCount++
                     val retryAfterSeconds = response.header("Retry-After")?.toLongOrNull() ?: (2L * tryCount)
-                    val delayMs = (retryAfterSeconds * 1000L).coerceIn(1000L, 5000L)
+                    val delayMs = (retryAfterSeconds * 1000L).coerceIn(1000L, 8000L)
                     response.close()
                     delay(delayMs)
                     continue
@@ -95,11 +95,11 @@ class AnilistService @Inject constructor(
                 return response
             } catch (e: Exception) {
                 tryCount++
-                if (tryCount >= 2) throw e
+                if (tryCount >= 3) throw e
                 delay(1000L * tryCount)
             }
         }
-        throw IOException("AniList request failed")
+        throw IOException("AniList request failed after retries")
     }
 
     // Issue 7.3 Fix: Validate GraphQL 200 Responses for internal "errors" payloads
@@ -284,7 +284,7 @@ class AnilistService @Inject constructor(
         val query = """
             query {
               Page(page: 1, perPage: $count) {
-                media(type: ANIME, sort: TRENDING_DESC, isAdult: false) {
+                media(type: ANIME, format_in: [TV, TV_SHORT, MOVIE], sort: TRENDING_DESC, isAdult: false) {
                   id
                   title { english romaji }
                   coverImage { extraLarge large }
@@ -388,7 +388,7 @@ class AnilistService @Inject constructor(
         val query = """
             query (${'$'}page: Int, ${'$'}perPage: Int, ${'$'}sort: [MediaSort]) {
               Page(page: ${'$'}page, perPage: ${'$'}perPage) {
-                media(type: ANIME, sort: ${'$'}sort, isAdult: false) {
+                media(type: ANIME, format_in: [TV, TV_SHORT], sort: ${'$'}sort, isAdult: false) {
                   id
                   title { english romaji }
                   coverImage { extraLarge large }
@@ -1767,8 +1767,10 @@ class AnilistService @Inject constructor(
                 if (id <= 0) continue
 
                 val createdAt = item.optLong("createdAt", 0L)
-                if (item.has("media")) {
-                    val media = item.getJSONObject("media")
+                val media = item.optJSONObject("media")
+                val user = item.optJSONObject("user")
+
+                if (media != null) {
                     val mediaId = media.optInt("id", -1).takeIf { it != -1 }?.toString()
                     val titleObj = media.optJSONObject("title")
                     val title = extractCleanTitle(titleObj, fallback = "Anime")
@@ -1786,8 +1788,7 @@ class AnilistService @Inject constructor(
                             mediaId = mediaId
                         )
                     )
-                } else if (item.has("user")) {
-                    val user = item.getJSONObject("user")
+                } else if (user != null) {
                     val name = user.optString("name", "Someone")
                     val avatar = user.optJSONObject("avatar")?.optString("large")?.takeIf { it != "null" }
                     list.add(

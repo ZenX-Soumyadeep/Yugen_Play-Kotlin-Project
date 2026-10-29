@@ -70,6 +70,11 @@ object TitleMatcher {
                 val cleanCand = cleanBaseTitle(result.title)
                 if (allTargets.any { calculateSimilarity(cleanBaseTitle(it), cleanCand) >= 0.90 }) continue
             }
+            if ((targetSeason == null || targetSeason == 1) && candSeason != null && candSeason > 1) {
+                // If target is Season 1 / unnumbered base title, reject candidate that is Season 2+ of the franchise
+                val cleanCand = cleanBaseTitle(result.title)
+                if (allTargets.any { calculateSimilarity(cleanBaseTitle(it), cleanCand) >= 0.90 }) continue
+            }
 
             // 2. Strict Part Disqualifications
             if (targetPart != null && candPart != null && targetPart != candPart) continue
@@ -79,10 +84,35 @@ object TitleMatcher {
                 val cleanCand = cleanBaseTitle(result.title)
                 if (allTargets.any { calculateSimilarity(cleanBaseTitle(it), cleanCand) >= 0.90 }) continue
             }
+            if ((targetPart == null || targetPart == 1) && candPart != null && candPart > 1) {
+                // If target is Part 1 / unnumbered, reject candidate that is Part 2+
+                val cleanCand = cleanBaseTitle(result.title)
+                if (allTargets.any { calculateSimilarity(cleanBaseTitle(it), cleanCand) >= 0.90 }) continue
+            }
 
-            // 3. Strict Format Disqualification (Movie vs TV Series)
+            // 3. Strict Format Disqualification (Movie vs TV Series vs ONA / OVA / Special)
             if (isTargetMovie && !isCandMovie && candSeason != null) continue
             if (!isTargetMovie && isCandMovie && !allTargets.any { it.contains("movie", ignoreCase = true) }) continue
+
+            val candIsOna = Regex("""\b(ona)\b""", RegexOption.IGNORE_CASE).containsMatchIn(result.title)
+            val candIsOva = Regex("""\b(ova)\b""", RegexOption.IGNORE_CASE).containsMatchIn(result.title)
+            val candIsSpecial = Regex("""\b(special|specials)\b""", RegexOption.IGNORE_CASE).containsMatchIn(result.title)
+
+            val targetIsOna = targetFormat?.equals("ONA", ignoreCase = true) == true ||
+                    allTargets.any { Regex("""\b(ona)\b""", RegexOption.IGNORE_CASE).containsMatchIn(it) }
+            val targetIsOva = targetFormat?.equals("OVA", ignoreCase = true) == true ||
+                    allTargets.any { Regex("""\b(ova)\b""", RegexOption.IGNORE_CASE).containsMatchIn(it) }
+            val targetIsSpecial = targetFormat?.equals("SPECIAL", ignoreCase = true) == true ||
+                    allTargets.any { Regex("""\b(special|specials)\b""", RegexOption.IGNORE_CASE).containsMatchIn(it) }
+
+            if (!targetIsOna && candIsOna) continue
+            if (targetIsOna && !candIsOna && candSeason != null) continue
+
+            if (!targetIsOva && candIsOva) continue
+            if (targetIsOva && !candIsOva && candSeason != null) continue
+
+            if (!targetIsSpecial && candIsSpecial) continue
+            if (targetIsSpecial && !candIsSpecial && candSeason != null) continue
 
             // 4. Strict Year Disqualification
             if (targetYear != null && candYear != null && kotlin.math.abs(targetYear - candYear) > 1) continue
@@ -132,8 +162,16 @@ object TitleMatcher {
             val seasonBonus = if (targetSeason != null && candSeason == targetSeason) 0.1 else 0.0
             val yearBonus = if (targetYear != null && candYear == targetYear) 0.05 else 0.0
             val partBonus = if (targetPart != null && candPart == targetPart) 0.1 else 0.0
-            val seasonPenalty = if (targetSeason != null && targetSeason > 1 && candSeason == null) 0.3 else 0.0
-            val partPenalty = if (targetPart != null && targetPart > 1 && candPart == null) 0.3 else 0.0
+            val seasonPenalty = when {
+                targetSeason != null && targetSeason > 1 && candSeason == null -> 0.35
+                (targetSeason == null || targetSeason == 1) && candSeason != null && candSeason > 1 -> 0.35
+                else -> 0.0
+            }
+            val partPenalty = when {
+                targetPart != null && targetPart > 1 && candPart == null -> 0.35
+                (targetPart == null || targetPart == 1) && candPart != null && candPart > 1 -> 0.35
+                else -> 0.0
+            }
             return (0.85 + seasonBonus + yearBonus + partBonus - seasonPenalty - partPenalty).coerceIn(0.0, 1.0)
         }
 
@@ -156,8 +194,16 @@ object TitleMatcher {
         val seasonBonus = if (targetSeason != null && candSeason == targetSeason) 0.08 else 0.0
         val yearBonus = if (targetYear != null && candYear == targetYear) 0.08 else 0.0
         val partBonus = if (targetPart != null && candPart == targetPart) 0.08 else 0.0
-        val seasonPenalty = if (targetSeason != null && targetSeason > 1 && candSeason == null) 0.25 else 0.0
-        val partPenalty = if (targetPart != null && targetPart > 1 && candPart == null) 0.25 else 0.0
+        val seasonPenalty = when {
+            targetSeason != null && targetSeason > 1 && candSeason == null -> 0.30
+            (targetSeason == null || targetSeason == 1) && candSeason != null && candSeason > 1 -> 0.30
+            else -> 0.0
+        }
+        val partPenalty = when {
+            targetPart != null && targetPart > 1 && candPart == null -> 0.30
+            (targetPart == null || targetPart == 1) && candPart != null && candPart > 1 -> 0.30
+            else -> 0.0
+        }
 
         return (baseScore + seasonBonus + yearBonus + partBonus - seasonPenalty - partPenalty).coerceIn(0.0, 1.0)
     }
@@ -183,14 +229,36 @@ object TitleMatcher {
                 val cleanCand = cleanBaseTitle(result.title)
                 if (calculateSimilarity(cleanBaseTitle(targetTitle), cleanCand) >= 0.90) continue
             }
+            if ((targetSeason == null || targetSeason == 1) && candidateSeason != null && candidateSeason > 1) {
+                val cleanCand = cleanBaseTitle(result.title)
+                if (calculateSimilarity(cleanBaseTitle(targetTitle), cleanCand) >= 0.90) continue
+            }
             if (targetPart != null && candidatePart != null && targetPart != candidatePart) continue
             if (targetPart != null && targetPart > 1 && candidatePart == null) {
+                val cleanCand = cleanBaseTitle(result.title)
+                if (calculateSimilarity(cleanBaseTitle(targetTitle), cleanCand) >= 0.90) continue
+            }
+            if ((targetPart == null || targetPart == 1) && candidatePart != null && candidatePart > 1) {
                 val cleanCand = cleanBaseTitle(result.title)
                 if (calculateSimilarity(cleanBaseTitle(targetTitle), cleanCand) >= 0.90) continue
             }
             if (targetYear != null && candidateYear != null && kotlin.math.abs(targetYear - candidateYear) > 1) continue
             if (isTargetMovie && !isCandMovie && candidateSeason != null) continue
             if (!isTargetMovie && isCandMovie && !targetTitle.contains("movie", ignoreCase = true)) continue
+
+            val candIsOna = Regex("""\b(ona)\b""", RegexOption.IGNORE_CASE).containsMatchIn(result.title)
+            val candIsOva = Regex("""\b(ova)\b""", RegexOption.IGNORE_CASE).containsMatchIn(result.title)
+            val candIsSpecial = Regex("""\b(special|specials)\b""", RegexOption.IGNORE_CASE).containsMatchIn(result.title)
+            val targetIsOna = Regex("""\b(ona)\b""", RegexOption.IGNORE_CASE).containsMatchIn(targetTitle)
+            val targetIsOva = Regex("""\b(ova)\b""", RegexOption.IGNORE_CASE).containsMatchIn(targetTitle)
+            val targetIsSpecial = Regex("""\b(special|specials)\b""", RegexOption.IGNORE_CASE).containsMatchIn(targetTitle)
+
+            if (!targetIsOna && candIsOna) continue
+            if (targetIsOna && !candIsOna && candidateSeason != null) continue
+            if (!targetIsOva && candIsOva) continue
+            if (targetIsOva && !candIsOva && candidateSeason != null) continue
+            if (!targetIsSpecial && candIsSpecial) continue
+            if (targetIsSpecial && !candIsSpecial && candidateSeason != null) continue
 
             val score = calculateCompositeTitleScore(
                 target = targetTitle,

@@ -1,9 +1,17 @@
 package com.zenx.yugen.play.data.local
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "watch_history")
+@Entity(
+    tableName = "watch_history",
+    indices = [
+        Index(value = ["lastWatchedAt"]),
+        Index(value = ["animeTitle"]),
+        Index(value = ["anilistId"])
+    ]
+)
 data class WatchHistoryEntity(
     @PrimaryKey
     val episodeId: String,

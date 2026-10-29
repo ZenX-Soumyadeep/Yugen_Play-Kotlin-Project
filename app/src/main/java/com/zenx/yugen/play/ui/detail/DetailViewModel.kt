@@ -48,6 +48,9 @@ import com.zenx.yugen.play.domain.SearchResult
 import com.zenx.yugen.play.domain.StaffMember
 import com.zenx.yugen.play.domain.UserListEntry
 import com.zenx.yugen.play.domain.VideoStream
+import com.zenx.yugen.play.domain.SeasonCategory
+import com.zenx.yugen.play.domain.SeasonEntry
+import com.zenx.yugen.play.domain.usecase.SeasonHierarchyEngine
 import com.zenx.yugen.play.domain.usecase.GetAnimeDetailsUseCase
 import com.zenx.yugen.play.domain.usecase.GetEpisodesUseCase
 import com.zenx.yugen.play.domain.usecase.GetVideoStreamsUseCase
@@ -164,6 +167,7 @@ class DetailViewModel @Inject constructor(
     private val streamDataCache: StreamDataCache,
     private val mp4DownloadDao: Mp4DownloadDao,
     private val downloadQueueOrchestrator: DownloadQueueOrchestrator,
+    private val seasonHierarchyEngine: SeasonHierarchyEngine,
     @ApplicationScope private val externalScope: CoroutineScope,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -179,6 +183,15 @@ class DetailViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow<DetailsUiState>(DetailsUiState.Loading)
     val uiState: StateFlow<DetailsUiState> = _uiState.asStateFlow()
+
+    private val _seasons = MutableStateFlow<List<SeasonEntry>>(emptyList())
+    val seasons: StateFlow<List<SeasonEntry>> = _seasons.asStateFlow()
+
+    private val _selectedSeason = MutableStateFlow<SeasonEntry?>(null)
+    val selectedSeason: StateFlow<SeasonEntry?> = _selectedSeason.asStateFlow()
+
+    private val _selectedCategory = MutableStateFlow(SeasonCategory.MAIN_SEASON)
+    val selectedCategory: StateFlow<SeasonCategory> = _selectedCategory.asStateFlow()
 
     private val _episodes = MutableStateFlow<List<List<EpisodeUiModel>>>(emptyList())
     val episodes: StateFlow<List<List<EpisodeUiModel>>> = _episodes.asStateFlow()
@@ -200,6 +213,37 @@ class DetailViewModel @Inject constructor(
     val isAnilistSheetVisible = _isAnilistSheetVisible.asStateFlow()
     private val _isBatchDownloadSheetVisible = MutableStateFlow(false)
     val isBatchDownloadSheetVisible = _isBatchDownloadSheetVisible.asStateFlow()
+
+    val effectiveAnimeTitle: String
+        get() {
+            val season = _selectedSeason.value
+            val baseTitle = animeDetailsFlow.value?.title?.takeIf { it.isNotBlank() } ?: animeTitle
+            if (season != null) {
+                val full = season.fullTitle.takeIf { it.isNotBlank() }
+                if (full != null && !full.equals(baseTitle, ignoreCase = true)) {
+                    return com.zenx.yugen.play.util.StringUtils.cleanSeasonTitle(full)
+                }
+                if (season.seasonNumber != null && season.seasonNumber > 1) {
+                    val cleanBase = com.zenx.yugen.play.util.TitleMatcher.cleanBaseTitle(baseTitle)
+                    return "$cleanBase Season ${season.seasonNumber}"
+                }
+                if (season.category == SeasonCategory.MOVIES) {
+                    val cleanBase = com.zenx.yugen.play.util.TitleMatcher.cleanBaseTitle(baseTitle)
+                    return "$cleanBase: ${season.title}"
+                }
+            }
+            return com.zenx.yugen.play.util.StringUtils.cleanSeasonTitle(baseTitle)
+        }
+
+    val effectivePosterUrl: String
+        get() = _selectedSeason.value?.posterUrl?.takeIf { it.isNotBlank() }
+            ?: (_uiState.value as? DetailsUiState.Success)?.posterUrl?.takeIf { it.isNotBlank() }
+            ?: navPosterUrl
+
+    val effectiveMediaId: String
+        get() = _selectedSeason.value?.id?.takeIf { it.isNotBlank() }
+            ?: currentMediaId?.toString()
+            ?: animeId
     private val _preselectedBatchEpisodeId = MutableStateFlow<String?>(null)
     val preselectedBatchEpisodeId = _preselectedBatchEpisodeId.asStateFlow()
     val defaultPreferDub = playerPreferences.preferDub
@@ -315,6 +359,14 @@ class DetailViewModel @Inject constructor(
             animeDetailsFlow.value = details
             currentMediaId = details.id.toIntOrNull() ?: numericId
 
+            val builtSeasons = seasonHierarchyEngine.buildHierarchy(details)
+            _seasons.value = builtSeasons
+            val currentEntry = builtSeasons.firstOrNull { it.isCurrent } ?: builtSeasons.firstOrNull()
+            _selectedSeason.value = currentEntry
+            if (currentEntry != null) {
+                _selectedCategory.value = currentEntry.category
+            }
+
             val token = authPreferences.authState.value.token
             if (token != null && currentMediaId != null) {
                 anilistEntryFlow.value = anilistService.getMediaListEntry(token, currentMediaId!!)
@@ -325,6 +377,44 @@ class DetailViewModel @Inject constructor(
             }
 
             startCollector()
+            loadEpisodes()
+        }
+    }
+
+    fun selectCategory(category: SeasonCategory) {
+        _selectedCategory.value = category
+        val firstInCategory = _seasons.value.firstOrNull { it.category == category }
+        if (firstInCategory != null && _selectedSeason.value?.id != firstInCategory.id) {
+            selectSeason(firstInCategory)
+        }
+    }
+
+    fun selectSeason(season: SeasonEntry) {
+        if (_selectedSeason.value?.id == season.id && currentMediaId == season.id.toIntOrNull()) return
+
+        _selectedSeason.value = season
+        _selectedCategory.value = season.category
+        val newId = season.id.toIntOrNull() ?: return
+        currentMediaId = newId
+
+        viewModelScope.launch {
+            isEpisodesLoading.value = true
+            episodeError.value = null
+            rawEpisodesFlow.value = emptyList()
+
+            // Fetch detailed metadata for the selected season in background
+            val freshDetails = getAnimeDetailsUseCase(newId)
+            if (freshDetails != null) {
+                animeDetailsFlow.value = freshDetails
+                _mappingSearchQuery.value = freshDetails.title
+                val token = authPreferences.authState.value.token
+                if (token != null) {
+                    anilistEntryFlow.value = anilistService.getMediaListEntry(token, newId)
+                }
+                externalMetaFlow.value = episodeMetadataService.getMetadata(newId)
+                _seasons.value = _seasons.value.map { it.copy(isCurrent = it.id == season.id) }
+            }
+
             loadEpisodes()
         }
     }
@@ -341,7 +431,7 @@ class DetailViewModel @Inject constructor(
             val mappedUrl = mediaId?.let { titleMappingRepository.getMappedUrl(it, provider) }
             isMappedFlow.value = (!mappedUrl.isNullOrBlank())
 
-            val targetUrl = mappedUrl ?: animeUrl.takeIf { it.startsWith("http") }
+            val targetUrl = mappedUrl ?: (if (mediaId == animeId.toIntOrNull()) animeUrl.takeIf { it.startsWith("http") } else null)
             _resolvedAnimeUrl.value = targetUrl ?: animeUrl
 
             val details = animeDetailsFlow.value
@@ -552,7 +642,9 @@ class DetailViewModel @Inject constructor(
 
                     // Calculate resume episode safely
                     val sortedHistory = pbData.historyMap.values.filter {
-                        it.animeTitle == animeTitle || it.animeTitle.startsWith(animeTitle) || animeTitle.startsWith(it.animeTitle)
+                        (currentMediaId != null && it.anilistId == currentMediaId) ||
+                                it.animeTitle.equals(animeTitle, ignoreCase = true) ||
+                                StringUtils.normalizeTitleForComparison(it.animeTitle) == StringUtils.normalizeTitleForComparison(animeTitle)
                     }.sortedByDescending { it.lastWatchedAt }
 
                     if (sortedHistory.isNotEmpty() && sortedHistory.first().progressMs > 0L) {
@@ -599,8 +691,8 @@ class DetailViewModel @Inject constructor(
             episodeId = episode.id,
             episodeNumber = episode.number,
             episodeTitle = episode.title,
-            animeTitle = animeTitle,
-            posterUrl = navPosterUrl,
+            animeTitle = effectiveAnimeTitle,
+            posterUrl = effectivePosterUrl,
             stream = stream,
             preferredQuality = quality
         )
@@ -616,10 +708,15 @@ class DetailViewModel @Inject constructor(
         _preselectedBatchEpisodeId.value = null
     }
 
+    fun getAvailableServers(): List<String> {
+        return listOf("Auto (Recommended)", "MegaCloud", "Vidstreaming", "Vidcloud", "StreamWish", "Mp4Upload", "HD-1", "HD-2", "Filemoon")
+    }
+
     fun batchDownloadEpisodes(
         episodes: List<EpisodeUiModel>,
         preferDub: Boolean = false,
-        preferredQuality: String = "Best"
+        preferredQuality: String = "Best",
+        selectedServer: String? = null
     ) {
         if (episodes.isEmpty()) return
         hideBatchDownloadSheet()
@@ -637,18 +734,23 @@ class DetailViewModel @Inject constructor(
 
         Toast.makeText(context, "Adding ${toDownload.size} episode(s) to download queue...", Toast.LENGTH_SHORT).show()
 
+        val downloadAnimeTitle = effectiveAnimeTitle
+        val downloadPoster = effectivePosterUrl
+        val downloadMediaId = currentMediaId ?: animeId.toIntOrNull()
+
         val items = toDownload.map { ep ->
             val parsedId = EpisodeId.parse(ep.id)
             DownloadQueueItem(
-                mediaId = currentMediaId ?: animeId.toIntOrNull() ?: parsedId.cloudSyncMediaId,
+                mediaId = downloadMediaId ?: parsedId.cloudSyncMediaId,
                 episodeId = ep.id,
                 exactEpisodeNumber = ep.number.toFloatOrNull() ?: parsedId.episodeNumber,
                 exactSourceUrl = parsedId.sourceUrl,
-                animeTitle = animeTitle,
+                animeTitle = downloadAnimeTitle,
                 episodeTitle = ep.title,
-                posterUrl = navPosterUrl,
+                posterUrl = downloadPoster,
                 preferDub = preferDub,
-                preferredQuality = preferredQuality
+                preferredQuality = preferredQuality,
+                preferredServer = selectedServer
             )
         }
 
@@ -663,6 +765,10 @@ class DetailViewModel @Inject constructor(
                 val altTitle = animeDetailsFlow.value?.title
                 if (!altTitle.isNullOrBlank() && altTitle != animeTitle) {
                     favoriteDao.removeFavorite(altTitle)
+                }
+                val currentTitle = currentState.title
+                if (currentTitle.isNotBlank() && currentTitle != animeTitle) {
+                    favoriteDao.removeFavorite(currentTitle)
                 }
             } else {
                 favoriteDao.addFavorite(FavoriteEntity(title = animeTitle.ifBlank { currentState.title }, posterUrl = currentState.posterUrl))

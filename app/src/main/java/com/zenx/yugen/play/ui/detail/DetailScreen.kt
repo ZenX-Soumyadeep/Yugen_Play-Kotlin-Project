@@ -46,6 +46,9 @@ fun DetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val episodeChunks by viewModel.episodes.collectAsStateWithLifecycle()
+    val seasons by viewModel.seasons.collectAsStateWithLifecycle()
+    val selectedSeason by viewModel.selectedSeason.collectAsStateWithLifecycle()
+    val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val resumeEpisode by viewModel.resumeEpisode.collectAsStateWithLifecycle()
     val islandState by viewModel.islandState.collectAsStateWithLifecycle()
 
@@ -156,10 +159,10 @@ fun DetailScreen(
                                         targetEp.id,
                                         state.animeUrl,
                                         state.activeProvider,
-                                        viewModel.animeTitle,
-                                        state.posterUrl,
+                                        viewModel.effectiveAnimeTitle,
+                                        viewModel.effectivePosterUrl,
                                         null,
-                                        state.id,
+                                        viewModel.effectiveMediaId,
                                         targetEp.number.toIntOrNull() ?: 1
                                     )
                                 }
@@ -265,10 +268,10 @@ fun DetailScreen(
                                         ep.id,
                                         state.animeUrl,
                                         state.activeProvider,
-                                        viewModel.animeTitle,
-                                        state.posterUrl,
+                                        viewModel.effectiveAnimeTitle,
+                                        viewModel.effectivePosterUrl,
                                         null,
-                                        state.id,
+                                        viewModel.effectiveMediaId,
                                         ep.number.toIntOrNull() ?: 1
                                     )
                                 }
@@ -311,15 +314,20 @@ fun DetailScreen(
                                     onToggleGridView = { isGridView = it },
                                     onBatchDownloadClick = { viewModel.showBatchDownloadSheet() },
                                     onDownloadsClick = onDownloadsClick,
+                                    seasons = seasons,
+                                    selectedSeason = selectedSeason,
+                                    selectedCategory = selectedCategory,
+                                    onSeasonSelected = { viewModel.selectSeason(it) },
+                                    onCategorySelected = { viewModel.selectCategory(it) },
                                     onEpisodeClick = { ep ->
                                         onEpisodeClick(
                                             ep.id,
                                             state.animeUrl,
                                             state.activeProvider,
-                                            viewModel.animeTitle,
-                                            state.posterUrl,
+                                            viewModel.effectiveAnimeTitle,
+                                            viewModel.effectivePosterUrl,
                                             null,
-                                            state.id,
+                                            viewModel.effectiveMediaId,
                                             ep.number.toIntOrNull() ?: 1
                                         )
                                     },
@@ -369,10 +377,10 @@ fun DetailScreen(
                                 ep.id,
                                 state.animeUrl,
                                 state.activeProvider,
-                                viewModel.animeTitle,
-                                state.posterUrl,
+                                viewModel.effectiveAnimeTitle,
+                                viewModel.effectivePosterUrl,
                                 null,
-                                state.id,
+                                viewModel.effectiveMediaId,
                                 ep.number.toIntOrNull() ?: 1
                             )
                         },
@@ -387,10 +395,10 @@ fun DetailScreen(
                                         currentState.episode.id,
                                         state.animeUrl,
                                         state.activeProvider,
-                                        viewModel.animeTitle,
-                                        state.posterUrl,
+                                        viewModel.effectiveAnimeTitle,
+                                        viewModel.effectivePosterUrl,
                                         selectedStream.url,
-                                        state.id,
+                                        viewModel.effectiveMediaId,
                                         currentState.episode.number.toIntOrNull() ?: 1
                                     )
                                     viewModel.dismissIsland()

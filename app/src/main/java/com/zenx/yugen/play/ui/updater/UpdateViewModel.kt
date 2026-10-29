@@ -180,7 +180,10 @@ class UpdateViewModel @Inject constructor(
                     return@launch
                 }
 
-                val body = response.body
+                val body = response.body ?: run {
+                    _downloadState.value = AppDownloadState.Failed("Empty response body from update server")
+                    return@launch
+                }
 
                 val totalBytes = body.contentLength()
                 val updatesDir = File(context.getExternalFilesDir(null), "updates").apply { mkdirs() }

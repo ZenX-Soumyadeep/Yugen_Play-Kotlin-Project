@@ -451,6 +451,43 @@ private fun ServerPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) 
                 }
             )
         }
+
+        if (state.streams.size > 1) {
+            item {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "SELECT SERVER MANUALLY",
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp,
+                    modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp)
+                )
+            }
+
+            items(state.streams) { stream ->
+                val isSelected = stream.url == activeStream?.url
+                val trackType = stream.audioTrackType()
+                val serverLabel = stream.cleanServerName().ifBlank { stream.serverName ?: "Server" }
+                val subtitle = buildString {
+                    append(trackType.label)
+                    if (stream.format.isNotBlank()) append(" • ").append(stream.format)
+                    if (stream.quality.isNotBlank()) append(" • ").append(stream.quality)
+                }
+
+                PanelItem(
+                    title = serverLabel,
+                    subtitle = subtitle,
+                    badge = trackType.badge,
+                    isSelected = isSelected,
+                    onClick = {
+                        if (stream.url != activeStream?.url) {
+                            viewModel.selectStream(stream)
+                        }
+                    }
+                )
+            }
+        }
     }
 }
 
