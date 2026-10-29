@@ -315,6 +315,8 @@ private fun SpeedPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
 private fun ServerPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) {
     PanelHeader("Sources", icon = Icons.Rounded.CloudQueue) { viewModel.setServerSheetVisibility(false) }
 
+    var isManualServersExpanded by remember { mutableStateOf(false) }
+
     val activeStream = state.activeStream
     val currentProvider = remember(activeStream, state.providerName) {
         activeStream?.providerName?.takeIf { it.isNotBlank() } ?: state.providerName.ifBlank { "Anikoto" }
@@ -455,37 +457,54 @@ private fun ServerPanel(state: PlayerUiState.Ready, viewModel: PlayerViewModel) 
         if (state.streams.size > 1) {
             item {
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "SELECT SERVER MANUALLY",
-                    color = TextSecondary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp,
-                    modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { isManualServersExpanded = !isManualServersExpanded }
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "SELECT SERVER MANUALLY",
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Icon(
+                        imageVector = if (isManualServersExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                        contentDescription = if (isManualServersExpanded) "Collapse" else "Expand",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
 
-            items(state.streams) { stream ->
-                val isSelected = stream.url == activeStream?.url
-                val trackType = stream.audioTrackType()
-                val serverLabel = stream.cleanServerName().ifBlank { stream.serverName ?: "Server" }
-                val subtitle = buildString {
-                    append(trackType.label)
-                    if (stream.format.isNotBlank()) append(" • ").append(stream.format)
-                    if (stream.quality.isNotBlank()) append(" • ").append(stream.quality)
-                }
-
-                PanelItem(
-                    title = serverLabel,
-                    subtitle = subtitle,
-                    badge = trackType.badge,
-                    isSelected = isSelected,
-                    onClick = {
-                        if (stream.url != activeStream?.url) {
-                            viewModel.selectStream(stream)
-                        }
+            if (isManualServersExpanded) {
+                items(state.streams) { stream ->
+                    val isSelected = stream === activeStream || (stream.url == activeStream?.url && stream.serverName == activeStream?.serverName && stream.quality == activeStream?.quality && stream.audioTrackType() == activeStream?.audioTrackType())
+                    val trackType = stream.audioTrackType()
+                    val serverLabel = stream.cleanServerName().ifBlank { stream.serverName ?: "Server" }
+                    val subtitle = buildString {
+                        append(trackType.label)
+                        if (stream.format.isNotBlank()) append(" • ").append(stream.format)
+                        if (stream.quality.isNotBlank()) append(" • ").append(stream.quality)
                     }
-                )
+
+                    PanelItem(
+                        title = serverLabel,
+                        subtitle = subtitle,
+                        badge = trackType.badge,
+                        isSelected = isSelected,
+                        onClick = {
+                            if (stream != activeStream) {
+                                viewModel.selectStream(stream)
+                            }
+                        }
+                    )
+                }
             }
         }
     }

@@ -23,7 +23,8 @@ class TitleResolutionEngine @Inject constructor(
     suspend fun resolveProviderUrl(
         provider: AnimeProvider,
         details: AnimeDetails,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        targetSeason: Int? = null
     ): String? = withContext(Dispatchers.IO) {
         val anilistId = details.id.toIntOrNull()
         if (!forceRefresh && anilistId != null) {
@@ -34,8 +35,8 @@ class TitleResolutionEngine @Inject constructor(
             }
         }
 
-        val queries = generateCandidateQueries(details)
-        Log.d(TAG, "Resolving URL for '${details.title}' (romaji: '${details.romajiTitle}') on provider '${provider.name}' with ${queries.size} candidates: $queries")
+        val queries = generateCandidateQueries(details, targetSeason)
+        Log.d(TAG, "Resolving URL for '${details.title}' (romaji: '${details.romajiTitle}', season: $targetSeason) on provider '${provider.name}' with ${queries.size} candidates: $queries")
 
         for (query in queries) {
             try {
@@ -48,6 +49,7 @@ class TitleResolutionEngine @Inject constructor(
                     targetSynonyms = details.synonyms,
                     targetSeasonYear = details.seasonYear ?: details.year.takeIf { it > 0 },
                     targetFormat = details.format,
+                    targetSeasonNumber = targetSeason,
                     results = results
                 )
 
@@ -71,7 +73,8 @@ class TitleResolutionEngine @Inject constructor(
         provider: AnimeProvider,
         rawTitle: String,
         anilistId: Int? = null,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        targetSeason: Int? = null
     ): String? = withContext(Dispatchers.IO) {
         if (!forceRefresh && anilistId != null) {
             val cached = titleMappingRepository.getMappedUrl(anilistId, provider.name)
@@ -114,8 +117,13 @@ class TitleResolutionEngine @Inject constructor(
                 val results = provider.search(query)
                 if (results.isEmpty()) continue
 
-                val match = TitleMatcher.findBestMatch(rawTitle, results)
-                    ?: TitleMatcher.findBestMatch(query, results)
+                val match = TitleMatcher.findBestMatchWithContext(
+                    targetEnglish = rawTitle,
+                    targetRomaji = "",
+                    targetSeasonNumber = targetSeason,
+                    results = results
+                ) ?: TitleMatcher.findBestMatch(rawTitle, results)
+                  ?: TitleMatcher.findBestMatch(query, results)
 
                 if (match != null) {
                     if (anilistId != null) {
@@ -130,7 +138,7 @@ class TitleResolutionEngine @Inject constructor(
         null
     }
 
-    private fun generateCandidateQueries(details: AnimeDetails): List<String> {
+    private fun generateCandidateQueries(details: AnimeDetails, targetSeason: Int? = null): List<String> {
         val candidates = mutableListOf<String>()
 
         fun addCandidate(raw: String?) {
@@ -172,6 +180,36 @@ class TitleResolutionEngine @Inject constructor(
 
         // 3. User preferred title if distinct
         addCandidate(details.userPreferredTitle)
+
+        // 4. Season-explicit variants (essential when provider indexes sequels as "Title Season 2")
+        val effectiveSeason = targetSeason
+            ?: TitleMatcher.extractSeason(details.title)
+            ?: TitleMatcher.extractSeason(details.romajiTitle)
+            ?: details.synonyms.firstNotNullOfOrNull { TitleMatcher.extractSeason(it) }
+
+        val baseEnglish = stripSeasonAndPunctuation(details.title)
+        val baseRomaji = stripSeasonAndPunctuation(details.romajiTitle)
+
+        if (effectiveSeason != null && effectiveSeason > 1) {
+            if (baseEnglish.isNotBlank()) {
+                addCandidate("$baseEnglish Season $effectiveSeason")
+                addCandidate("$baseEnglish ${TitleMatcher.toOrdinal(effectiveSeason)} Season")
+                addCandidate("$baseEnglish S$effectiveSeason")
+            }
+            if (baseRomaji.isNotBlank() && !baseRomaji.equals(baseEnglish, ignoreCase = true)) {
+                addCandidate("$baseRomaji Season $effectiveSeason")
+                addCandidate("$baseRomaji ${TitleMatcher.toOrdinal(effectiveSeason)} Season")
+                addCandidate("$baseRomaji S$effectiveSeason")
+            }
+            val subtitlePart = details.title.substringAfter(":", "").substringAfter("-", "").trim()
+            if (subtitlePart.isNotBlank() && baseEnglish.isNotBlank()) {
+                val cleanSub = stripPunctuation(subtitlePart)
+                if (cleanSub.isNotBlank()) {
+                    addCandidate("$baseEnglish $cleanSub")
+                    addCandidate("$baseEnglish Season $effectiveSeason $cleanSub")
+                }
+            }
+        }
 
         // 4. AniZip cached alias titles (e.g. x-jat, en, ja)
         val anilistId = details.id.toIntOrNull()

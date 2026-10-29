@@ -30,7 +30,8 @@ class EpisodeRepository @Inject constructor(
         targetUrl: String?,
         title: String,
         providerName: String,
-        details: com.zenx.yugen.play.domain.AnimeDetails? = null
+        details: com.zenx.yugen.play.domain.AnimeDetails? = null,
+        targetSeason: Int? = null
     ): Resource<List<Episode>> {
         return withContext(Dispatchers.IO) {
             if (!providerRegistry.hasExtensions()) {
@@ -65,9 +66,9 @@ class EpisodeRepository @Inject constructor(
                 return@withContext Resource.Success(cachedEpisodes)
             }
 
-            android.util.Log.d("EpisodeRepository", "Attempting primary provider '${primaryProvider.name}' for '$title'...")
+            android.util.Log.d("EpisodeRepository", "Attempting primary provider '${primaryProvider.name}' for '$title' (season: $targetSeason)...")
             try {
-                val primaryResult = fetchEpisodesFromProvider(primaryProvider, anilistId, effectiveTargetUrl, title, details)
+                val primaryResult = fetchEpisodesFromProvider(primaryProvider, anilistId, effectiveTargetUrl, title, details, targetSeason)
                 if (primaryResult.isNotEmpty()) {
                     synchronized(cacheLock) { episodeListCache.put(cacheKey, primaryResult) } // Cache the result
                     return@withContext Resource.Success(primaryResult)
@@ -84,7 +85,7 @@ class EpisodeRepository @Inject constructor(
             for (fallback in fallbackProviders) {
                 try {
                     android.util.Log.d("EpisodeRepository", "Attempting fallback provider '${fallback.name}' for '$title'...")
-                    val fallbackResult = fetchEpisodesFromProvider(fallback, anilistId, targetUrl = null, title = title, details = details)
+                    val fallbackResult = fetchEpisodesFromProvider(fallback, anilistId, targetUrl = null, title = title, details = details, targetSeason = targetSeason)
                     if (fallbackResult.isNotEmpty()) {
                         val fallbackCacheKey = if (anilistId != null) "${fallback.name}:$anilistId" else "${fallback.name}:$title"
                         synchronized(cacheLock) { episodeListCache.put(fallbackCacheKey, fallbackResult) }
@@ -99,12 +100,21 @@ class EpisodeRepository @Inject constructor(
         }
     }
 
+    suspend fun getResolvedUrl(providerName: String, anilistId: Int?, title: String): String? {
+        val primaryProvider = providerRegistry.getProvider(providerName) ?: providerRegistry.getDefaultProvider()
+        val cacheKey = if (anilistId != null) "${primaryProvider.name}:$anilistId" else "${primaryProvider.name}:$title"
+        val cached = synchronized(cacheLock) { sessionUrlCache.get(cacheKey) }
+        if (!cached.isNullOrBlank()) return cached
+        return if (anilistId != null) titleMappingRepository.getMappedUrl(anilistId, primaryProvider.name) else null
+    }
+
     private suspend fun fetchEpisodesFromProvider(
         provider: AnimeProvider,
         anilistId: Int?,
         targetUrl: String?,
         title: String,
-        details: com.zenx.yugen.play.domain.AnimeDetails? = null
+        details: com.zenx.yugen.play.domain.AnimeDetails? = null,
+        targetSeason: Int? = null
     ): List<Episode> {
         var resolvedUrl = if (targetUrl != null) {
             if (targetUrl.startsWith("http")) {
@@ -132,9 +142,9 @@ class EpisodeRepository @Inject constructor(
         // Provider Search & Fuzzy Matching via TitleResolutionEngine
         if (resolvedUrl == null) {
             resolvedUrl = if (details != null) {
-                titleResolutionEngine.resolveProviderUrl(provider, details)
+                titleResolutionEngine.resolveProviderUrl(provider, details, targetSeason = targetSeason)
             } else {
-                titleResolutionEngine.resolveProviderUrlByTitle(provider, title, anilistId)
+                titleResolutionEngine.resolveProviderUrlByTitle(provider, title, anilistId, targetSeason = targetSeason)
             }
         }
 
@@ -149,11 +159,14 @@ class EpisodeRepository @Inject constructor(
         // Evict dead URL cache and retry search once with forceRefresh
         if (rawEpisodes.isEmpty()) {
             synchronized(cacheLock) { sessionUrlCache.remove(cacheKey) }
+            if (anilistId != null) {
+                titleMappingRepository.deleteMapping(anilistId, provider.name)
+            }
             
             val newResolvedUrl = if (details != null) {
-                titleResolutionEngine.resolveProviderUrl(provider, details, forceRefresh = true)
+                titleResolutionEngine.resolveProviderUrl(provider, details, forceRefresh = true, targetSeason = targetSeason)
             } else {
-                titleResolutionEngine.resolveProviderUrlByTitle(provider, title, anilistId, forceRefresh = true)
+                titleResolutionEngine.resolveProviderUrlByTitle(provider, title, anilistId, forceRefresh = true, targetSeason = targetSeason)
             }
             if (newResolvedUrl != null && newResolvedUrl != resolvedUrl) {
                 resolvedUrl = newResolvedUrl

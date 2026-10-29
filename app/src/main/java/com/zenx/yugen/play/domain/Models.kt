@@ -215,7 +215,8 @@ data class ProviderCapabilities(
     val supportsDownload: Boolean = true,
     val supportsSearch: Boolean = true,
     val requiresMapping: Boolean = true,
-    val isEmbedded: Boolean = false
+    val isEmbedded: Boolean = false,
+    val supportedServers: List<String> = listOf("MegaCloud", "Vidstreaming", "Vidcloud", "HD-2", "HD-1")
 )
 
 // --- Provider Interface ---

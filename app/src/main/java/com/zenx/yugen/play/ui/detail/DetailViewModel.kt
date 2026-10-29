@@ -396,6 +396,7 @@ class DetailViewModel @Inject constructor(
         _selectedCategory.value = season.category
         val newId = season.id.toIntOrNull() ?: return
         currentMediaId = newId
+        _resolvedAnimeUrl.value = "" // Invalidate so previous season URL is never used
 
         viewModelScope.launch {
             isEpisodesLoading.value = true
@@ -412,6 +413,9 @@ class DetailViewModel @Inject constructor(
                     anilistEntryFlow.value = anilistService.getMediaListEntry(token, newId)
                 }
                 externalMetaFlow.value = episodeMetadataService.getMetadata(newId)
+                // Expand and merge seasons hierarchy with new relations from freshDetails
+                _seasons.value = seasonHierarchyEngine.mergeHierarchy(_seasons.value, freshDetails, selectedId = season.id)
+            } else {
                 _seasons.value = _seasons.value.map { it.copy(isCurrent = it.id == season.id) }
             }
 
@@ -432,7 +436,7 @@ class DetailViewModel @Inject constructor(
             isMappedFlow.value = (!mappedUrl.isNullOrBlank())
 
             val targetUrl = mappedUrl ?: (if (mediaId == animeId.toIntOrNull()) animeUrl.takeIf { it.startsWith("http") } else null)
-            _resolvedAnimeUrl.value = targetUrl ?: animeUrl
+            _resolvedAnimeUrl.value = targetUrl ?: (if (mediaId == animeId.toIntOrNull()) animeUrl else "")
 
             val details = animeDetailsFlow.value
             val cleanT1 = details?.title?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
@@ -444,16 +448,26 @@ class DetailViewModel @Inject constructor(
                 cleanT1 ?: cleanT2 ?: cleanFallback
             }
 
+            val targetSeasonNumber = _selectedSeason.value?.seasonNumber
+
             val result = getEpisodesUseCase(
                 animeUrlOrTitle = targetUrl,
                 title = compositeTitle,
                 providerName = provider,
                 anilistId = mediaId,
-                details = details
+                details = details,
+                targetSeason = targetSeasonNumber
             )
 
-            if (result is Resource.Success) rawEpisodesFlow.value = result.data ?: emptyList()
-            else episodeError.value = result.message ?: "Failed to load episodes."
+            if (result is Resource.Success) {
+                rawEpisodesFlow.value = result.data ?: emptyList()
+                val resolved = episodeRepository.getResolvedUrl(provider, mediaId, compositeTitle)
+                if (!resolved.isNullOrBlank()) {
+                    _resolvedAnimeUrl.value = resolved
+                }
+            } else {
+                episodeError.value = result.message ?: "Failed to load episodes."
+            }
             isEpisodesLoading.value = false
         }
     }
@@ -709,7 +723,11 @@ class DetailViewModel @Inject constructor(
     }
 
     fun getAvailableServers(): List<String> {
-        return listOf("Auto (Recommended)", "MegaCloud", "Vidstreaming", "Vidcloud", "StreamWish", "Mp4Upload", "HD-1", "HD-2", "Filemoon")
+        val provider = providerRegistry.getProvider(_activeProvider.value) ?: providerRegistry.getDefaultProvider()
+        val servers = provider.capabilities.supportedServers.ifEmpty {
+            listOf("MegaCloud", "Vidstreaming", "Vidcloud", "HD-2", "HD-1")
+        }
+        return listOf("Auto (Recommended)") + servers
     }
 
     fun batchDownloadEpisodes(

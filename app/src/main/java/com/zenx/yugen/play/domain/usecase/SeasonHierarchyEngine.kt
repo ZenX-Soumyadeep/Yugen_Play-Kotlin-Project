@@ -40,9 +40,53 @@ class SeasonHierarchyEngine @Inject constructor() {
                 )
             }
 
-        // Combine and deduplicate by ID
         val allEntries = (listOf(currentRaw) + relationsRaw).distinctBy { it.id }
+        return buildFromRawEntries(allEntries, currentId)
+    }
 
+    fun mergeHierarchy(existingSeasons: List<SeasonEntry>, freshDetails: AnimeDetails, selectedId: String): List<SeasonEntry> {
+        val existingRaw = existingSeasons.map {
+            RawMediaEntry(
+                id = it.id,
+                title = it.fullTitle,
+                format = it.format ?: "TV",
+                year = it.year,
+                episodeCount = it.episodeCount,
+                posterUrl = it.posterUrl ?: "",
+                relationType = "PREVIOUS"
+            )
+        }
+
+        val currentYear = freshDetails.seasonYear ?: freshDetails.year.takeIf { it > 0 }
+        val currentRaw = RawMediaEntry(
+            id = freshDetails.id,
+            title = freshDetails.title.ifBlank { freshDetails.romajiTitle },
+            format = freshDetails.format,
+            year = currentYear,
+            episodeCount = freshDetails.totalEpisodes.takeIf { it > 0 },
+            posterUrl = freshDetails.posterImage,
+            relationType = "CURRENT"
+        )
+
+        val relationsRaw = freshDetails.relations
+            .filter { it.type.equals("ANIME", ignoreCase = true) || it.type.isBlank() }
+            .map { rel ->
+                RawMediaEntry(
+                    id = rel.id.toString(),
+                    title = rel.title,
+                    format = rel.format,
+                    year = rel.seasonYear,
+                    episodeCount = rel.episodes,
+                    posterUrl = rel.posterUrl,
+                    relationType = rel.relationType
+                )
+            }
+
+        val allEntries = (existingRaw + listOf(currentRaw) + relationsRaw).distinctBy { it.id }
+        return buildFromRawEntries(allEntries, selectedId)
+    }
+
+    private fun buildFromRawEntries(allEntries: List<RawMediaEntry>, currentId: String): List<SeasonEntry> {
         // Partition into categories
         val categorized = allEntries.map { entry ->
             val category = determineCategory(entry)

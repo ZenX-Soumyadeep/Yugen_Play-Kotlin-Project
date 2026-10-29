@@ -1274,6 +1274,8 @@ private fun TvServerSidePanel(
         cards
     }
 
+    var isManualServersExpanded by remember { mutableStateOf(false) }
+
     val panelFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         delay(100)
@@ -1415,79 +1417,101 @@ private fun TvServerSidePanel(
                     if (state.streams.size > 1) {
                         item {
                             Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = "SELECT SERVER MANUALLY",
-                                color = Color.White.copy(alpha = 0.5f),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp,
-                                modifier = Modifier.padding(bottom = 6.dp)
-                            )
-                        }
-
-                        items(state.streams) { stream ->
-                            val isSelected = stream.url == activeStream?.url
-                            val trackType = stream.audioTrackType()
-                            val serverLabel = stream.cleanServerName().ifBlank { stream.serverName ?: "Server" }
-                            val subtitle = buildString {
-                                append(trackType.label)
-                                if (stream.format.isNotBlank()) append(" • ").append(stream.format)
-                                if (stream.quality.isNotBlank()) append(" • ").append(stream.quality)
-                            }
-
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .tvButtonFocusable(
-                                        onClick = {
-                                            if (stream.url != activeStream?.url) {
-                                                onSelectStream(stream)
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(12.dp),
+                                        onClick = { isManualServersExpanded = !isManualServersExpanded },
+                                        shape = RoundedCornerShape(8.dp),
                                         focusedBackgroundColor = YugenPurple,
-                                        unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
+                                        unfocusedBackgroundColor = Color.Transparent,
                                         focusedBorderColor = Color.White
                                     )
-                                    .padding(horizontal = 16.dp, vertical = 13.dp),
+                                    .padding(vertical = 6.dp, horizontal = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = serverLabel,
-                                            color = Color.White,
-                                            fontSize = 14.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(if (isSelected) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                                        ) {
-                                            Text(
-                                                text = trackType.badge,
-                                                color = Color.White,
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = subtitle,
-                                        color = Color.White.copy(alpha = 0.6f),
-                                        fontSize = 11.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                Text(
+                                    text = "SELECT SERVER MANUALLY",
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp
+                                )
+                                Icon(
+                                    imageVector = if (isManualServersExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                                    contentDescription = if (isManualServersExpanded) "Collapse" else "Expand",
+                                    tint = Color.White.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        if (isManualServersExpanded) {
+                            items(state.streams) { stream ->
+                                val isSelected = stream === activeStream || (stream.url == activeStream?.url && stream.serverName == activeStream?.serverName && stream.quality == activeStream?.quality && stream.audioTrackType() == activeStream?.audioTrackType())
+                                val trackType = stream.audioTrackType()
+                                val serverLabel = stream.cleanServerName().ifBlank { stream.serverName ?: "Server" }
+                                val subtitle = buildString {
+                                    append(trackType.label)
+                                    if (stream.format.isNotBlank()) append(" • ").append(stream.format)
+                                    if (stream.quality.isNotBlank()) append(" • ").append(stream.quality)
                                 }
-                                if (isSelected) {
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .tvButtonFocusable(
+                                            onClick = {
+                                                if (stream != activeStream) {
+                                                    onSelectStream(stream)
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(12.dp),
+                                            focusedBackgroundColor = YugenPurple,
+                                            unfocusedBackgroundColor = if (isSelected) YugenPurple.copy(alpha = 0.25f) else YugenOverlayLight,
+                                            focusedBorderColor = Color.White
+                                        )
+                                        .padding(horizontal = 16.dp, vertical = 13.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = serverLabel,
+                                                color = Color.White,
+                                                fontSize = 14.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(if (isSelected) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = trackType.badge,
+                                                    color = Color.White,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = subtitle,
+                                            color = Color.White.copy(alpha = 0.6f),
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    if (isSelected) {
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = YugenPurple, modifier = Modifier.size(20.dp))
+                                    }
                                 }
                             }
                         }

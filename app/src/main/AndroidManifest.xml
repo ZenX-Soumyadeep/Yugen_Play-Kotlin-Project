@@ -122,6 +122,12 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 
+        <!-- WorkManager SystemForegroundService for Android 14+ Foreground Workers -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
         <!-- FileProvider for In-App Updates and APK Installation -->
         <provider
             android:name="androidx.core.content.FileProvider"

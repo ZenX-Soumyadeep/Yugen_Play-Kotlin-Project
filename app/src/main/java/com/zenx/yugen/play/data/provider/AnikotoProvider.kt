@@ -30,7 +30,8 @@ class AnikotoProvider(
         supportsDownload = true,
         supportsSearch = true,
         requiresMapping = true,
-        isEmbedded = false
+        isEmbedded = false,
+        supportedServers = listOf("MegaCloud", "Vidstreaming", "Vidcloud", "HD-2", "HD-1")
     )
 
     private val extractor = AnikotoExtractor(client, json, baseUrl)

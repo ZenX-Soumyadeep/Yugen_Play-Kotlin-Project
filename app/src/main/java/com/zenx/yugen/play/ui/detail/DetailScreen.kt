@@ -119,7 +119,7 @@ fun DetailScreen(
                         )
                 )
 
-                var activeTab by rememberSaveable { mutableStateOf(StitchTab.EPISODES) }
+                var activeTab by rememberSaveable { mutableStateOf(StitchTab.OVERVIEW) }
                 var selectedChunkIndex by rememberSaveable { mutableIntStateOf(0) }
                 var isAscending by rememberSaveable { mutableStateOf(true) }
                 var isGridView by rememberSaveable { mutableStateOf(false) }

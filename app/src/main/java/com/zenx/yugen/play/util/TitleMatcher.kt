@@ -32,6 +32,7 @@ object TitleMatcher {
         targetSynonyms: List<String> = emptyList(),
         targetSeasonYear: Int? = null,
         targetFormat: String? = null,
+        targetSeasonNumber: Int? = null,
         results: List<SearchResult>
     ): SearchResult? {
         if (results.isEmpty()) return null
@@ -47,7 +48,8 @@ object TitleMatcher {
             }
         }
 
-        val targetSeason = allTargets.firstNotNullOfOrNull { extractSeason(it) }
+        val targetSeason = targetSeasonNumber
+            ?: allTargets.firstNotNullOfOrNull { extractSeason(it) }
         val targetPart = allTargets.firstNotNullOfOrNull { extractPart(it) }
         val targetYear = targetSeasonYear ?: allTargets.firstNotNullOfOrNull { extractYear(it) }
         val isTargetMovie = targetFormat?.equals("MOVIE", ignoreCase = true) == true ||
@@ -66,14 +68,23 @@ object TitleMatcher {
             if (targetSeason != null && candSeason != null && targetSeason != candSeason) continue
             if (targetSeason != null && targetSeason > 1 && candSeason == null) {
                 // If candidate has no season indicator and its base title matches the franchise,
-                // it represents Season 1 of this franchise: reject since target is Season > 1
+                // reject only if candidate has no arc/subtitle (pure season 1 base title)
+                val cleanCand = cleanBaseTitle(result.title)
+                val candHasSubtitle = result.title.contains(":") || result.title.contains(" - ") || result.title.contains("–")
+                if (!candHasSubtitle && allTargets.any { calculateSimilarity(cleanBaseTitle(it), cleanCand) >= 0.90 }) continue
+            }
+            if ((targetSeason == 1) && candSeason != null && candSeason > 1) {
+                // If target is explicitly Season 1, reject candidate that is Season 2+ of the franchise
                 val cleanCand = cleanBaseTitle(result.title)
                 if (allTargets.any { calculateSimilarity(cleanBaseTitle(it), cleanCand) >= 0.90 }) continue
             }
-            if ((targetSeason == null || targetSeason == 1) && candSeason != null && candSeason > 1) {
-                // If target is Season 1 / unnumbered base title, reject candidate that is Season 2+ of the franchise
-                val cleanCand = cleanBaseTitle(result.title)
-                if (allTargets.any { calculateSimilarity(cleanBaseTitle(it), cleanCand) >= 0.90 }) continue
+            if (targetSeason == null && candSeason != null && candSeason > 1) {
+                // If target has no season number, only reject candidate Season 2+ if target has NO arc or subtitle name
+                val targetHasSubtitle = allTargets.any { it.contains(":") || it.contains(" - ") || it.contains("–") || it.contains("Arc", ignoreCase = true) }
+                if (!targetHasSubtitle) {
+                    val cleanCand = cleanBaseTitle(result.title)
+                    if (allTargets.any { calculateSimilarity(cleanBaseTitle(it), cleanCand) >= 0.90 }) continue
+                }
             }
 
             // 2. Strict Part Disqualifications
@@ -227,11 +238,19 @@ object TitleMatcher {
             if (targetSeason != null && candidateSeason != null && targetSeason != candidateSeason) continue
             if (targetSeason != null && targetSeason > 1 && candidateSeason == null) {
                 val cleanCand = cleanBaseTitle(result.title)
-                if (calculateSimilarity(cleanBaseTitle(targetTitle), cleanCand) >= 0.90) continue
+                val candHasSubtitle = result.title.contains(":") || result.title.contains(" - ") || result.title.contains("–")
+                if (!candHasSubtitle && calculateSimilarity(cleanBaseTitle(targetTitle), cleanCand) >= 0.90) continue
             }
-            if ((targetSeason == null || targetSeason == 1) && candidateSeason != null && candidateSeason > 1) {
+            if ((targetSeason == 1) && candidateSeason != null && candidateSeason > 1) {
                 val cleanCand = cleanBaseTitle(result.title)
                 if (calculateSimilarity(cleanBaseTitle(targetTitle), cleanCand) >= 0.90) continue
+            }
+            if (targetSeason == null && candidateSeason != null && candidateSeason > 1) {
+                val targetHasSubtitle = targetTitle.contains(":") || targetTitle.contains(" - ") || targetTitle.contains("–") || targetTitle.contains("Arc", ignoreCase = true)
+                if (!targetHasSubtitle) {
+                    val cleanCand = cleanBaseTitle(result.title)
+                    if (calculateSimilarity(cleanBaseTitle(targetTitle), cleanCand) >= 0.90) continue
+                }
             }
             if (targetPart != null && candidatePart != null && targetPart != candidatePart) continue
             if (targetPart != null && targetPart > 1 && candidatePart == null) {
@@ -289,6 +308,15 @@ object TitleMatcher {
 
     // --- ANITOMY-STYLE NORMALIZATION & FEATURE EXTRACTION ---
 
+    fun toOrdinal(num: Int): String {
+        return when (num) {
+            1 -> "1st"
+            2 -> "2nd"
+            3 -> "3rd"
+            else -> "${num}th"
+        }
+    }
+
     fun extractYear(title: String): Int? {
         val match = Regex("""\b(19\d{2}|20\d{2})\b""").find(title)
         return match?.groupValues?.get(1)?.toIntOrNull()
@@ -302,6 +330,10 @@ object TitleMatcher {
         if (numMatch != null) {
             return numMatch.groupValues[1].toIntOrNull()
                 ?: numMatch.groupValues[2].toIntOrNull()
+        }
+
+        if (lower.contains("final season")) {
+            return 4
         }
 
         return null
@@ -353,6 +385,24 @@ object TitleMatcher {
             .replace(Regex("""\b(?:part|cour|core)\s+iii\b""", RegexOption.IGNORE_CASE), "part 3")
             .replace(Regex("""\b(?:part|cour|core)\s+ii\b""", RegexOption.IGNORE_CASE), "part 2")
             .replace(Regex("""\b(?:part|cour|core)\s+i\b""", RegexOption.IGNORE_CASE), "part 1")
+            // Standalone Roman numerals: II, III, IV, VI, VII, VIII (and V when word-bounded)
+            .replace(Regex("""(?<=\s|^)(viii|vii|vi|iv|iii|ii)(?=\s|$|[:\-])""", RegexOption.IGNORE_CASE)) {
+                val num = when (it.groupValues[1].lowercase()) {
+                    "viii" -> 8
+                    "vii" -> 7
+                    "vi" -> 6
+                    "iv" -> 4
+                    "iii" -> 3
+                    "ii" -> 2
+                    else -> 1
+                }
+                "season $num"
+            }
+            .replace(Regex("""(?<=\s)v(?=\s*$|[:\-])""", RegexOption.IGNORE_CASE), "season 5")
+            // Single trailing digits 2..9 e.g. "KonoSuba 3", "Kingdom 5"
+            .replace(Regex("""(?<=\s)([2-9])(?=\s*$|[:\-])""")) {
+                "season ${it.groupValues[1]}"
+            }
     }
 
     fun cleanBaseTitle(title: String): String {
