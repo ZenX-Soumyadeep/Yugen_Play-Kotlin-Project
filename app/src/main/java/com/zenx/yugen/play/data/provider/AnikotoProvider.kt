@@ -404,7 +404,7 @@ class AnikotoProvider(
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to fetch Mapper servers: ${e.message}")
+                Log.w(TAG, "Optional Mapper servers unreachable (DNS/Network): ${e.message}")
             }
         }
 

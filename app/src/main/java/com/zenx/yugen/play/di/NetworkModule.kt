@@ -30,6 +30,10 @@ annotation class ProviderClient
 @Retention(AnnotationRetention.BINARY)
 annotation class DownloadClient
 
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class PlaybackClient
+
 private class JunkBytesInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
@@ -109,6 +113,30 @@ object NetworkModule {
             .connectTimeout(30, TimeUnit.SECONDS) // Allow longer for scrapers
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    @PlaybackClient
+    fun providePlaybackOkHttpClient(): OkHttpClient {
+        return OkHttpClient.Builder()
+            .dispatcher(Dispatcher().apply {
+                maxRequests = 128
+                maxRequestsPerHost = 32
+            })
+            .connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))
+            // HTTP/1.1 enforces dedicated TCP connections across the thread pool, preventing HTTP/2
+            // single-socket head-of-line blocking and CDN stream window exhaustion that causes periodic stalls
+            .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
+            .addInterceptor(JunkBytesInterceptor())
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .followRedirects(true)
             .followSslRedirects(true)
             .build()

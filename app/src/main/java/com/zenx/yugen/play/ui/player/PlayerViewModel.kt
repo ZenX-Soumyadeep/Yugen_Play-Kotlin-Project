@@ -43,6 +43,7 @@ import com.zenx.yugen.play.data.local.PlayerPreferences
 import com.zenx.yugen.play.data.local.WatchHistoryDao
 import com.zenx.yugen.play.data.local.WatchHistoryEntity
 import com.zenx.yugen.play.data.repository.AniSkipRepository
+import com.zenx.yugen.play.di.PlaybackClient
 import com.zenx.yugen.play.di.ProviderClient
 import com.zenx.yugen.play.domain.Episode
 import com.zenx.yugen.play.domain.EpisodeId
@@ -91,6 +92,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
+
+private val REGEX_CLEAN_REF = Regex("""&?y_ref=[^&]*""")
+private val REGEX_CLEAN_ORI = Regex("""&?y_ori=[^&]*""")
 
 enum class VideoResizeMode(val label: String) {
     FIT("Fit"), ZOOM("Zoom (Fill)"), STRETCH("Stretch")
@@ -164,7 +168,7 @@ sealed interface PlayerUiState {
 class PlayerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     savedStateHandle: SavedStateHandle,
-    @ProviderClient private val okHttpClient: OkHttpClient,
+    @PlaybackClient private val okHttpClient: OkHttpClient,
     private val getVideoStreamsUseCase: GetVideoStreamsUseCase,
     private val getEpisodesUseCase: GetEpisodesUseCase,
     private val getAnimeDetailsUseCase: GetAnimeDetailsUseCase,
@@ -801,10 +805,11 @@ class PlayerViewModel @Inject constructor(
         val hasDefault = validSubtitles.any { it.isDefault }
 
         if (targetPlayer === playerEngine.exoPlayer) {
-            // Uses OkHttp to enforce JunkBytesInterceptor stripping CDN garbage bytes
+            // Uses dedicated HTTP/1.1 OkHttp client and bandwidth meter for smooth, stall-free streaming
             val httpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
                 .setUserAgent(stream.headers["User-Agent"] ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 .setDefaultRequestProperties(stream.headers)
+                .setTransferListener(playerEngine.bandwidthMeter)
 
             val resolvingDataSourceFactory = ResolvingDataSource.Factory(httpDataSourceFactory) { dataSpec ->
                 // CDN fix: MegaPlay's `ncdn.imgnex.top` playlist advertises every media segment on
@@ -813,8 +818,8 @@ class PlayerViewModel @Inject constructor(
                 // required `Referer` header is already applied by `setDefaultRequestProperties`.
                 val resolvedUri = CdnHostRewriter.rewriteSegmentHost(dataSpec.uri)
 
-                var cleanUriStr = resolvedUri.toString().replace(Regex("""&?y_ref=[^&]*"""), "")
-                cleanUriStr = cleanUriStr.replace(Regex("""&?y_ori=[^&]*"""), "")
+                var cleanUriStr = resolvedUri.toString().replace(REGEX_CLEAN_REF, "")
+                cleanUriStr = cleanUriStr.replace(REGEX_CLEAN_ORI, "")
                 cleanUriStr = cleanUriStr.replace("?&", "?").removeSuffix("?")
 
                 dataSpec.buildUpon()
@@ -824,7 +829,7 @@ class PlayerViewModel @Inject constructor(
 
             val isOffline = stream.quality.startsWith("Offline", ignoreCase = true)
             val activeCache = if (isOffline) downloadCache else playbackCache
-            val cacheSinkFactory = if (isOffline) null else CacheDataSink.Factory().setCache(playbackCache).setBufferSize(256 * 1024)
+            val cacheSinkFactory = if (isOffline) null else CacheDataSink.Factory().setCache(playbackCache).setBufferSize(512 * 1024)
 
             val cacheDataSourceFactory = CacheDataSource.Factory()
                 .setCache(activeCache)
@@ -837,6 +842,7 @@ class PlayerViewModel @Inject constructor(
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
             val dataSourceFactory = DefaultDataSource.Factory(context, cacheDataSourceFactory)
+                .setTransferListener(playerEngine.bandwidthMeter)
             val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
             val subtitleConfigs = validSubtitles.mapIndexed { index, sub ->

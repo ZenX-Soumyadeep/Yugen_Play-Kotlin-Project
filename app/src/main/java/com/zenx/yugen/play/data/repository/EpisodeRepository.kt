@@ -6,6 +6,7 @@ import com.zenx.yugen.play.domain.EpisodeId
 import com.zenx.yugen.play.domain.ProviderRegistry
 import com.zenx.yugen.play.domain.Resource
 import com.zenx.yugen.play.domain.SearchResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.zenx.yugen.play.domain.usecase.TitleResolutionEngine
@@ -74,6 +75,7 @@ class EpisodeRepository @Inject constructor(
                     return@withContext Resource.Success(primaryResult)
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 android.util.Log.e("EpisodeRepository", "Primary provider '${primaryProvider.name}' failed for '$title': ${e.message}")
             }
 
@@ -92,6 +94,7 @@ class EpisodeRepository @Inject constructor(
                         return@withContext Resource.Success(fallbackResult)
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     android.util.Log.e("EpisodeRepository", "Fallback provider '${fallback.name}' failed: ${e.message}")
                 }
             }
